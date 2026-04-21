@@ -1870,11 +1870,7 @@ async def test_drain_injections_passes_limit_to_callback_when_supported():
     )
     result = await runner._drain_injections(spec)
     assert seen_limits == [_MAX_INJECTIONS_PER_TURN]
-    assert result == [
-        {"role": "user", "content": "msg0"},
-        {"role": "user", "content": "msg1"},
-        {"role": "user", "content": "msg2"},
-    ]
+    assert result == [{"role": "user", "content": f"msg{i}"} for i in range(_MAX_INJECTIONS_PER_TURN)]
 
 
 @pytest.mark.asyncio
