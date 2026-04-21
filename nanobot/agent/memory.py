@@ -217,9 +217,9 @@ class MemoryStore:
         try:
             return datetime.fromtimestamp(
                 self.legacy_history_file.stat().st_mtime,
-            ).strftime("%Y-%m-%d %H:%M")
+            ).astimezone().isoformat()
         except OSError:
-            return datetime.now().strftime("%Y-%m-%d %H:%M")
+            return datetime.now().astimezone().isoformat()
 
     def _next_legacy_backup_path(self) -> Path:
         candidate = self.memory_dir / "HISTORY.md.bak"
@@ -275,7 +275,7 @@ class MemoryStore:
         undone by history replay / consolidation downstream.
         """
         cursor = self._next_cursor()
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        ts = datetime.now().astimezone().isoformat()
         raw = entry.rstrip()
         content = strip_think(raw)
         if raw and not content:

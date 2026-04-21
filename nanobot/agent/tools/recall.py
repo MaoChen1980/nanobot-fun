@@ -58,24 +58,32 @@ class RecallTool(Tool):
         return True
 
     def _parse_date(self, date_str: str | None) -> datetime | None:
-        """Parse YYYY-MM-DD or YYYY-MM-DD HH:MM string to datetime."""
+        """Parse date string to datetime. Supports ISO 8601 and human formats."""
         if not date_str:
             return None
-        # Try YYYY-MM-DD HH:MM first
+        # Try ISO 8601 first (may be naive or aware)
         try:
-            return datetime.strptime(date_str, "%Y-%m-%d %H:%M")
+            dt = datetime.fromisoformat(date_str)
+            if dt.tzinfo is None:
+                dt = dt.astimezone()
+            return dt
+        except ValueError:
+            pass
+        # Try YYYY-MM-DD HH:MM
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d %H:%M").astimezone()
         except ValueError:
             pass
         # Fall back to YYYY-MM-DD
         try:
-            return datetime.strptime(date_str, "%Y-%m-%d")
+            return datetime.strptime(date_str, "%Y-%m-%d").astimezone()
         except ValueError:
             return None
 
     def _in_date_range(self, timestamp: str, start: datetime | None, end: datetime | None) -> bool:
         """Check if timestamp is within date range.
 
-        Timestamp format: "YYYY-MM-DD HH:MM" or "YYYY-MM-DD"
+        Timestamp format: ISO 8601, "YYYY-MM-DD HH:MM", or "YYYY-MM-DD".
         For comparisons, we parse the full timestamp (including time if present)
         so that 2026-04-21 07:46 is correctly identified as within 2026-04-21.
         """
@@ -83,6 +91,9 @@ class RecallTool(Tool):
         ts = self._parse_date(timestamp)
         if not ts:
             return False
+        # Ensure timezone-aware for comparison
+        if ts.tzinfo is None:
+            ts = ts.astimezone()
         if start and ts < start:
             return False
         if end and ts > end:
