@@ -51,6 +51,16 @@ This file documents non-obvious constraints and usage patterns.
 
 ## recall — Memory Search
 
-- Use `recall` to search memories before answering questions about prior work, decisions, dates, people, preferences, or facts.
-- After calling recall, absorb the results into your context — do NOT simply forward the raw memory output to the user.
-- If recall returns relevant memories, incorporate that context into your response naturally.
+**IMPORTANT: Always use recall when answering questions about:**
+- What was discussed or decided previously
+- User's preferences, habits, or personal details
+- Past work, projects, or tasks
+- Dates, events, or facts from earlier conversations
+- Anything you might have forgotten or weren't present for
+
+**How to use:**
+1. When user asks about past events → call recall first
+2. After getting results, absorb the context into your answer
+3. Do NOT simply dump raw memory output to user — synthesize it
+
+**Proactive recall is required, not optional.** If you're unsure, call recall.
