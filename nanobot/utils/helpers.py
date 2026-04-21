@@ -95,17 +95,15 @@ def ensure_dir(path: Path) -> Path:
 
 
 def timestamp() -> str:
-    """Current ISO timestamp."""
-    return datetime.now().isoformat()
+    """Current ISO timestamp with timezone."""
+    return datetime.now().astimezone().isoformat()
 
 
 def current_time_str(timezone: str | None = None) -> str:
-    """Return the current time string."""
+    """Return the current time string in ISO 8601 format."""
     from zoneinfo import ZoneInfo
 
-    # If no timezone provided, use system local timezone
     if timezone is None:
-        # Use astimezone() without argument to get local timezone
         now = datetime.now().astimezone()
     else:
         try:
@@ -114,7 +112,7 @@ def current_time_str(timezone: str | None = None) -> str:
             tz = None
         now = datetime.now(tz=tz) if tz else datetime.now().astimezone()
 
-    return f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{now.microsecond//1000:03d} {now.strftime('%z')}"
+    return now.isoformat()
 
 
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*]')

@@ -292,6 +292,24 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         backend="anthropic",
         default_api_base="https://api.minimax.io/anthropic",
     ),
+    # MiniMax-cn OpenAI-compatible API
+    ProviderSpec(
+        name="minimax_cn",
+        keywords=("minimax_cn",),
+        env_key="MINIMAX_API_KEY",
+        display_name="MiniMax CN",
+        backend="openai_compat",
+        default_api_base="https://api.minimaxi.com/v1",
+    ),
+    # MiniMax-cn Anthropic-compatible endpoint: supports thinking mode
+    ProviderSpec(
+        name="minimax_anthropic_cn",
+        keywords=("minimax_anthropic_cn",),
+        env_key="MINIMAX_API_KEY",
+        display_name="MiniMax CN (Anthropic)",
+        backend="anthropic",
+        default_api_base="https://api.minimaxi.com/anthropic",
+    ),
     # Mistral AI: OpenAI-compatible API
     ProviderSpec(
         name="mistral",
