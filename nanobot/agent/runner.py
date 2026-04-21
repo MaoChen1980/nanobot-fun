@@ -314,6 +314,7 @@ class AgentRunner:
                     messages.append({
                         "role": "user",
                         "content": (
+                            "The previous task has been cancelled. Please review the context and the user's latest input to re-understand the original task and decide the next step.\n\n"
                             f"New message received. The following tool(s) were NOT executed "
                             f"and will NOT run:\n  {pending_list}\n\n"
                             "Use the new user message below to decide what to do next."
@@ -363,6 +364,7 @@ class AgentRunner:
                     messages.append({
                         "role": "user",
                         "content": (
+                            "The previous task has been cancelled. Please review the context and the user's latest input to re-understand the original task and decide the next step.\n\n"
                             f"⚠️ New message received while tools were executing.\n"
                             f"The following tool(s) were abandoned and will NOT run:\n"
                             f"  {abandoned_list}\n\n"
@@ -444,6 +446,11 @@ class AgentRunner:
                 # This runs after every tool batch, so "don't move word docs" is
                 # visible to the LLM before it schedules the next move operation.
                 if spec.pending_queue is not None:
+                    # Prepend proactive cancel text so LLM knows the previous task is cancelled
+                    messages.append({
+                        "role": "user",
+                        "content": "The previous task has been cancelled. Please review the context and the user's latest input to re-understand the original task and decide the next step.",
+                    })
                     while not spec.pending_queue.empty():
                         try:
                             pending_msg = spec.pending_queue.get_nowait()
