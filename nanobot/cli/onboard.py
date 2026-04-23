@@ -1052,6 +1052,48 @@ def _prompt_main_menu_exit(has_unsaved_changes: bool) -> str:
     return "resume"
 
 
+def _auto_set_local_timezone(config: Config) -> None:
+    """Auto-detect and set local timezone for new configs."""
+    from datetime import datetime, timezone, timedelta
+
+    try:
+        now = datetime.now().astimezone()
+        offset_secs = now.utcoffset().total_seconds() if now.utcoffset() else 0
+        offset_hours = int(offset_secs / 3600)
+        # Map UTC offset to IANA timezone
+        _OFFSET_TO_TZ: dict[int, str] = {
+            -12: "Pacific/Baker_Island",
+            -11: "Pacific/Samoa",
+            -10: "Pacific/Honolulu",
+            -9: "America/Anchorage",
+            -8: "America/Los_Angeles",
+            -7: "America/Denver",
+            -6: "America/Chicago",
+            -5: "America/New_York",
+            -4: "America/Halifax",
+            -3: "America/Sao_Paulo",
+            0: "UTC",
+            1: "Europe/Paris",
+            2: "Europe/Helsinki",
+            3: "Europe/Moscow",
+            4: "Asia/Dubai",
+            5: "Asia/Karachi",
+            6: "Asia/Dhaka",
+            7: "Asia/Bangkok",
+            8: "Asia/Shanghai",
+            9: "Asia/Tokyo",
+            10: "Australia/Sydney",
+            11: "Pacific/Noumea",
+            12: "Pacific/Auckland",
+        }
+        tz_key = _OFFSET_TO_TZ.get(offset_hours)
+        if tz_key:
+            config.agents.defaults.timezone = tz_key
+            console.print(f"[dim]+ Auto-detected timezone: {tz_key}[/dim]")
+    except Exception:
+        pass
+
+
 def run_onboard(initial_config: Config | None = None) -> OnboardResult:
     """Run the interactive onboarding questionnaire.
 
@@ -1069,6 +1111,7 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
             base_config = load_config()
         else:
             base_config = Config()
+            _auto_set_local_timezone(base_config)
 
     original_config = base_config.model_copy(deep=True)
     config = base_config.model_copy(deep=True)
