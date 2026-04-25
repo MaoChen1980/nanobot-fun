@@ -63,6 +63,8 @@ class ContextBuilder:
         # Recent history from history.jsonl (unprocessed by Dream), with dual truncation
         entries = self.memory.read_unprocessed_history(since_cursor=self.memory.get_last_dream_cursor())
         if entries:
+            # Sort entries by timestamp ascending, keep original order for entries without timestamp
+            entries.sort(key=lambda x: x.get("timestamp", ""))
             lines: list[str] = []
             total_chars = 0
             for e in entries[-self._MAX_RECENT_HISTORY:]:
