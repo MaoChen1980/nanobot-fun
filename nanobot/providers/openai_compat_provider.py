@@ -433,36 +433,7 @@ class OpenAICompatProvider(LLMProvider):
         messages: list[dict[str, Any]],
         reasoning_effort: str | None,
     ) -> list[dict[str, Any]]:
-        """Patch DeepSeek assistant messages missing reasoning_content.
-
-        DeepSeek V4 rejects requests where an assistant message carrying
-        tool_calls has no reasoning_content — even on turns where the model
-        legitimately had no thinking.  We backfill an empty string so the API
-        accepts the request, without losing any messages.
-        """
-        if (
-            not self._spec
-            or self._spec.name != "deepseek"
-            or not reasoning_effort
-            or reasoning_effort.lower() == "none"
-        ):
-            return messages
-
-        fixed = 0
-        for msg in messages:
-            if (
-                msg.get("role") == "assistant"
-                and msg.get("tool_calls")
-                and not msg.get("reasoning_content")
-            ):
-                msg["reasoning_content"] = ""
-                fixed += 1
-
-        if fixed:
-            logger.info(
-                "Patched {} DeepSeek assistant message(s) with missing reasoning_content",
-                fixed,
-            )
+        """No-op: DeepSeek manages reasoning state internally, history is not touched."""
         return messages
 
     # ------------------------------------------------------------------
