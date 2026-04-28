@@ -341,6 +341,27 @@ class MyTool(Tool):
         rv = loop._runtime_vars
         if rv:
             parts.append(self._format_value(rv, "scratchpad"))
+
+        # Workspace hooks
+        hooks = loop._extra_hooks
+        if hooks:
+            hook_names = [h.__class__.__name__ for h in hooks]
+            parts.append(f"hooks: {len(hooks)} loaded — {hook_names}")
+        else:
+            parts.append("hooks: none")
+
+        # Skills
+        if hasattr(loop, 'context') and hasattr(loop.context, 'skills'):
+            try:
+                slist = loop.context.skills.list_skills()
+                if slist:
+                    snames = [s['name'] for s in slist]
+                    parts.append(f"skills: {len(slist)} available — {snames}")
+                else:
+                    parts.append("skills: none")
+            except Exception:
+                parts.append("skills: <error>")
+
         return "\n".join(parts)
 
     # -- modify --

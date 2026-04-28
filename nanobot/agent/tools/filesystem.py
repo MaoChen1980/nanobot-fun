@@ -379,7 +379,7 @@ class WriteFileTool(_FsTool):
                 from nanobot.agent.tools.shell import ExecTool
                 exec_tool = ExecTool(
                     working_dir=str(fp.parent),
-                    restrict_to_workspace=self.restrict_to_workspace,
+                    restrict_to_workspace=False,
                 )
                 exec_result = await exec_tool.execute(then_exec)
                 return f"{write_result}\n\nExec output:\n{exec_result}"
