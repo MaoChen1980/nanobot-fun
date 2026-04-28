@@ -39,7 +39,7 @@ _PERSISTED_MODEL_ERROR_PLACEHOLDER = "[Assistant reply unavailable due to model 
 _MAX_EMPTY_RETRIES = 2
 _MAX_LENGTH_RECOVERIES = 3
 _MAX_INJECTIONS_PER_TURN = 50
-_MAX_INJECTION_CYCLES = 5
+_MAX_INJECTION_CYCLES = 20
 _SNIP_SAFETY_BUFFER = 1024
 _MICROCOMPACT_KEEP_RECENT = 10
 _MICROCOMPACT_MIN_CHARS = 500
@@ -417,7 +417,7 @@ class AgentRunner:
                     # 2. Pop the original assistant_message (has ALL tool_calls)
                     messages.pop()
                     # 3. Build new assistant_message with only executed tool_calls
-                    executed_tool_calls = tool_calls[:executed_count]
+                    executed_tool_calls = tool_calls[:len(results)]
                     new_assistant = build_assistant_message(
                         response.content or "",
                         tool_calls=[tc.to_openai_tool_call() for tc in executed_tool_calls],
