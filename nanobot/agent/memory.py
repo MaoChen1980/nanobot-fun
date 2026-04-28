@@ -393,16 +393,19 @@ class MemoryStore:
 
     def raw_archive(self, messages: list[dict], *, max_chars: int | None = None) -> None:
         """Fallback: dump raw messages to history.jsonl without LLM summarization."""
+        msgs = Consolidator._filter_archive_messages(messages)
+        if not msgs:
+            return
         limit = max_chars if max_chars is not None else _RAW_ARCHIVE_MAX_CHARS
-        formatted = truncate_text(self._format_messages(messages), limit)
-        first_ts = messages[0].get("timestamp", "unknown") if messages else "unknown"
-        last_ts = messages[-1].get("timestamp", "unknown") if messages else "unknown"
+        formatted = truncate_text(self._format_messages(msgs), limit)
+        first_ts = msgs[0].get("timestamp", "unknown") if msgs else "unknown"
+        last_ts = msgs[-1].get("timestamp", "unknown") if msgs else "unknown"
         self.append_history(
-            f"[{first_ts} → {last_ts}] [RAW] {len(messages)} messages\n"
+            f"[{first_ts} → {last_ts}] [RAW] {len(msgs)} messages\n"
             f"{formatted}"
         )
         logger.warning(
-            "Memory consolidation degraded: raw-archived {} messages", len(messages)
+            "Memory consolidation degraded: raw-archived {} messages", len(msgs)
         )
 
 
@@ -426,6 +429,21 @@ class Consolidator:
     _MAX_CONSOLIDATION_ROUNDS = 5
 
     _SAFETY_BUFFER = 1024  # extra headroom for tokenizer estimation drift
+
+    # Tool results that are operational housekeeping — keep in build_context
+    # for the current session, but skip when writing to history.jsonl.
+    # Their results are noise for future recalls (e.g. "last recall found 5
+    # results..." is not a useful memory).
+    _SKIP_ARCHIVE_TOOLS: set[str] = {"recall", "session_manage"}
+
+    @staticmethod
+    def _filter_archive_messages(messages: list[dict]) -> list[dict]:
+        """Strip administrative tool results before archive/history write."""
+        skip = Consolidator._SKIP_ARCHIVE_TOOLS
+        return [
+            m for m in messages
+            if not (m.get("role") == "tool" and m.get("name") in skip)
+        ]
 
     def __init__(
         self,
@@ -543,10 +561,11 @@ class Consolidator:
 
         Returns the summary text on success, None if nothing to archive.
         """
-        if not messages:
+        msgs = self._filter_archive_messages(messages)
+        if not msgs:
             return None
         try:
-            formatted = MemoryStore._format_messages(messages)
+            formatted = MemoryStore._format_messages(msgs)
             formatted = self._truncate_to_token_budget(formatted)
             response = await self.provider.chat_with_retry(
                 model=self.model,
@@ -566,14 +585,14 @@ class Consolidator:
             if response.finish_reason == "error":
                 raise RuntimeError(f"LLM returned error: {response.content}")
             summary = response.content or "[no summary]"
-            first_ts = messages[0].get("timestamp", "unknown")
-            last_ts = messages[-1].get("timestamp", "unknown")
+            first_ts = msgs[0].get("timestamp", "unknown")
+            last_ts = msgs[-1].get("timestamp", "unknown")
             time_prefix = f"[{first_ts} → {last_ts}] "
             self.store.append_history(time_prefix + summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
             return summary
         except Exception:
             logger.warning("Consolidation LLM call failed, raw-dumping to history")
-            self.store.raw_archive(messages)
+            self.store.raw_archive(msgs)
             return None
 
     async def maybe_consolidate_by_tokens(

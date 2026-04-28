@@ -443,28 +443,32 @@ class WriteFileTool(_FsTool):
         """Parse pyright --outputjson and return a readable summary."""
         try:
             import json
-            # Extract JSON from output (may have [cwd:...] header and "Exit code:" footer)
-            json_line = ""
-            for line in raw.split("\n"):
-                line = line.strip()
-                if line.startswith("{") and "generalDiagnostics" in line:
-                    json_line = line
-                    break
-            if not json_line:
+            # Strip exec header ([cwd:...] line) and footer (Exit code: ...)
+            lines = raw.split("\n")
+            json_lines = []
+            in_json = False
+            for line in lines:
+                if not in_json and line.strip().startswith("{"):
+                    in_json = True
+                if in_json:
+                    json_lines.append(line)
+                    if line.strip() == "}":
+                        break
+            if not json_lines:
                 return f"\nCheck: pyright output (raw):\n{raw[:500]}"
-            data = json.loads(json_line)
+            data = json.loads("\n".join(json_lines))
             summary = data.get("summary", {})
             errors = summary.get("errorCount", 0)
             warnings = summary.get("warningCount", 0)
             diags = data.get("generalDiagnostics", [])
             if errors == 0 and warnings == 0:
                 return "\nCheck: PASSED (pyright)"
-            lines = [f"\nCheck: FAILED — {errors} errors, {warnings} warnings (pyright)"]
+            lines_out = [f"\nCheck: FAILED — {errors} errors, {warnings} warnings (pyright)"]
             for d in diags[:5]:
-                lines.append(f"  line {d['range']['start']['line']}: {d['message']}")
+                lines_out.append(f"  line {d['range']['start']['line']}: {d['message']}")
             if len(diags) > 5:
-                lines.append(f"  ... and {len(diags) - 5} more")
-            return "\n".join(lines)
+                lines_out.append(f"  ... and {len(diags) - 5} more")
+            return "\n".join(lines_out)
         except Exception:
             return f"\nCheck: pyright output (raw):\n{raw[:500]}"
 

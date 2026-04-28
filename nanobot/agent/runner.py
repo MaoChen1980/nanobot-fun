@@ -407,17 +407,20 @@ class AgentRunner:
                 for tool_call, result in zip(tool_calls, results):
                     if isinstance(fatal_error, AskUserInterrupt) and tool_call.name == "ask_user":
                         continue
+                    content = self._normalize_tool_result(
+                        spec,
+                        tool_call.id,
+                        tool_call.name,
+                        result,
+                    )
+                    ts = result.timestamp.isoformat() if hasattr(result, "timestamp") and result.timestamp else ""
+                    content = self._fmt_tool_metadata(tool_call.name, content, ts)
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "name": tool_call.name,
-                        "content": self._normalize_tool_result(
-                            spec,
-                            tool_call.id,
-                            tool_call.name,
-                            result,
-                        ),
-                        "timestamp": result.timestamp.isoformat() if hasattr(result, "timestamp") and result.timestamp else "",
+                        "content": content,
+                        "timestamp": ts,
                     }
                     messages.append(tool_message)
                     completed_tool_results.append(tool_message)
@@ -919,6 +922,23 @@ class AgentRunner:
         if isinstance(content, str) and len(content) > spec.max_tool_result_chars:
             return truncate_text(content, spec.max_tool_result_chars)
         return content
+
+    @staticmethod
+    def _fmt_tool_metadata(tool_name: str, result: str, timestamp: str = "") -> str:
+        """Prefix tool result with searchable metadata: tool name, size, time.
+
+        This unified wrapper ensures every tool result in context is self-describing:
+        - The LLM can grep for [Tool: read_file] to find all file reads
+        - The size field warns when results were truncated (max_tool_result_chars)
+        - The timestamp enables staleness awareness ("this web_fetch is 3 hours old")
+        """
+        size = len(result) if isinstance(result, str) else 0
+        ts = timestamp[:16].replace("T", " ") if timestamp else ""
+        meta = f"[Tool: {tool_name}"
+        if ts:
+            meta += f" | {ts}"
+        meta += f" | {size} chars]"
+        return f"{meta}\n{result}"
 
     @staticmethod
     def _drop_orphan_tool_results(
