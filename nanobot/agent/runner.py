@@ -407,28 +407,22 @@ class AgentRunner:
                 context.tool_events = list(new_events)
 
                 if was_interrupted:
-                    # User sent messages during tool execution – fix up the
-                    # message list to reflect only the tools that actually ran.
-                    # 1. Pop injected user messages from the end of messages
+                    # User sent messages during tool execution – send results
+                    # for completed tools, abandonment for interrupted ones,
+                    # then append injected user messages.
                     injected_messages: list[dict[str, Any]] = []
                     while messages and messages[-1].get("role") == "user":
                         injected_messages.append(messages.pop())
                     injected_messages.reverse()
-                    # 2. Pop the original assistant_message (has ALL tool_calls)
-                    messages.pop()
-                    # 3. Build new assistant_message with only executed tool_calls
-                    executed_tool_calls = tool_calls[:len(results)]
-                    new_assistant = build_assistant_message(
-                        response.content or "",
-                        tool_calls=[tc.to_openai_tool_call() for tc in executed_tool_calls],
-                        reasoning_content=response.reasoning_content,
-                        thinking_blocks=response.thinking_blocks,
-                    )
-                    messages.append(new_assistant)
-                    # 4. Append tool results for executed tools
+
+                    executed_ids = {tc.id for tc in tool_calls[:len(results)]}
+                    abandoned_ids = {tc.id for tc in tool_calls if tc.id not in executed_ids}
+
+                    # 1. Keep original assistant_message intact (all tool_calls preserved)
+                    # 2. Append tool results for executed tools
                     completed_tool_results: list[dict[str, Any]] = []
-                    for tc, res in zip(executed_tool_calls, results):
-                        if isinstance(fatal_error, AskUserInterrupt) and tc.name == "ask_user":
+                    for tc, res in zip(tool_calls, results):
+                        if isinstance(res[2], AskUserInterrupt) and tc.name == "ask_user":
                             continue
                         content = self._normalize_tool_result(spec, tc.id, tc.name, res)
                         ts = res.timestamp.isoformat() if hasattr(res, "timestamp") and res.timestamp else ""
@@ -442,7 +436,25 @@ class AgentRunner:
                         }
                         messages.append(tool_message)
                         completed_tool_results.append(tool_message)
-                    # 5. Re-append injected user messages
+
+                    # 3. Append abandonment messages for unexecuted tool_calls
+                    for tc in tool_calls:
+                        if tc.id in abandoned_ids:
+                            content = self._fmt_tool_metadata(
+                                tc.name,
+                                f"[ABANDONED] Tool '{tc.name}' (id: {tc.id}) was interrupted by user injection and will not be executed.",
+                                "",
+                            )
+                            tool_message = {
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "name": tc.name,
+                                "content": content,
+                                "timestamp": "",
+                            }
+                            messages.append(tool_message)
+
+                    # 4. Re-append injected user messages
                     messages.extend(injected_messages)
                     await self._emit_checkpoint(
                         spec,
@@ -450,7 +462,7 @@ class AgentRunner:
                             "phase": "tools_interrupted",
                             "iteration": iteration,
                             "model": spec.model,
-                            "assistant_message": new_assistant,
+                            "assistant_message": messages[len(messages) - len(injected_messages) - len(tool_calls) - len(abandoned_ids) - 1],  # original assistant msg
                             "completed_tool_results": completed_tool_results,
                             "pending_tool_calls": [],
                         },
