@@ -1259,34 +1259,45 @@ class AgentLoop:
             session.metadata.pop(self._RUNTIME_CHECKPOINT_KEY, None)
 
     def _discover_workspace_hooks(self) -> list[AgentHook]:
-        """Scan workspace/hooks/ for custom hook classes."""
+        """Scan framework hooks then workspace/hooks/ for custom hook classes."""
         from pathlib import Path
-        hooks_dir = self.workspace / "hooks"
-        if not hooks_dir.is_dir():
-            return []
         discovered: list[AgentHook] = []
-        for path in hooks_dir.glob("*.py"):
-            try:
-                import importlib.util
-                spec = importlib.util.spec_from_file_location(path.stem, path)
-                if spec and spec.loader:
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    for attr_name in dir(module):
-                        attr = getattr(module, attr_name)
-                        if isinstance(attr, type) and issubclass(attr, AgentHook) and attr is not AgentHook:
-                            instance = attr()
-                            if hasattr(instance, "HOOK_CLASSES"):
-                                # File declared multiple hooks via HOOK_CLASSES list
-                                for cls in instance.HOOK_CLASSES:
-                                    if isinstance(cls, type) and issubclass(cls, AgentHook):
-                                        discovered.append(cls())
-                            else:
-                                discovered.append(instance)
-                            logger.info("Loaded workspace hook: {}", attr_name)
-            except Exception as e:
-                logger.warning("Failed to load workspace hook {}: {}", path.name, e)
+
+        # 1. Framework hooks — loaded first so workspace hooks can override
+        framework_dir = Path(__file__).resolve().parent.parent / "hooks"
+        if framework_dir.is_dir():
+            for path in sorted(framework_dir.glob("*.py")):
+                self._try_load_hook(path, discovered)
+
+        # 2. Workspace hooks — loaded after, can override or extend
+        hooks_dir = self.workspace / "hooks"
+        if hooks_dir.is_dir():
+            for path in sorted(hooks_dir.glob("*.py")):
+                self._try_load_hook(path, discovered)
+
         return discovered
+
+    @staticmethod
+    def _try_load_hook(path: Path, discovered: list[AgentHook]) -> None:
+        import importlib.util
+        try:
+            spec = importlib.util.spec_from_file_location(path.stem, path)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if isinstance(attr, type) and issubclass(attr, AgentHook) and attr is not AgentHook:
+                        instance = attr()
+                        if hasattr(instance, "HOOK_CLASSES"):
+                            for cls in instance.HOOK_CLASSES:
+                                if isinstance(cls, type) and issubclass(cls, AgentHook):
+                                    discovered.append(cls())
+                        else:
+                            discovered.append(instance)
+                        logger.info("Loaded hook: {} from {}", attr_name, path.name)
+        except Exception as e:
+            logger.warning("Failed to load hook {}: {}", path.name, e)
 
     @staticmethod
     def _checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:

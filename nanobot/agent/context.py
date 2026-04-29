@@ -45,6 +45,10 @@ class ContextBuilder:
         if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
             parts.append(f"# Memory\n\n{memory}")
 
+        goals = self.memory.read_file(self.workspace / "memory" / "goals.md")
+        if goals and not self._is_template_content(goals, "memory/goals.md"):
+            parts.append(f"# Goals\n\n{goals}")
+
         always_skills = self.skills.get_always_skills()
         if always_skills:
             always_content = self.skills.load_skills_for_context(always_skills)
