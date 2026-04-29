@@ -297,6 +297,27 @@ class SessionManager:
             logger.info("Fixed {} orphaned tool_calls in session load", fixed)
         return messages
 
+    @staticmethod
+    def _strip_abandoned_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Remove tool messages that start with [ABANDONED].
+
+        These are transient state from was_interrupted that should not be
+        persisted or replayed — they cause duplicate tool_call_id errors.
+        """
+        original_count = len(messages)
+        filtered = [
+            msg for msg in messages
+            if not (
+                msg.get("role") == "tool"
+                and isinstance(msg.get("content"), str)
+                and msg.get("content", "").startswith("[ABANDONED]")
+            )
+        ]
+        dropped = original_count - len(filtered)
+        if dropped:
+            logger.info("Dropped {} [ABANDONED] tool messages from session", dropped)
+        return filtered
+
     def _load(self, key: str) -> Session | None:
         """Load a session from disk."""
         path = self._get_session_path(key)
@@ -336,6 +357,7 @@ class SessionManager:
                         messages.append(data)
 
             messages = self._fix_tool_protocol_violations(messages)
+            messages = self._strip_abandoned_tool_messages(messages)
 
             return Session(
                 key=key,
@@ -394,6 +416,7 @@ class SessionManager:
                         messages.append(data)
 
             messages = self._fix_tool_protocol_violations(messages)
+            messages = self._strip_abandoned_tool_messages(messages)
 
             if skipped:
                 logger.warning("Skipped {} corrupt lines in session {}", skipped, key)
