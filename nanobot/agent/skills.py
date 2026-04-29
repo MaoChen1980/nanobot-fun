@@ -105,11 +105,11 @@ class SkillsLoader:
             Formatted skills content.
         """
         parts = [
-            f"### Skill: {name}\n\n{self._strip_frontmatter(markdown)}"
+            f"### Skill: {name}\n\n{self._strip_frontmatter(markdown)}\n\n──── End: {name} ────"
             for name in skill_names
             if (markdown := self.load_skill(name))
         ]
-        return "\n\n---\n\n".join(parts)
+        return "\n\n".join(parts)
 
     def build_skills_summary(self, exclude: set[str] | None = None) -> str:
         """

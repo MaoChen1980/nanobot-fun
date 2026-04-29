@@ -1,7 +1,7 @@
 ---
 name: intent-alignment
 description: Intelligent intent detection and requirement clarification - proactively probe user needs, paraphrase in different words for alignment, distinguish simple vs complex tasks.
-always: true
+always: false
 ---
 
 # Intent Alignment Skill, rules from user

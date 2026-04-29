@@ -13,5 +13,7 @@ Skip: code patterns, unnecessary details, minor chatter, or anything already cap
 
 Process writing style: Use "A -> B" or directional verbs to capture logic shifts and evolution concisely.
 
+**Timestamp requirement**: Each extracted fact MUST start with the approximate timestamp from the original message. Format: `[HH:MM] fact...` or `[MM-DD HH:MM] fact...` for cross-day events. Always reference the timestamp shown in brackets at the start of each input message line — this is the ground-truth time of the event, not the current time or a guessed time.
+
 Output as concise bullet points, one fact per line. No preamble, no commentary.
 If nothing noteworthy happened, output: (nothing)

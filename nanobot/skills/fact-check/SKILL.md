@@ -1,7 +1,7 @@
 ---
 name: fact-check
 description: Output verification and fact-checking skill - verifies all changes via tools, prevents hallucination.
-always: true
+always: false
 ---
 
 # Fact Check Skill, rules from user
