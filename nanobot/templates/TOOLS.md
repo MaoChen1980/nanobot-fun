@@ -41,10 +41,6 @@ Main action: `auto_clean` (batch-exclude >5KB tool results). Also `list`, `exclu
 > ⚠ Document each tool you install below. Future agent instances will read this table and use the tools without rediscovering them.
 
 | Tool | Command | Notes |
-
-> ⚠ This section is a template. When you install tools for the agent, document them here. The agent discovers them the same way you do — by reading this file.
-
-| Tool | Command | Notes |
 |------|---------|-------|
 | Python analysis | `python tools/analyze.py <cmd> [args]` | Example: imports, exports, callers, callees, tree, find |
 | TS analysis | `node tools/analyze.js <cmd> [args]` | Example: imports, exports, callers, callees, tree, find |
