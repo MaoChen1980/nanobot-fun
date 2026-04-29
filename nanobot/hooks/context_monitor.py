@@ -26,7 +26,7 @@ class ContextMonitorHook(AgentHook):
             pass
 
     def _check(self, context: AgentHookContext) -> None:
-        workspace = self._find_workspace()
+        workspace = self._resolve_workspace(context)
         if not workspace:
             return
 
@@ -67,14 +67,19 @@ class ContextMonitorHook(AgentHook):
         health_file = workspace / ".context_health.md"
         health_file.write_text("\n".join(lines), encoding="utf-8")
 
-    def _find_workspace(self) -> Path | None:
-        """Find workspace by walking up from CWD looking for AGENTS.md."""
+    def _resolve_workspace(self, ctx: AgentHookContext) -> Path | None:
+        """Use ctx.workspace (injected by framework), fallback to CWD-based discovery."""
+        if ctx.workspace:
+            return ctx.workspace
         p = Path.cwd()
-        for _ in range(6):  # up to 6 levels
+        for _ in range(6):
             if (p / "AGENTS.md").exists():
                 return p
             parent = p.parent
             if parent == p:
-                break  # reached root
+                break
             p = parent
+        home_ws = Path.home() / ".nanobot" / "workspace"
+        if (home_ws / "AGENTS.md").exists():
+            return home_ws
         return None

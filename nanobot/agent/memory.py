@@ -223,7 +223,7 @@ class MemoryStore:
 
     # -- history.jsonl — append-only, JSONL format ---------------------------
 
-    def append_history(self, entry: str, *, max_chars: int | None = None) -> int:
+    def append_history(self, entry: str, *, max_chars: int | None = None, timestamp: str | None = None) -> int:
         """Append *entry* to history.jsonl and return its auto-incrementing cursor.
 
         Entries are passed through `strip_think` to drop template-level leaks
@@ -237,10 +237,14 @@ class MemoryStore:
         applied as a final safety net: individual callers should cap their own
         content more tightly; this default only exists to catch unintentional
         large writes (e.g. an LLM echoing its input back as a "summary").
+
+        If *timestamp* is provided, it is used as the record timestamp
+        (e.g. the time range of the original consolidated messages). Otherwise
+        the current time is used.
         """
         limit = max_chars if max_chars is not None else _HISTORY_ENTRY_HARD_CAP
         cursor = self._next_cursor()
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M")
         raw = entry.rstrip()
         if len(raw) > limit:
             if not self._oversize_logged:
@@ -400,9 +404,11 @@ class MemoryStore:
         formatted = truncate_text(self._format_messages(msgs), limit)
         first_ts = msgs[0].get("timestamp", "unknown") if msgs else "unknown"
         last_ts = msgs[-1].get("timestamp", "unknown") if msgs else "unknown"
+        record_ts = first_ts[:16] if first_ts != "unknown" else None
         self.append_history(
             f"[{first_ts} → {last_ts}] [RAW] {len(msgs)} messages\n"
-            f"{formatted}"
+            f"{formatted}",
+            timestamp=record_ts,
         )
         logger.warning(
             "Memory consolidation degraded: raw-archived {} messages", len(msgs)
@@ -588,7 +594,9 @@ class Consolidator:
             first_ts = msgs[0].get("timestamp", "unknown")
             last_ts = msgs[-1].get("timestamp", "unknown")
             time_prefix = f"[{first_ts} → {last_ts}] "
-            self.store.append_history(time_prefix + summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
+            # Truncate ISO timestamp for human-readable display in history
+            record_ts = first_ts[:16] if first_ts != "unknown" else None
+            self.store.append_history(time_prefix + summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS, timestamp=record_ts)
             return summary
         except Exception:
             logger.warning("Consolidation LLM call failed, raw-dumping to history")

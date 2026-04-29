@@ -87,25 +87,31 @@ class RecallTool(Tool):
         except ValueError:
             return None
 
-    def _in_date_range(self, timestamp: str, start: datetime | None, end: datetime | None) -> bool:
-        """Check if timestamp is within date range.
+    def _in_date_range(self, timestamp: str, content: str, start: datetime | None, end: datetime | None) -> bool:
+        """Check if timestamp or content timestamps are within date range.
 
         Timestamp format: ISO 8601, "YYYY-MM-DD HH:MM", or "YYYY-MM-DD".
-        For comparisons, we parse the full timestamp (including time if present)
-        so that 2026-04-21 07:46 is correctly identified as within 2026-04-21.
+        Primary check: the entry's own timestamp field.
+        Secondary check: timestamps embedded in content (e.g. per-fact timestamps
+        from consolidated archives, or time range prefixes).
         """
-        # Try parsing full timestamp first
+        # Primary: entry timestamp
         ts = self._parse_date(timestamp)
-        if not ts:
-            return False
-        # Ensure timezone-aware for comparison
-        if ts.tzinfo is None:
-            ts = ts.astimezone()
-        if start and ts < start:
-            return False
-        if end and ts > end:
-            return False
-        return True
+        if ts:
+            if ts.tzinfo is None:
+                ts = ts.astimezone()
+            if (not start or ts >= start) and (not end or ts <= end):
+                return True
+        # Secondary: content timestamps
+        import re
+        for match in re.finditer(r'\[(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2})', content):
+            ct = self._parse_date(match.group(1))
+            if ct:
+                if ct.tzinfo is None:
+                    ct = ct.astimezone()
+                if (not start or ct >= start) and (not end or ct <= end):
+                    return True
+        return False
 
     def _match_keyword(self, content: str, keyword: str | None) -> bool:
         """Check if content matches keyword (case-insensitive).
@@ -157,7 +163,7 @@ class RecallTool(Tool):
                         ts = entry.get("timestamp", "")
                         content = entry.get("content", "")
 
-                        if not self._in_date_range(ts, start_dt, end_dt):
+                        if not self._in_date_range(ts, content, start_dt, end_dt):
                             continue
                         if not self._match_keyword(content, keyword):
                             continue
