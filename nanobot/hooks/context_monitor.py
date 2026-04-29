@@ -1,0 +1,80 @@
+"""
+ContextMonitorHook: warns when context is bloated by writing a signal file.
+
+The hook can't directly trigger session_manage (LLM tool), but it can write
+HEAVY_CONTEXT.md which the LLM is trained to check (via SOUL.md rules) before
+starting complex tasks.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from nanobot.agent.hook import AgentHook, AgentHookContext
+
+
+class ContextMonitorHook(AgentHook):
+    """Before each iteration, check context health and write a signal file."""
+
+    # Thresholds (chars)
+    HEAVY = 100_000
+    CRITICAL = 200_000
+
+    async def before_iteration(self, context: AgentHookContext) -> None:
+        try:
+            self._check(context)
+        except Exception:
+            pass
+
+    def _check(self, context: AgentHookContext) -> None:
+        workspace = self._find_workspace()
+        if not workspace:
+            return
+
+        msg_count = len(context.messages)
+        total_chars = sum(len(str(m)) for m in context.messages)
+
+        # Find bloated messages (individual > 5000 chars)
+        bloated = [
+            (i, m.get("role", "?"), len(str(m)))
+            for i, m in enumerate(context.messages)
+            if len(str(m)) > 5000
+        ]
+
+        # Build a detailed health report
+        lines = ["# Context Health Report", ""]
+        lines.append(f"- Messages: {msg_count}")
+        lines.append(f"- Total chars: {total_chars:,}")
+
+        if total_chars >= self.CRITICAL:
+            lines.append(f"- Status: 🔴 CRITICAL ({total_chars:,} chars)")
+            lines.append("- **IMMEDIATE ACTION NEEDED**: call session_manage to exclude/compress")
+        elif total_chars >= self.HEAVY:
+            lines.append(f"- Status: 🟡 HEAVY ({total_chars:,} chars)")
+            lines.append("- Action: review and exclude bloated items below")
+        else:
+            health_file = workspace / ".context_health.md"
+            if health_file.exists():
+                health_file.unlink()  # Clean up when context is healthy
+            return
+
+        if bloated:
+            lines.append("")
+            lines.append("## Bloated Messages (>5000 chars)")
+            lines.append("Exclude these from context with `session_manage(action=\"exclude\")`:")
+            for idx, role, size in bloated[:10]:
+                lines.append(f"- msg idx {idx} ({role}, {size:,} chars)")
+
+        health_file = workspace / ".context_health.md"
+        health_file.write_text("\n".join(lines), encoding="utf-8")
+
+    def _find_workspace(self) -> Path | None:
+        """Find workspace by walking up from CWD looking for AGENTS.md."""
+        p = Path.cwd()
+        for _ in range(6):  # up to 6 levels
+            if (p / "AGENTS.md").exists():
+                return p
+            parent = p.parent
+            if parent == p:
+                break  # reached root
+            p = parent
+        return None
