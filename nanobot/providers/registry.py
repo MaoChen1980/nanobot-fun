@@ -326,6 +326,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         display_name="MiniMax CN",
         backend="openai_compat",
         default_api_base="https://api.minimaxi.com/v1",
+        thinking_style="reasoning_split",
     ),
     # MiniMax-cn Anthropic-compatible endpoint: supports thinking mode
     ProviderSpec(

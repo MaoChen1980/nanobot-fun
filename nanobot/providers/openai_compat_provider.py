@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 _ALLOWED_MSG_KEYS = frozenset({
     "role", "content", "tool_calls", "tool_call_id", "name",
-    "reasoning_content", "extra_content",
+    "reasoning_content", "reasoning_details", "extra_content",
 })
 _ALNUM = string.ascii_letters + string.digits
 
@@ -804,6 +804,18 @@ class OpenAICompatProvider(LLMProvider):
                 reasoning_content = self._extract_text_content(
                     response_map.get("reasoning_content")
                 )
+                # MiniMax: extract reasoning_details from no-choices response
+                if not reasoning_content and self._spec and self._spec.name in ("minimax", "minimax_cn"):
+                    rd = response_map.get("reasoning_details")
+                    if isinstance(rd, list):
+                        parts = []
+                        for item in rd:
+                            if isinstance(item, dict) and item.get("type") == "reasoning.text":
+                                t = item.get("text")
+                                if t:
+                                    parts.append(t)
+                        if parts:
+                            reasoning_content = "\n".join(parts)
                 if content is not None:
                     return LLMResponse(
                         content=content,
@@ -825,6 +837,18 @@ class OpenAICompatProvider(LLMProvider):
             reasoning_content = msg0.get("reasoning_content")
             if not reasoning_content and msg0.get("reasoning"):
                 reasoning_content = self._extract_text_content(msg0.get("reasoning"))
+            # MiniMax: extract reasoning_details (array) → concat text into reasoning_content
+            if not reasoning_content and self._spec and self._spec.name in ("minimax", "minimax_cn"):
+                rd = msg0.get("reasoning_details")
+                if isinstance(rd, list):
+                    parts = []
+                    for item in rd:
+                        if isinstance(item, dict) and item.get("type") == "reasoning.text":
+                            t = item.get("text")
+                            if t:
+                                parts.append(t)
+                    if parts:
+                        reasoning_content = "\n".join(parts)
             for ch in choices:
                 ch_map = self._maybe_mapping(ch) or {}
                 m = self._maybe_mapping(ch_map.get("message")) or {}
@@ -837,6 +861,17 @@ class OpenAICompatProvider(LLMProvider):
                     content = self._extract_text_content(m.get("content"))
                 if not reasoning_content:
                     reasoning_content = m.get("reasoning_content")
+                    if not reasoning_content and self._spec and self._spec.name in ("minimax", "minimax_cn"):
+                        rd = m.get("reasoning_details")
+                        if isinstance(rd, list):
+                            parts = []
+                            for item in rd:
+                                if isinstance(item, dict) and item.get("type") == "reasoning.text":
+                                    t = item.get("text")
+                                    if t:
+                                        parts.append(t)
+                            if parts:
+                                reasoning_content = "\n".join(parts)
 
             parsed_tool_calls = []
             for tc in raw_tool_calls:
@@ -901,6 +936,18 @@ class OpenAICompatProvider(LLMProvider):
         reasoning_content = getattr(msg, "reasoning_content", None) or None
         if not reasoning_content and getattr(msg, "reasoning", None):
             reasoning_content = msg.reasoning
+        # MiniMax: extract reasoning_details (array) → concat text into reasoning_content
+        if not reasoning_content and getattr(msg, "reasoning_details", None) is not None:
+            rd = msg.reasoning_details
+            if isinstance(rd, list):
+                parts = []
+                for item in rd:
+                    if isinstance(item, dict) and item.get("type") == "reasoning.text":
+                        t = item.get("text")
+                        if t:
+                            parts.append(t)
+                if parts:
+                    reasoning_content = "\n".join(parts)
 
         return LLMResponse(
             content=content,
@@ -970,6 +1017,15 @@ class OpenAICompatProvider(LLMProvider):
                 text = cls._extract_text_content(delta.get("reasoning_content"))
                 if not text:
                     text = cls._extract_text_content(delta.get("reasoning"))
+                if not text and self is not None and getattr(self, "_spec", None) and self._spec.name in ("minimax", "minimax_cn"):
+                    rd = delta.get("reasoning_details")
+                    if isinstance(rd, list):
+                        for item in rd:
+                            if isinstance(item, dict) and item.get("type") == "reasoning.text":
+                                t = item.get("text")
+                                if t:
+                                    text = t
+                                    break
                 if text:
                     reasoning_parts.append(text)
                 for idx, tc in enumerate(delta.get("tool_calls") or []):

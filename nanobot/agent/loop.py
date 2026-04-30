@@ -641,6 +641,7 @@ class AgentLoop:
             retry_wait_callback=on_retry_wait,
             checkpoint_callback=_checkpoint,
             injection_callback=_drain_pending,
+            reasoning_effort=self.provider.generation.reasoning_effort,
         ))
         self._last_usage = result.usage
         if result.stop_reason == "max_iterations":
