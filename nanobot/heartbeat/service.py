@@ -18,12 +18,15 @@ if TYPE_CHECKING:
 
 class HeartbeatService:
     """
-    Periodic alarm clock that injects a trigger into the main session via
-    the message bus.  The main session agent then reads HEARTBEAT.md,
-    resumes any interrupted task, updates the file, and decides what to do.
+    Periodic alarm clock that injects HEARTBEAT.md content into the main
+    session via the message bus.
 
-    This is intentionally dumb: no LLM pre-judgment, no independent task,
-    no delivery logic.  Just a timer + bus publish.
+    The main session agent reads the embedded content, decides what to do
+    (advance tasks, mark completed, prune stale entries >7 days), and writes
+    the updated state back to HEARTBEAT.md.
+
+    This service is intentionally dumb: no LLM pre-judgment, no independent
+    task logic.  Just a timer + bus publish with embedded file content.
     """
 
     def __init__(
@@ -79,26 +82,43 @@ class HeartbeatService:
         if not self.enabled:
             return
 
-        if not self.heartbeat_file.exists():
-            logger.debug("Heartbeat: HEARTBEAT.md missing")
-            return
+        now_ts = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
 
-        raw = self.heartbeat_file.read_text(encoding="utf-8").strip()
-        now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+        raw = ""
+        if self.heartbeat_file.exists():
+            raw = self.heartbeat_file.read_text(encoding="utf-8").strip()
+
+        if not raw:
+            # 空文件，按模板创建
+            template = (
+                "# Heartbeat Task Tracker\n\n"
+                "> Auto-processed by HEARTBEAT (30min interval, enabled=true)\n"
+                f"> Last update: {now_ts}\n\n"
+                "## Active Tasks\n\n"
+                "*(none)*\n\n"
+                "## Completed\n\n"
+                "*(none)*\n\n"
+                "> **Cleanup rule**: Completed tasks older than 7 days will be removed by LLM on heartbeat trigger"
+            )
+            self.heartbeat_file.write_text(template, encoding="utf-8")
+            raw = template
+            logger.info("Heartbeat: created HEARTBEAT.md template")
+
         msg = replace(
             InboundMessage(
                 channel="cli",
                 sender_id="heartbeat",
                 chat_id="direct",
                 content=(
-                    f"[Heartbeat] {now}\n\n"
-                    f"=== HEARTBEAT.md ===\n{raw}\n=== END ===\n\n"
-                    "Above is your intermediate task state. "
-                    "Continue working on active tasks and update progress. "
-                    "If you discover new tasks not listed here, add them to HEARTBEAT.md "
-                    "so the next heartbeat will track them. "
-                    "Move completed tasks to ## Completed. "
-                    "Write the latest status back to HEARTBEAT.md when done."
+                    f"[Heartbeat] {now_ts}\n\n"
+                    f"=== HEARTBEAT.md ===\n{raw}\n"
+                    f"=== END HEARTBEAT ===\n\n"
+                    "Above is your last task state (with timestamps).\n"
+                    "- Active tasks → continue, update progress\n"
+                    "- Done → move to ## Completed, fill in created/completed times\n"
+                    "- No longer needed → delete\n"
+                    "- Completed tasks >7 days old → remove\n\n"
+                    "Write the updated state back to HEARTBEAT.md when done."
                 ),
                 media=[],
             ),
