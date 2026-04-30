@@ -201,6 +201,7 @@ class SubagentManager:
                 error_message=None,
                 fail_on_tool_error=True,
                 checkpoint_callback=_on_checkpoint,
+                reasoning_effort=self.runner.provider.generation.reasoning_effort,
             ))
             status.phase = "done"
             status.stop_reason = result.stop_reason

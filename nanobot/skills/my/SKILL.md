@@ -38,6 +38,7 @@ always: false
 | Large codebase analysis | `my(action="set", key="context_window_tokens", value=131072)` |
 | Repetitive simple tasks | `my(action="set", key="model", value="<fast-model>")` |
 | Long multi-step task | `my(action="set", key="max_iterations", value=80)` |
+| Enable thinking mode (Anthropic/MiniMax) | `my(action="set", key="reasoning_effort", value="max")` |
 
 **Tradeoff:** Bias toward stability. Only set when defaults are genuinely insufficient.
 
