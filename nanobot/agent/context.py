@@ -22,10 +22,10 @@ class ContextBuilder:
     _MAX_HISTORY_CHARS = 32_000  # hard cap on recent history section size
     _RUNTIME_CONTEXT_END = "## /Runtime Context"
 
-    def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None):
+    def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None, db=None):
         self.workspace = workspace
         self.timezone = timezone
-        self.memory = MemoryStore(workspace)
+        self.memory = MemoryStore(workspace, db=db)
         self.skills = SkillsLoader(workspace, disabled_skills=set(disabled_skills) if disabled_skills else None)
         self._ensure_memory_files()
 
@@ -85,7 +85,7 @@ class ContextBuilder:
         if entries:
             capped = entries[-self._MAX_RECENT_HISTORY:]
             history_text = "\n".join(
-                f"- [{e['timestamp']}] {e['content']}" for e in capped
+                f"- [{e['timestamp']}] {(e.get('summary') or e['content'])}" for e in capped
             )
             history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
             parts.append("# Recent History\n\n" + history_text)
@@ -122,28 +122,22 @@ class ContextBuilder:
             "agent/identity.md",
             workspace_path=workspace_path,
             runtime=runtime,
-            platform_policy=render_template("agent/platform_policy.md", system=system),
-            channel=channel or "",
-        )
+)
 
     def _build_state_section(self) -> str:
-        """Build a merged Current State block from Goals + SESSION.md + process-log.
+        """Build a merged Current State block from Goals + SESSION.md + events.
 
         Note: HEARTBEAT active tasks are NOT injected here — they are embedded
         directly in heartbeat messages by the heartbeat service (service.py).
         """
         blocks = []
 
-        goals = self.memory.read_file(self.workspace / "memory" / "goals.md")
-        if goals and not self._is_template_content(goals, "memory/goals.md"):
-            goals = goals.removeprefix("# Goals\n").removeprefix("# Goals\r\n")
-            lines = goals.split("\n")
-            goal_lines = [
-                l for l in lines
-                if not (l.strip().startswith(">") and ("\u6700\u540e\u66f4\u65b0" in l or "Last updated" in l))
-            ]
-            blocks.append("## Goals\n\n" + "\n".join(goal_lines).strip())
+        # Goals — query from DB instead of file
+        goals = self._query_goals_for_context()
+        if goals:
+            blocks.append(f"## Goals\n\n{goals}")
 
+        # Session summary
         session_file = self.workspace / "SESSION.md"
         if session_file.exists():
             lines = session_file.read_text(encoding="utf-8").strip().split("\n")
@@ -151,20 +145,71 @@ class ContextBuilder:
             if summary:
                 blocks.append("## Session\n\n" + summary)
 
-        # Process log — last 5 substantive entries for cross-turn continuity
-        plog_file = self.workspace / "memory" / "process-log.md"
-        if plog_file.exists():
-            plog_content = plog_file.read_text(encoding="utf-8")
-            entries = []
-            for line in plog_content.split("\n"):
-                stripped = line.strip()
-                if stripped.startswith("### [") and "跳过" not in stripped and "干净" not in stripped:
-                    entries.append(stripped)
-            recent = entries[-5:]
-            if recent:
-                blocks.append("## Recent Progress\n\n" + "\n".join(recent))
+        # Process log — from events table instead of file
+        events = self._query_recent_events()
+        if events:
+            blocks.append("## Recent Progress\n\n" + events)
 
         return "\n\n".join(blocks) if blocks else ""
+
+    def _query_goals_for_context(self) -> str:
+        """Query active goals from DB and format as text."""
+        if self.memory._db is None:
+            return self._query_goals_from_file()
+        goals = self.memory._db.list_goals(status="in_progress")
+        if not goals:
+            return ""
+        lines = []
+        for g in goals:
+            lines.append(f"- **{g['title']}**")
+            if g.get("description"):
+                lines.append(f"  - {g['description']}")
+            data = g.get("data") or {}
+            if data.get("subtasks"):
+                for st in data["subtasks"]:
+                    status_icon = "✅" if st.get("status") == "done" else "⬜"
+                    lines.append(f"  {status_icon} {st.get('title', st.get('id', '?'))}")
+        return "\n".join(lines)
+
+    def _query_goals_from_file(self) -> str:
+        """Fallback: read goals.md file (for environments without DB)."""
+        goals = self.memory.read_file(self.workspace / "memory" / "goals.md")
+        if goals and not self._is_template_content(goals, "memory/goals.md"):
+            goals = goals.removeprefix("# Goals\n").removeprefix("# Goals\r\n")
+            lines = goals.split("\n")
+            goal_lines = [
+                l for l in lines
+                if not (l.strip().startswith(">") and ("最后更新" in l or "Last updated" in l))
+            ]
+            return "\n".join(goal_lines).strip()
+        return ""
+
+    def _query_recent_events(self) -> str:
+        """Query recent events from DB and format as text."""
+        if self.memory._db is None:
+            return self._query_recent_events_from_file()
+        events = self.memory._db.list_events(limit=5)
+        if not events:
+            return ""
+        lines = []
+        for e in reversed(events):
+            ts = e["timestamp"][:26] if e["timestamp"] else "?"
+            lines.append(f"### [{ts}] {e['content']}")
+        return "\n".join(lines)
+
+    def _query_recent_events_from_file(self) -> str:
+        """Fallback: read process-log.md file (for environments without DB)."""
+        plog_file = self.workspace / "memory" / "process-log.md"
+        if not plog_file.exists():
+            return ""
+        plog_content = plog_file.read_text(encoding="utf-8")
+        entries = []
+        for line in plog_content.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("### [") and "跳过" not in stripped and "干净" not in stripped:
+                entries.append(stripped)
+        recent = entries[-5:]
+        return "\n".join(recent) if recent else ""
 
     @staticmethod
     def _build_runtime_context(

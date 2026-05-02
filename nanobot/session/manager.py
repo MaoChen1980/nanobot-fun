@@ -4,7 +4,7 @@ import json
 import os
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +59,7 @@ class Session:
         msg = {
             "role": role,
             "content": content,
-            "timestamp": timestamp or datetime.now().isoformat(),
+            "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
             **kwargs
         }
         self.messages.append(msg)
@@ -236,8 +236,9 @@ class SessionManager:
     Sessions are stored as JSONL files in the sessions directory.
     """
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, db=None):
         self.workspace = workspace
+        self._db = db
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self.legacy_sessions_dir = get_legacy_sessions_dir()
         self._cache: dict[str, Session] = {}
@@ -320,7 +321,13 @@ class SessionManager:
         return filtered
 
     def _load(self, key: str) -> Session | None:
-        """Load a session from disk."""
+        """Load a session from disk or DB."""
+        if self._db is not None:
+            return self._db.load_session(key)
+        return self._load_from_file(key)
+
+    def _load_from_file(self, key: str) -> Session | None:
+        """Load a session from the JSONL file."""
         path = self._get_session_path(key)
         if not path.exists():
             legacy_path = self._get_legacy_session_path(key)
@@ -450,13 +457,17 @@ class SessionManager:
     def save(self, session: Session, *, fsync: bool = False) -> None:
         """Save a session to disk atomically.
 
-        When *fsync* is ``True`` the final file and its parent directory are
-        explicitly flushed to durable storage.  This is intentionally off by
-        default (the OS page-cache is sufficient for normal operation) but
-        should be enabled during graceful shutdown so that filesystems with
-        write-back caching (e.g. rclone VFS, NFS, FUSE mounts) do not lose
-        the most recent writes.
+        When a DB instance is injected via *db*, delegates to
+        :meth:`NanobotDB.save_session`. Otherwise falls back to the
+        file-based JSONL writer.
         """
+        if self._db is not None:
+            self._db.save_session(session)
+            self._cache[session.key] = session
+            return
+        self._save_to_file(session, fsync=fsync)
+
+    def _save_to_file(self, session: Session, *, fsync: bool = False) -> None:
         path = self._get_session_path(session.key)
         tmp_path = path.with_suffix(".jsonl.tmp")
 
@@ -525,12 +536,16 @@ class SessionManager:
         self._cache.pop(key, None)
 
     def delete_session(self, key: str) -> bool:
-        """Remove a session from disk and the in-memory cache.
-
-        Returns True if a JSONL file was found and unlinked.
-        """
-        path = self._get_session_path(key)
+        """Remove a session from disk/DB and the in-memory cache."""
         self.invalidate(key)
+        if self._db is not None:
+            self._db.delete_session(key)
+            return True
+        return self._delete_session_file(key)
+
+    def _delete_session_file(self, key: str) -> bool:
+        """Delete session JSONL file."""
+        path = self._get_session_path(key)
         if not path.exists():
             return False
         try:
@@ -541,11 +556,22 @@ class SessionManager:
             return False
 
     def read_session_file(self, key: str) -> dict[str, Any] | None:
-        """Load a session from disk without caching; intended for read-only HTTP endpoints.
+        """Load a session from disk/DB without caching; intended for read-only HTTP endpoints."""
+        if self._db is not None:
+            session = self._db.load_session(key)
+            if session is None:
+                return None
+            return {
+                "key": session.key,
+                "created_at": session.created_at.isoformat(),
+                "updated_at": session.updated_at.isoformat(),
+                "metadata": session.metadata,
+                "messages": session.messages,
+            }
+        return self._read_session_file_from_file(key)
 
-        Returns ``{"key", "created_at", "updated_at", "metadata", "messages"}`` or
-        ``None`` when the session file does not exist or fails to parse.
-        """
+    def _read_session_file_from_file(self, key: str) -> dict[str, Any] | None:
+        """Load a session from the JSONL file without caching."""
         path = self._get_session_path(key)
         if not path.exists():
             return None
@@ -585,18 +611,17 @@ class SessionManager:
             return None
 
     def list_sessions(self) -> list[dict[str, Any]]:
-        """
-        List all sessions.
+        """List all sessions."""
+        if self._db is not None:
+            return self._db.list_sessions()
+        return self._list_sessions_from_file()
 
-        Returns:
-            List of session info dicts.
-        """
+    def _list_sessions_from_file(self) -> list[dict[str, Any]]:
+        """List sessions from JSONL files."""
         sessions = []
-
         for path in self.sessions_dir.glob("*.jsonl"):
             fallback_key = path.stem.replace("_", ":", 1)
             try:
-                # Read just the metadata line
                 with open(path, encoding="utf-8") as f:
                     first_line = f.readline().strip()
                     if first_line:
@@ -619,5 +644,4 @@ class SessionManager:
                         "path": str(path)
                     })
                 continue
-
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)

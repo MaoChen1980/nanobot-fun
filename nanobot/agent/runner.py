@@ -97,8 +97,9 @@ class AgentRunResult:
 class AgentRunner:
     """Run a tool-capable LLM loop without product-layer concerns."""
 
-    def __init__(self, provider: LLMProvider):
+    def __init__(self, provider: LLMProvider, db=None):
         self.provider = provider
+        self._db = db
 
     @staticmethod
     def _merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
@@ -415,6 +416,7 @@ class AgentRunner:
                     external_lookup_counts,
                     messages,
                     injection_cycles,
+                    iteration,
                 )
                 tool_events.extend(new_events)
                 context.tool_results = list(results)
@@ -814,6 +816,7 @@ class AgentRunner:
         external_lookup_counts: dict[str, int],
         messages: list[dict[str, Any]],
         injection_cycles: int,
+        iteration: int,
     ) -> tuple[list[Any], list[dict[str, str]], BaseException | None, bool, int, int, list[dict[str, Any]]]:
         """Execute tool calls in batches.
 
@@ -828,17 +831,20 @@ class AgentRunner:
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
         interrupted = False
         saved_injections: list[dict[str, Any]] = []
+        turn = 0
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
                 batch_results = await asyncio.gather(*(
-                    self._run_tool(spec, tool_call, external_lookup_counts)
-                    for tool_call in batch
+                    self._run_tool(spec, tool_call, external_lookup_counts, iteration, turn + i)
+                    for i, tool_call in enumerate(batch)
                 ))
+                turn += len(batch)
                 tool_results.extend(batch_results)
             else:
                 batch_results = []
                 for tool_call in batch:
-                    result = await self._run_tool(spec, tool_call, external_lookup_counts)
+                    result = await self._run_tool(spec, tool_call, external_lookup_counts, iteration, turn)
+                    turn += 1
                     tool_results.append(result)
                     batch_results.append(result)
                     if isinstance(result[2], AskUserInterrupt):
@@ -873,8 +879,9 @@ class AgentRunner:
         spec: AgentRunSpec,
         tool_call: ToolCallRequest,
         external_lookup_counts: dict[str, int],
+        iteration: int,
+        turn: int,
     ) -> tuple[Any, dict[str, str], BaseException | None]:
-        hint = "\n\n[Analyze the error above and try a different approach.]"
         lookup_error = repeated_external_lookup_error(
             tool_call.name,
             tool_call.arguments,
@@ -887,8 +894,8 @@ class AgentRunner:
                 "detail": "repeated external lookup blocked",
             }
             if spec.fail_on_tool_error:
-                return lookup_error + hint, event, RuntimeError(lookup_error)
-            return lookup_error + hint, event, None
+                return lookup_error, event, RuntimeError(lookup_error)
+            return lookup_error, event, None
         prepare_call = getattr(spec.tools, "prepare_call", None)
         tool, params, prep_error = None, tool_call.arguments, None
         if callable(prepare_call):
@@ -904,15 +911,19 @@ class AgentRunner:
                 "status": "error",
                 "detail": prep_error.split(": ", 1)[-1][:120],
             }
-            return prep_error + hint, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
+            return prep_error, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
+        import time
+        start = time.monotonic()
         try:
             if tool is not None:
                 result = await tool.execute(**params)
             else:
                 result = await spec.tools.execute(tool_call.name, params)
+            duration_ms = int((time.monotonic() - start) * 1000)
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
+            duration_ms = int((time.monotonic() - start) * 1000)
             event = {
                 "name": tool_call.name,
                 "status": "error",
@@ -920,10 +931,17 @@ class AgentRunner:
             }
             if isinstance(exc, AskUserInterrupt):
                 event["status"] = "waiting"
+                result_str = ""
+                error_str = str(exc)
+            else:
+                result_str = f"Error: {type(exc).__name__}: {exc}"
+                error_str = result_str
+            self._log_tool_call(spec.session_key, iteration, turn, tool_call.name, tool_call.arguments, result_str, False, error_str, duration_ms)
+            if isinstance(exc, AskUserInterrupt):
                 return "", event, exc
             if spec.fail_on_tool_error:
-                return f"Error: {type(exc).__name__}: {exc}", event, exc
-            return f"Error: {type(exc).__name__}: {exc}", event, None
+                return result_str, event, RuntimeError(result_str)
+            return result_str, event, None
 
         if isinstance(result, str) and result.startswith("Error"):
             event = {
@@ -931,9 +949,10 @@ class AgentRunner:
                 "status": "error",
                 "detail": result.replace("\n", " ").strip()[:120],
             }
+            self._log_tool_call(spec.session_key, iteration, turn, tool_call.name, tool_call.arguments, result, False, result, duration_ms)
             if spec.fail_on_tool_error:
-                return result + hint, event, RuntimeError(result)
-            return result + hint, event, None
+                return result, event, RuntimeError(result)
+            return result, event, None
 
         detail = "" if result is None else str(result)
         detail = detail.replace("\n", " ").strip()
@@ -941,7 +960,36 @@ class AgentRunner:
             detail = "(empty)"
         elif len(detail) > 120:
             detail = detail[:120] + "..."
+        self._log_tool_call(spec.session_key, iteration, turn, tool_call.name, tool_call.arguments, str(result) if result else "", True, None, duration_ms)
         return result, {"name": tool_call.name, "status": "ok", "detail": detail}, None
+
+    def _log_tool_call(
+        self,
+        session_key: str,
+        iteration: int,
+        turn: int,
+        tool_name: str,
+        params: dict[str, Any] | None,
+        result: str,
+        success: bool,
+        error: str | None,
+        duration_ms: int | None = None,
+    ) -> None:
+        if self._db is None:
+            return
+        try:
+            self._db.insert_tool_call(
+                session_key=session_key,
+                iteration=iteration,
+                turn=turn,
+                tool_name=tool_name,
+                params=params,
+                result=result,
+                success=success,
+                error=error,
+            )
+        except Exception:
+            pass  # never fail tool execution due to logging
 
     async def _emit_checkpoint(
         self,

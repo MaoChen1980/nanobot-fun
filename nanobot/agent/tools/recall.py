@@ -7,6 +7,10 @@ from nanobot.agent.memory import MemoryStore
 from nanobot.agent.tools.base import Tool, tool_parameters
 
 
+def _row_to_session_dict(row: tuple, cols: list[str]) -> dict:
+    return dict(zip(cols, row, strict=False))
+
+
 @tool_parameters(
     {
         "type": "object",
@@ -150,9 +154,20 @@ class RecallTool(Tool):
         if memory and self._match_keyword(memory, keyword):
             results.append(("", memory))
 
-        # Search history.jsonl
+        # Search history — use SQL if DB available, else scan file
         history_file = self._store.history_file
-        if history_file.exists():
+        if self._store._db is not None:
+            db = self._store._db
+            rows = db._conn.execute(
+                "SELECT timestamp, content FROM history ORDER BY cursor"
+            ).fetchall()
+            for ts, content in rows:
+                if not self._in_date_range(ts, content, start_dt, end_dt):
+                    continue
+                if not self._match_keyword(content, keyword):
+                    continue
+                results.append((ts, content))
+        elif history_file.exists():
             with open(history_file, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()

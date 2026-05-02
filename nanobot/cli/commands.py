@@ -604,6 +604,7 @@ def _run_gateway(
     from nanobot.agent.loop import AgentLoop
     from nanobot.agent.tools.cron import CronTool
     from nanobot.agent.tools.message import MessageTool
+    from nanobot.agent.db import NanobotDB
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
     from nanobot.cron.service import CronService
@@ -623,7 +624,11 @@ def _run_gateway(
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1) from exc
     provider = provider_snapshot.provider
-    session_manager = SessionManager(config.workspace_path)
+
+    # Create SQLite DB before SessionManager so it can be injected
+    nanobot_db = NanobotDB(Path.home() / ".nanobot" / "nanobot.db", workspace=config.workspace_path)
+
+    session_manager = SessionManager(config.workspace_path, db=nanobot_db)
 
     # Preserve existing single-workspace installs, but keep custom workspaces clean.
     if is_default_workspace(config.workspace_path):
@@ -659,6 +664,7 @@ def _run_gateway(
         tools_config=config.tools,
         provider_snapshot_loader=load_provider_snapshot,
         provider_signature=provider_snapshot.signature,
+        db=nanobot_db,
     )
 
     from nanobot.agent.loop import UNIFIED_SESSION_KEY
