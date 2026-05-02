@@ -81,6 +81,7 @@ class SubagentManager:
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
         disabled_skills: list[str] | None = None,
+        db=None,
     ):
         self.provider = provider
         self.workspace = workspace
@@ -91,7 +92,7 @@ class SubagentManager:
         self.max_tool_result_chars = max_tool_result_chars
         self.restrict_to_workspace = restrict_to_workspace
         self.disabled_skills = set(disabled_skills or [])
-        self.runner = AgentRunner(provider)
+        self.runner = AgentRunner(provider, db=db)
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_statuses: dict[str, SubagentStatus] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
@@ -202,6 +203,7 @@ class SubagentManager:
                 fail_on_tool_error=True,
                 checkpoint_callback=_on_checkpoint,
                 reasoning_effort=self.runner.provider.generation.reasoning_effort,
+                session_key=origin["session_key"],
             ))
             status.phase = "done"
             status.stop_reason = result.stop_reason
