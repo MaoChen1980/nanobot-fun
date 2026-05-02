@@ -24,13 +24,21 @@ if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider
     from nanobot.session.manager import Session, SessionManager
 
+from nanobot.agent.db import NanobotDB
+
 
 # ---------------------------------------------------------------------------
-# MemoryStore — pure file I/O layer
+# MemoryStore — file I/O + optional SQLite delegation
 # ---------------------------------------------------------------------------
 
 class MemoryStore:
-    """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
+    """File I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md.
+
+    When a :class:`NanobotDB` instance is injected via *db*, history/cursor
+    operations are delegated to the database. File I/O is retained as a
+    fallback for backward compatibility with environments that have not yet
+    migrated.
+    """
 
     _DEFAULT_MAX_HISTORY = 1000
     _LEGACY_ENTRY_START_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}[^\]]*)\]\s*")
@@ -39,9 +47,15 @@ class MemoryStore:
         r"^\[\d{4}-\d{2}-\d{2}[^\]]*\]\s+[A-Z][A-Z0-9_]*(?:\s+\[tools:\s*[^\]]+\])?:"
     )
 
-    def __init__(self, workspace: Path, max_history_entries: int = _DEFAULT_MAX_HISTORY):
+    def __init__(
+        self,
+        workspace: Path,
+        max_history_entries: int = _DEFAULT_MAX_HISTORY,
+        db: NanobotDB | None = None,
+    ):
         self.workspace = workspace
         self.max_history_entries = max_history_entries
+        self._db = db
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
         self.history_file = self.memory_dir / "history.jsonl"
@@ -224,24 +238,18 @@ class MemoryStore:
     # -- history.jsonl — append-only, JSONL format ---------------------------
 
     def append_history(self, entry: str, *, max_chars: int | None = None, timestamp: str | None = None) -> int:
-        """Append *entry* to history.jsonl and return its auto-incrementing cursor.
+        """Append *entry* to history and return its auto-incrementing cursor.
 
-        Entries are passed through `strip_think` to drop template-level leaks
-        (e.g. unclosed `<think` prefixes, `<channel|>` markers) before being
-        persisted. If the cleaned content is empty but the raw entry wasn't,
-        the record is persisted with an empty string rather than falling back
-        to the raw leak — otherwise `strip_think`'s guarantees would be
-        undone by history replay / consolidation downstream.
-
-        A defensive cap (*max_chars*, default ``_HISTORY_ENTRY_HARD_CAP``) is
-        applied as a final safety net: individual callers should cap their own
-        content more tightly; this default only exists to catch unintentional
-        large writes (e.g. an LLM echoing its input back as a "summary").
-
-        If *timestamp* is provided, it is used as the record timestamp
-        (e.g. the time range of the original consolidated messages). Otherwise
-        the current time is used.
+        Delegates to :meth:`NanobotDB.append_history` when a DB instance is
+        injected; otherwise writes to history.jsonl directly.
         """
+        if self._db is not None:
+            limit = max_chars if max_chars is not None else _HISTORY_ENTRY_HARD_CAP
+            content = strip_think(entry.rstrip())
+            if len(content) > limit:
+                content = truncate_text(content, limit)
+            return self._db.append_history(content, timestamp=timestamp)
+
         limit = max_chars if max_chars is not None else _HISTORY_ENTRY_HARD_CAP
         cursor = self._next_cursor()
         ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -298,6 +306,8 @@ class MemoryStore:
 
     def _next_cursor(self) -> int:
         """Read the current cursor counter and return the next value."""
+        if self._db is not None:
+            return self._db.get_cursor() + 1
         if self._cursor_file.exists():
             try:
                 return int(self._cursor_file.read_text(encoding="utf-8").strip()) + 1
@@ -314,11 +324,16 @@ class MemoryStore:
 
     def read_unprocessed_history(self, since_cursor: int) -> list[dict[str, Any]]:
         """Return history entries with a valid cursor > *since_cursor*."""
+        if self._db is not None:
+            return self._db.read_unprocessed_history(since_cursor)
         return [e for e, c in self._iter_valid_entries() if c > since_cursor]
 
     def compact_history(self) -> None:
         """Drop oldest entries if the file exceeds *max_history_entries*."""
         if self.max_history_entries <= 0:
+            return
+        if self._db is not None:
+            self._db.compact_history(self.max_history_entries)
             return
         entries = self._read_entries()
         if len(entries) <= self.max_history_entries:
@@ -371,6 +386,8 @@ class MemoryStore:
     # -- dream cursor --------------------------------------------------------
 
     def get_last_dream_cursor(self) -> int:
+        if self._db is not None:
+            return self._db.get_dream_cursor()
         if self._dream_cursor_file.exists():
             try:
                 return int(self._dream_cursor_file.read_text(encoding="utf-8").strip())
@@ -379,6 +396,9 @@ class MemoryStore:
         return 0
 
     def set_last_dream_cursor(self, cursor: int) -> None:
+        if self._db is not None:
+            self._db.set_dream_cursor(cursor)
+            return
         self._dream_cursor_file.write_text(str(cursor), encoding="utf-8")
 
     # -- message formatting utility ------------------------------------------
@@ -396,7 +416,7 @@ class MemoryStore:
         return "\n".join(lines)
 
     def raw_archive(self, messages: list[dict], *, max_chars: int | None = None) -> None:
-        """Fallback: dump raw messages to history.jsonl without LLM summarization."""
+        """Fallback: dump raw messages to history without LLM summarization."""
         msgs = Consolidator._filter_archive_messages(messages)
         if not msgs:
             return
@@ -413,6 +433,15 @@ class MemoryStore:
         logger.warning(
             "Memory consolidation degraded: raw-archived {} messages", len(msgs)
         )
+
+    # -- summary update (called by Dream / Consolidator after LLM summarization) --
+
+    def update_summary(self, cursor: int, summary: str) -> None:
+        """Update the summary field for the history entry at *cursor*."""
+        if self._db is not None:
+            self._db.update_summary(cursor, summary)
+            return
+        # No-op for file-only mode (summary was never a file concept)
 
 
 
@@ -563,9 +592,10 @@ class Consolidator:
             return truncate_text(text, budget * 4)
 
     async def archive(self, messages: list[dict]) -> str | None:
-        """Summarize messages via LLM and append to history.jsonl.
+        """Summarize messages via LLM and append to history.
 
         Returns the summary text on success, None if nothing to archive.
+        The summary is written to the history entry's summary field.
         """
         msgs = self._filter_archive_messages(messages)
         if not msgs:
@@ -596,7 +626,8 @@ class Consolidator:
             time_prefix = f"[{first_ts} → {last_ts}] "
             # Truncate ISO timestamp for human-readable display in history
             record_ts = first_ts[:16] if first_ts != "unknown" else None
-            self.store.append_history(time_prefix + summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS, timestamp=record_ts)
+            cursor = self.store.append_history(time_prefix + summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS, timestamp=record_ts)
+            self.store.update_summary(cursor, summary)
             return summary
         except Exception:
             logger.warning("Consolidation LLM call failed, raw-dumping to history")
@@ -995,6 +1026,11 @@ class Dream:
         new_cursor = batch[-1]["cursor"]
         self.store.set_last_dream_cursor(new_cursor)
         self.store.compact_history()
+
+        # Write Phase 1 analysis as summary for each entry in this batch
+        if analysis:
+            for entry in batch:
+                self.store.update_summary(entry["cursor"], analysis)
 
         if result and result.stop_reason == "completed":
             logger.info(

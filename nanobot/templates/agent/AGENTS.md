@@ -24,14 +24,15 @@ You (LLM) receive a fresh prompt every turn. You have:
 - ✅ Recent conversation history
 - ❌ No memory of previous sessions unless you read it
 
-**The agent persists state in files. Your tool calls change those files. Your future instances inherit the changes.**
+**The agent persists state in files and DB. Your tool calls change state. Your future instances inherit the changes.**
 
-State files you can read/write:
-- `SESSION.md` — current session snapshot (first 3 lines injected in prompt)
-- `memory/goals.md` — active goals + status
-- `memory/process-log.md` — execution log
-- `memory/MEMORY.md` — long-term facts and experience
-- `session.messages` — full conversation (append-only JSONL)
+State you can access (DB-backed unless noted):
+- `SESSION.md` — current session snapshot (first 3 lines injected in prompt) — file
+- Goals — `write_goal` / `list_goals` tools → SQLite
+- Events — `write_event` / `list_events` tools → SQLite (replaces process-log.md)
+- History — `recall` tool → SQLite (replaces history.jsonl direct reads)
+- Sessions — `session_manage` tool → SQLite (replaces session.messages JSONL)
+- `memory/MEMORY.md` — long-term facts — file
 
 **HEARTBEAT.md** — LLM never reads/writes directly. Only accessible via heartbeat message (30min interval). HeartbeatService embeds its content in the trigger message, LLM writes updates back when instructed.
 
@@ -106,7 +107,7 @@ Turn N+1 prompt: [system] + [history including Turn N] + [next message]
 | **AgentRunner** | runner.py | Tool execution loop: calls provider.chat(), executes tools, handles interrupts |
 | **ContextBuilder** | context.py | Builds system prompt each turn: bootstrap files + state section + skills + history |
 | **ToolRegistry** | tools/registry.py | Validates and executes tools: `prepare_call()` → `execute()` |
-| **MemoryStore** | memory.py | Reads/writes MEMORY.md, history.jsonl; Dream phase for auto-annotation |
+| **MemoryStore** | memory.py | Reads/writes MEMORY.md, history SQLite; Dream phase for auto-annotation |
 | **AgentHook** | hook.py | Lifecycle hooks: `before_iteration`, `before_execute_tools`, `after_iteration`, `finalize_content` |
 | **Subagent** | subagent.py | Background task via `spawn`: minimal context, full tools, max 30 iterations |
 
@@ -131,7 +132,7 @@ Turn N+1 prompt: [system] + [history including Turn N] + [next message]
 
 | Limitation | Impact |
 |------------|--------|
-| **Stateless LLM** | Read state files explicitly; history is the only cross-turn memory |
+| **Stateless LLM** | Read state explicitly; history is the only cross-turn memory |
 | **Sync tool execution** | No parallel unless `concurrent_tools` configured; tools writing same file must be serial |
 | **Tool result is string only** | Never assume structured return or exception propagation |
 | **No mid-turn abort** | User injection queues remaining tool calls finish first |
@@ -153,7 +154,7 @@ The prompt is assembled fresh each turn by `ContextBuilder.build_messages()`:
 [4. Bootstrap files]    AGENTS.md, SOUL.md, USER.md, TOOLS.md
 [5. Active Skills]      always:true skills (full content)
 [6. Skills summary]     other skills (names + descriptions only)
-[7. Recent History]     last N messages from history.jsonl (32K char cap)
+[7. Recent History]     last N messages from SQLite history (32K char cap)
 [8. Available Tools]    tool definitions
 ```
 
@@ -229,7 +230,7 @@ When multiple state files give conflicting guidance:
 | Priority | Source | Rule |
 |----------|--------|------|
 | **1** | User's current message | Always obey unless unsafe |
-| **2** | `goals.md` | Current active goal takes precedence over queued tasks |
+| **2** | Goals (DB) | Current active goal takes precedence over queued tasks |
 | **3** | `HEARTBEAT.md` | Only reviewed when heartbeat message arrives; do not poll |
 | **4** | `MEMORY.md` | Long-term facts — low urgency, high persistence |
 
@@ -298,13 +299,14 @@ These run automatically each turn — you don't trigger them, output is invisibl
 
 ## State File Access Summary
 
-| File | How you access it | Who writes it |
-|------|------------------|---------------|
-| `SESSION.md` | Injected in prompt (first 3 lines) | SessionPersistHook (auto) |
-| `goals.md` | Injected in `# Current State` | You (via edit_file/write_file) |
-| `process-log.md` | Injected in `Recent Progress` | You (via write_file) |
-| `memory/MEMORY.md` | Injected in `# Memory` | Dream phase (auto) |
-| `HEARTBEAT.md` | Only via heartbeat message (30min interval) | You (when heartbeat instructs) |
-| `session.messages` | Append-only, never read directly | Agent (auto) |
+| State | How you access it | Storage |
+|-------|------------------|---------|
+| `SESSION.md` | Injected in prompt (first 3 lines) | File — SessionPersistHook writes |
+| Goals | `write_goal` / `list_goals` tools | SQLite — auto |
+| Events (progress log) | `write_event` / `list_events` tools | SQLite — auto (replaces process-log.md) |
+| History | `recall` tool | SQLite — auto (replaces history.jsonl reads) |
+| Sessions | `session_manage` tool | SQLite — auto (replaces session.messages JSONL) |
+| `memory/MEMORY.md` | Injected in `# Memory` | File — Dream phase auto |
+| `HEARTBEAT.md` | Only via heartbeat message (30min interval) | You write when heartbeat instructs |
 
 **Key rule:** HEARTBEAT.md is not a file you poll — it only arrives when HeartbeatService triggers. You do not read it, only respond to it when it comes.

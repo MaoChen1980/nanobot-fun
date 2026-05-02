@@ -210,6 +210,7 @@ class AgentLoop:
         tools_config: ToolsConfig | None = None,
         provider_snapshot_loader: Callable[[], ProviderSnapshot] | None = None,
         provider_signature: tuple[object, ...] | None = None,
+        db=None,
     ):
         from nanobot.config.schema import ExecToolConfig, ToolsConfig, WebToolsConfig
 
@@ -220,6 +221,7 @@ class AgentLoop:
         self.provider = provider
         self._provider_snapshot_loader = provider_snapshot_loader
         self._provider_signature = provider_signature
+        self._db = db
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = (
@@ -246,10 +248,10 @@ class AgentLoop:
         self._extra_hooks: list[AgentHook] = hooks or []
         self._extra_hooks.extend(self._discover_workspace_hooks())
 
-        self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
+        self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills, db=db)
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
-        self.runner = AgentRunner(provider)
+        self.runner = AgentRunner(provider, db=db)
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
@@ -374,7 +376,13 @@ class AgentLoop:
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound, workspace=self.workspace))
         self.tools.register(SessionManageTool(loop=self))
         self.tools.register(RecallTool(store=self.context.memory))
+        if self._db:
+            from nanobot.agent.tools.tool_call_log import ToolCallLogTool
+            self.tools.register(ToolCallLogTool(db=self._db))
         self.tools.register(SpawnTool(manager=self.subagents))
+        from nanobot.agent.tools.goal_event import register as register_goal_event
+        for tool in register_goal_event(self.context.memory):
+            self.tools.register(tool)
         if self.cron_service:
             self.tools.register(
                 CronTool(self.cron_service, default_timezone=self.context.timezone or "UTC")
@@ -1178,7 +1186,7 @@ class AgentLoop:
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
         """Save new-turn messages into session, truncating large tool results."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         for m in messages[skip:]:
             entry = dict(m)
@@ -1217,7 +1225,7 @@ class AgentLoop:
                     if not filtered:
                         continue
                     entry["content"] = filtered
-            entry.setdefault("timestamp", datetime.now().isoformat())
+            entry.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
             session.messages.append(entry)
         session.updated_at = datetime.now()
 
@@ -1316,7 +1324,7 @@ class AgentLoop:
 
     def _restore_runtime_checkpoint(self, session: Session) -> bool:
         """Materialize an unfinished turn into session history before a new request."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         checkpoint = session.metadata.get(self._RUNTIME_CHECKPOINT_KEY)
         if not isinstance(checkpoint, dict):
@@ -1329,12 +1337,12 @@ class AgentLoop:
         restored_messages: list[dict[str, Any]] = []
         if isinstance(assistant_message, dict):
             restored = dict(assistant_message)
-            restored.setdefault("timestamp", datetime.now().isoformat())
+            restored.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
             restored_messages.append(restored)
         for message in completed_tool_results:
             if isinstance(message, dict):
                 restored = dict(message)
-                restored.setdefault("timestamp", datetime.now().isoformat())
+                restored.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
                 restored_messages.append(restored)
         for tool_call in pending_tool_calls:
             if not isinstance(tool_call, dict):
@@ -1347,7 +1355,7 @@ class AgentLoop:
                     "tool_call_id": tool_id,
                     "name": name,
                     "content": "Error: Task interrupted before this tool finished.",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
 
@@ -1370,7 +1378,7 @@ class AgentLoop:
 
     def _restore_pending_user_turn(self, session: Session) -> bool:
         """Close a turn that only persisted the user message before crashing."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         if not session.metadata.get(self._PENDING_USER_TURN_KEY):
             return False
@@ -1380,7 +1388,7 @@ class AgentLoop:
                 {
                     "role": "assistant",
                     "content": "Error: Task interrupted before a response was generated.",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
             session.updated_at = datetime.now()
