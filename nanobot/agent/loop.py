@@ -262,6 +262,7 @@ class AgentLoop:
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
             disabled_skills=disabled_skills,
+            db=db,
         )
         self._unified_session = unified_session
         self._running = False
