@@ -1,4 +1,8 @@
-"""Session checkpoint management for AgentLoop."""
+"""Session checkpoint management for AgentLoop.
+
+Re-exported from loop_recovery.py for backward compatibility.
+Functions below delegate to RecoveryManager when a loop instance is available.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,9 @@ from loguru import logger
 
 if TYPE_CHECKING:
     from nanobot.agent.loop import AgentLoop
+    from nanobot.session.manager import Session
+
+from nanobot.agent.loop_constants import _RUNTIME_CHECKPOINT_KEY, _PENDING_USER_TURN_KEY
 
 
 def checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:
@@ -25,31 +32,25 @@ def checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:
 
 def set_runtime_checkpoint(session: Any, payload: dict[str, Any]) -> None:
     """Persist the latest in-flight turn state into session metadata."""
-    from nanobot.agent.loop_constants import _RUNTIME_CHECKPOINT_KEY
     session.metadata[_RUNTIME_CHECKPOINT_KEY] = payload
 
 
 def clear_runtime_checkpoint(session: Any) -> None:
     """Remove the runtime checkpoint from session metadata."""
-    from nanobot.agent.loop_constants import _RUNTIME_CHECKPOINT_KEY
     if _RUNTIME_CHECKPOINT_KEY in session.metadata:
         session.metadata.pop(_RUNTIME_CHECKPOINT_KEY, None)
 
 
 def mark_pending_user_turn(session: Any) -> None:
-    from nanobot.agent.loop_constants import _PENDING_USER_TURN_KEY
     session.metadata[_PENDING_USER_TURN_KEY] = True
 
 
 def clear_pending_user_turn(session: Any) -> None:
-    from nanobot.agent.loop_constants import _PENDING_USER_TURN_KEY
     session.metadata.pop(_PENDING_USER_TURN_KEY, None)
 
 
 def restore_runtime_checkpoint(loop: Any, session: Any) -> bool:
     """Materialize an unfinished turn into session history before a new request."""
-    from nanobot.agent.loop_constants import _RUNTIME_CHECKPOINT_KEY, _PENDING_USER_TURN_KEY
-
     checkpoint = session.metadata.get(_RUNTIME_CHECKPOINT_KEY)
     if not isinstance(checkpoint, dict):
         return False
@@ -103,8 +104,6 @@ def restore_runtime_checkpoint(loop: Any, session: Any) -> bool:
 
 def restore_pending_user_turn(session: Any) -> bool:
     """Close a turn that only persisted the user message before crashing."""
-    from nanobot.agent.loop_constants import _PENDING_USER_TURN_KEY
-
     if not session.metadata.get(_PENDING_USER_TURN_KEY):
         return False
 

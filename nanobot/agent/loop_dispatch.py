@@ -1,0 +1,148 @@
+"""Dispatch manager for AgentLoop — handles per-session lock/gate/queue lifecycle."""
+
+from __future__ import annotations
+
+import asyncio
+import dataclasses
+import time
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
+
+if TYPE_CHECKING:
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.bus.events import InboundMessage, OutboundMessage
+
+from nanobot.bus.events import OutboundMessage
+from nanobot.agent.loop_constants import UNIFIED_SESSION_KEY
+
+
+class DispatchManager:
+    """Manages the dispatch envelope: lock acquisition, concurrency gate,
+    streaming setup, cancellation recovery, and queue draining."""
+
+    def __init__(self, loop: AgentLoop) -> None:
+        self._loop = loop
+
+    async def run_dispatch(
+        self, msg: InboundMessage, session_key: str, pending: asyncio.Queue,
+    ) -> None:
+        """Execute dispatch body: process message with streaming, handle cancel/error."""
+        async with self._gate():
+            try:
+                try:
+                    on_stream, on_stream_end = self._maybe_streaming(msg)
+                    response = await self._loop._process_message(
+                        msg, on_stream=on_stream, on_stream_end=on_stream_end,
+                        pending_queue=pending,
+                    )
+                    if response is not None:
+                        await self._loop.bus.publish_outbound(response)
+                    elif msg.channel == "cli":
+                        await self._loop.bus.publish_outbound(OutboundMessage(
+                            channel=msg.channel, chat_id=msg.chat_id,
+                            content="", metadata=msg.metadata or {},
+                        ))
+                except asyncio.CancelledError:
+                    await self._handle_cancellation(msg, session_key)
+                    raise
+                except Exception:
+                    logger.exception(
+                        "Error processing message for session {}", session_key,
+                    )
+                    await self._loop.bus.publish_outbound(OutboundMessage(
+                        channel=msg.channel, chat_id=msg.chat_id,
+                        content="Sorry, I encountered an error.",
+                    ))
+            finally:
+                await self._drain_leftover_queue(session_key, pending)
+
+    def _gate(self):
+        """Return the concurrency gate context manager."""
+        return self._loop._concurrency_gate or __import__("contextlib").nullcontext()
+
+    def _effective_session_key(self, msg: InboundMessage) -> str:
+        if self._loop._unified_session:
+            return UNIFIED_SESSION_KEY
+        return f"{msg.channel}:{msg.chat_id}"
+
+    def _maybe_streaming(
+        self, msg: InboundMessage,
+    ) -> tuple[Any | None, Any | None]:
+        """Build streaming callbacks if wanted, otherwise None."""
+        if not msg.metadata.get("_wants_stream"):
+            return None, None
+
+        stream_base_id = f"{msg.session_key}:{time.time_ns()}"
+        stream_segment = 0
+
+        def _current_stream_id() -> str:
+            return f"{stream_base_id}:{stream_segment}"
+
+        async def on_stream(delta: str) -> None:
+            meta = dict(msg.metadata or {})
+            meta["_stream_delta"] = True
+            meta["_stream_id"] = _current_stream_id()
+            await self._loop.bus.publish_outbound(OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=delta,
+                metadata=meta,
+            ))
+
+        async def on_stream_end(*, resuming: bool = False) -> None:
+            nonlocal stream_segment
+            meta = dict(msg.metadata or {})
+            meta["_stream_end"] = True
+            meta["_resuming"] = resuming
+            meta["_stream_id"] = _current_stream_id()
+            await self._loop.bus.publish_outbound(OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content="",
+                metadata=meta,
+            ))
+            stream_segment += 1
+
+        return on_stream, on_stream_end
+
+    async def _handle_cancellation(
+        self, msg: InboundMessage, session_key: str,
+    ) -> None:
+        """Restore partial context when task is cancelled (e.g. /stop)."""
+        logger.info("Task cancelled for session {}", session_key)
+        try:
+            key = self._effective_session_key(msg)
+            session = self._loop.sessions.get_or_create(key)
+            if self._loop._recovery.restore_runtime_checkpoint(session):
+                self._loop._recovery.clear_pending_user_turn(session)
+                self._loop.sessions.save(session)
+                logger.info(
+                    "Restored partial context for cancelled session {}",
+                    key,
+                )
+        except Exception:
+            logger.debug(
+                "Could not restore checkpoint for cancelled session {}",
+                session_key,
+                exc_info=True,
+            )
+
+    async def _drain_leftover_queue(
+        self, session_key: str, queue: asyncio.Queue,
+    ) -> None:
+        """Re-publish leftover messages from pending queue to bus."""
+        queue = self._loop._pending_queues.pop(session_key, None)
+        if queue is None:
+            return
+        leftover = 0
+        while True:
+            try:
+                item = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            await self._loop.bus.publish_inbound(item)
+            leftover += 1
+        if leftover:
+            logger.info(
+                "Re-published {} leftover message(s) to bus for session {}",
+                leftover, session_key,
+            )
