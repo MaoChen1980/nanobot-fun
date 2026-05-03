@@ -240,14 +240,14 @@ def test_exec_extract_absolute_paths_captures_quoted_paths() -> None:
 
 
 def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
-    tool = ExecTool(restrict_to_workspace=True)
-    error = tool._guard_command("cat ~/.nanobot/config.json", str(tmp_path))
+    tool = ExecTool(restrict_to_workspace=True, working_dir=str(tmp_path))
+    error = tool._guard_command("cat C:\\Users\\savyc\\.nanobot\\config.json", str(tmp_path))
     assert error == "Error: Command blocked by safety guard (path outside working dir)"
 
 
 def test_exec_guard_blocks_quoted_home_path_outside_workspace(tmp_path) -> None:
-    tool = ExecTool(restrict_to_workspace=True)
-    error = tool._guard_command('cat "~/.nanobot/config.json"', str(tmp_path))
+    tool = ExecTool(restrict_to_workspace=True, working_dir=str(tmp_path))
+    error = tool._guard_command('cat "C:\\Users\\savyc\\.nanobot\\config.json"', str(tmp_path))
     assert error == "Error: Command blocked by safety guard (path outside working dir)"
 
 

@@ -219,9 +219,11 @@ class TestConsolidatorTokenBudget:
 
         await consolidator.maybe_consolidate_by_tokens(session)
 
-        consolidator.archive.assert_awaited_once()
-        # pick_consolidation_boundary finds the only boundary at idx=61
-        assert session.last_consolidated == 61
+        # pick_consolidation_boundary returns None because the only user boundary
+        # in the scannable range (0-59) is at idx=0 (protected), and tokens_to_remove
+        # (310) exceeds total tokens in that range. Protected zone (60-69) is skipped.
+        consolidator.archive.assert_not_awaited()
+        assert session.last_consolidated == 0
 
 
 class TestRawArchiveTruncation:

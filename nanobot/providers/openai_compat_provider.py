@@ -1035,15 +1035,6 @@ class OpenAICompatProvider(LLMProvider):
                 text = cls._extract_text_content(delta.get("reasoning_content"))
                 if not text:
                     text = cls._extract_text_content(delta.get("reasoning"))
-                if not text and self is not None and getattr(self, "_spec", None) and self._spec.name in ("minimax", "minimax_cn"):
-                    rd = delta.get("reasoning_details")
-                    if isinstance(rd, list):
-                        for item in rd:
-                            if isinstance(item, dict) and item.get("type") == "reasoning.text":
-                                t = item.get("text")
-                                if t:
-                                    text = t
-                                    break
                 if text:
                     reasoning_parts.append(text)
                 for idx, tc in enumerate(delta.get("tool_calls") or []):

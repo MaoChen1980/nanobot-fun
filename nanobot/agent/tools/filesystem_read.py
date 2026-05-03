@@ -87,7 +87,7 @@ class ReadFileTool(_FsTool):
 
             # Read dedup: same path + offset + limit + unchanged mtime → stub
             # Always check for external modifications before dedup
-            entry = file_state._state.get(str(fp.resolve()))
+            entry = file_state._default_manager._state.get(str(fp.resolve()))
             try:
                 current_mtime = os.path.getmtime(fp)
             except OSError:
