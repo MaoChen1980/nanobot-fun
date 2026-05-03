@@ -110,9 +110,14 @@ def _parse_page_range(pages: str, total: int) -> tuple[int, int]:
 # Edit helpers (shared between filesystem_write.py and filesystem_edit.py)
 # ---------------------------------------------------------------------------
 
+# Use unicode codepoints to ensure correct characters regardless of encoding
 _QUOTE_TABLE = str.maketrans({
-    "'": "'", "’": "'",  # curly single → straight
-    '"': '"', '"': '"',  # curly double → straight
+    0x2018: 0x27,   # LEFT SINGLE QUOTATION MARK → APOSTROPHE
+    0x2019: 0x27,   # RIGHT SINGLE QUOTATION MARK → APOSTROPHE
+    0x201C: 0x22,   # LEFT DOUBLE QUOTATION MARK → QUOTATION MARK
+    0x201D: 0x22,   # RIGHT DOUBLE QUOTATION MARK → QUOTATION MARK
+    0x27: 0x27,     # APOSTROPHE → APOSTROPHE (identity)
+    0x22: 0x22,     # QUOTATION MARK → QUOTATION MARK (identity)
 })
 
 
@@ -125,7 +130,7 @@ def _curly_double_quotes(text: str) -> str:
     opening = True
     for ch in text:
         if ch == '"':
-            parts.append("'" if opening else '"')
+            parts.append(chr(0x201C) if opening else chr(0x201D))
             opening = not opening
         else:
             parts.append(ch)
@@ -142,9 +147,9 @@ def _curly_single_quotes(text: str) -> str:
         prev_ch = text[i - 1] if i > 0 else ""
         next_ch = text[i + 1] if i + 1 < len(text) else ""
         if prev_ch.isalnum() and next_ch.isalnum():
-            parts.append("'")
+            parts.append(chr(0x2019))
             continue
-        parts.append("'" if opening else "'")
+        parts.append(chr(0x2018) if opening else chr(0x2019))
         opening = not opening
     return "".join(parts)
 
@@ -154,9 +159,9 @@ def _preserve_quote_style(old_text: str, actual_text: str, new_text: str) -> str
     if _normalize_quotes(old_text.strip()) != _normalize_quotes(actual_text.strip()) or old_text == actual_text:
         return new_text
     styled = new_text
-    if any(ch in actual_text for ch in ("'", '"')) and '"' in styled:
+    if any(ch in actual_text for ch in (chr(0x201C), chr(0x201D))) and '"' in styled:
         styled = _curly_double_quotes(styled)
-    if any(ch in actual_text for ch in ("'", "'")) and "'" in styled:
+    if any(ch in actual_text for ch in (chr(0x2018), chr(0x2019))) and "'" in styled:
         styled = _curly_single_quotes(styled)
     return styled
 
@@ -194,5 +199,3 @@ def _reindent_like_match(old_text: str, actual_text: str, new_text: str) -> str:
     if not delta:
         return new_text
     return "\n".join((delta + line) if line else line for line in new_text.split("\n"))
-
-
