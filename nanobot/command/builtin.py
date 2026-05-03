@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 
 from nanobot import __version__
 from nanobot.bus.events import OutboundMessage
+from nanobot.agent.subagent_status import SubagentStatus
 from nanobot.command.router import CommandContext, CommandRouter
 from nanobot.utils.helpers import build_status_content
 from nanobot.utils.restart import set_restart_notice_to_env
@@ -336,8 +338,69 @@ def build_help_text() -> str:
         "/dream — Manually trigger Dream consolidation",
         "/dream-log — Show what the last Dream changed",
         "/dream-restore — Revert memory to a previous state",
+        "/sub — Show subagent status",
         "/help — Show available commands",
     ]
+    return "\n".join(lines)
+
+
+def _format_subagent_status(statuses: dict[str, "SubagentStatus"], running: dict[str, asyncio.Task[None]]) -> str:
+    """Format running subagent statuses."""
+    if not statuses:
+        return "No active subagent."
+    lines = []
+    for task_id, status in sorted(statuses.items(), key=lambda x: x[1].started_at):
+        is_running = task_id in running and not running[task_id].done()
+        phase_emoji = {"initializing": "🔄", "awaiting_tools": "⏳", "tools_completed": "🔧", "final_response": "🧠", "done": "✅", "error": "❌"}.get(status.phase, "❓")
+        elapsed = time.monotonic() - status.started_at
+        lines.append(f"{phase_emoji} [{task_id}] {status.label}")
+        lines.append(f"   phase={status.phase}, iter={status.iteration}, elapsed={elapsed:.0f}s")
+        if status.tool_events:
+            completed = len([e for e in status.tool_events if e.get("status") == "ok"])
+            lines.append(f"   tools: {completed} completed / {len(status.tool_events)} total")
+        if status.error:
+            lines.append(f"   error: {status.error[:80]}")
+        if not is_running:
+            lines.append(f"   ⚠️ task not in running dict (may be done)")
+    return "\n".join(lines)
+
+
+async def cmd_sub(ctx: CommandContext) -> OutboundMessage:
+    """Show status of running subagents."""
+    loop = ctx.loop
+    mgr = getattr(loop, "subagents", None)
+    if mgr is None:
+        content = "Subagent manager not available."
+    elif not mgr._running_tasks and not mgr._task_statuses:
+        content = "No active subagent."
+    else:
+        content = _format_subagent_status(mgr._task_statuses, mgr._running_tasks)
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=content,
+        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+    )
+
+
+def _format_subagent_status(statuses: dict[str, "SubagentStatus"], running: dict[str, asyncio.Task[None]]) -> str:
+    """Format running subagent statuses."""
+    if not statuses:
+        return "No active subagent."
+    lines = []
+    for task_id, status in sorted(statuses.items(), key=lambda x: x[1].started_at):
+        is_running = task_id in running and not running[task_id].done()
+        phase_emoji = {"initializing": "🔄", "awaiting_tools": "⏳", "tools_completed": "🔧", "final_response": "🧠", "done": "✅", "error": "❌"}.get(status.phase, "❓")
+        elapsed = time.monotonic() - status.started_at
+        lines.append(f"{phase_emoji} [{task_id}] {status.label}")
+        lines.append(f"   phase={status.phase}, iter={status.iteration}, elapsed={elapsed:.0f}s")
+        if status.tool_events:
+            completed = len([e for e in status.tool_events if e.get("status") == "ok"])
+            lines.append(f"   tools: {completed} completed / {len(status.tool_events)} total")
+        if status.error:
+            lines.append(f"   error: {status.error[:80]}")
+        if not is_running:
+            lines.append(f"   ⚠️ task not in running dict (may be done)")
     return "\n".join(lines)
 
 
@@ -355,6 +418,7 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.prefix("/dream-log ", cmd_dream_log)
     router.exact("/dream-restore", cmd_dream_restore)
     router.prefix("/dream-restore ", cmd_dream_restore)
+    router.exact("/sub", cmd_sub)
     router.exact("/help", cmd_help)
 
     async def cmd_unknown(ctx: CommandContext) -> OutboundMessage | None:

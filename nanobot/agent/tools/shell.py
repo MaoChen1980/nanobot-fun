@@ -13,6 +13,7 @@ from loguru import logger
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.sandbox import wrap_command
 from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.shell_validators import validate_command
 from nanobot.config.paths import get_media_dir
 
 _IS_WINDOWS = sys.platform == "win32"
@@ -422,44 +423,14 @@ class ExecTool(Tool):
 
     def _guard_command(self, command: str, cwd: str) -> str | None:
         """Best-effort safety guard for potentially destructive commands."""
-        cmd = command.strip()
-        lower = cmd.lower()
-
-        for pattern in self.deny_patterns:
-            if re.search(pattern, lower):
-                return "Error: Command blocked by safety guard (dangerous pattern detected)"
-
-        if self.allow_patterns:
-            if not any(re.search(p, lower) for p in self.allow_patterns):
-                return "Error: Command blocked by safety guard (not in allowlist)"
-
-        from nanobot.security.network import contains_internal_url
-        if contains_internal_url(cmd):
-            return "Error: Command blocked by safety guard (internal/private URL detected)"
-
-        if self.restrict_to_workspace:
-            if "..\\" in cmd or "../" in cmd:
-                return "Error: Command blocked by safety guard (path traversal detected)"
-
-            cwd_path = Path(cwd).resolve()
-
-            for raw in self._extract_absolute_paths(cmd):
-                try:
-                    expanded = os.path.expandvars(raw.strip())
-                    p = Path(expanded).expanduser().resolve()
-                except Exception:
-                    continue
-
-                media_path = get_media_dir().resolve()
-                if (p.is_absolute()
-                    and cwd_path not in p.parents
-                    and p != cwd_path
-                    and media_path not in p.parents
-                    and p != media_path
-                ):
-                    return "Error: Command blocked by safety guard (path outside working dir)"
-
-        return None
+        return validate_command(
+            command=command,
+            cwd=cwd,
+            deny_patterns=self.deny_patterns,
+            allow_patterns=self.allow_patterns,
+            restrict_to_workspace=self.restrict_to_workspace,
+            workspace_root=self.working_dir,
+        )
 
     @staticmethod
     def _extract_absolute_paths(command: str) -> list[str]:

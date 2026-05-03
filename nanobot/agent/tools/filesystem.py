@@ -2,7 +2,7 @@
 
 from nanobot.agent.tools.filesystem_read import ReadFileTool
 from nanobot.agent.tools.filesystem_write import WriteFileTool
-from nanobot.agent.tools.filesystem_edit import EditFileTool
+from nanobot.agent.tools.filesystem_edit import EditFileTool, _find_match
 from nanobot.agent.tools.filesystem_list import ListDirTool
 
 # Re-export shared helpers for external usage

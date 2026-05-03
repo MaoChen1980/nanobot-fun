@@ -4,34 +4,17 @@ from typing import Any
 
 from nanobot.agent.db import NanobotDB
 from nanobot.agent.tools.base import Tool, tool_parameters
+from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
 
 
 @tool_parameters(
-    {
-        "type": "object",
-        "properties": {
-            "session_key": {
-                "type": "string",
-                "description": "Filter by session key (session identifier)",
-            },
-            "tool_name": {
-                "type": "string",
-                "description": "Filter by tool name (e.g. 'exec', 'read_file', 'grep')",
-            },
-            "success": {
-                "type": "boolean",
-                "description": "Filter by success (true=success, false=failed)",
-            },
-            "min_result_size": {
-                "type": "integer",
-                "description": "Filter to results larger than N characters",
-            },
-            "limit": {
-                "type": "integer",
-                "description": "Maximum number of records to return (default 20, max 100)",
-            },
-        },
-    }
+    tool_parameters_schema(
+        session_key=StringSchema("Filter by session key (session identifier)"),
+        tool_name=StringSchema("Filter by tool name (e.g. 'exec', 'read_file', 'grep')"),
+        success=IntegerSchema(description="Filter by success (1=success, 0=failed)"),
+        min_result_size=IntegerSchema("Filter to results larger than N characters"),
+        limit=IntegerSchema(20, description="Maximum number of records to return (default 20, max 100)"),
+    )
 )
 class ToolCallLogTool(Tool):
     """Query tool execution log — who ran what, when, with what result."""

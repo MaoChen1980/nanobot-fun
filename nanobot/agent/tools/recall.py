@@ -5,6 +5,7 @@ from typing import Any
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.tools.base import Tool, tool_parameters
+from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
 
 
 def _row_to_session_dict(row: tuple, cols: list[str]) -> dict:
@@ -12,23 +13,11 @@ def _row_to_session_dict(row: tuple, cols: list[str]) -> dict:
 
 
 @tool_parameters(
-    {
-        "type": "object",
-        "properties": {
-            "start": {
-                "type": "string",
-                "description": "Start date (YYYY-MM-DD or YYYY-MM-DD HH:MM), inclusive",
-            },
-            "end": {
-                "type": "string",
-                "description": "End date (YYYY-MM-DD or YYYY-MM-DD HH:MM), inclusive",
-            },
-            "keyword": {
-                "type": "string",
-                "description": "Optional keyword to filter memories",
-            },
-        },
-    }
+    tool_parameters_schema(
+        start=StringSchema("Start date (YYYY-MM-DD or YYYY-MM-DD HH:MM), inclusive"),
+        end=StringSchema("End date (YYYY-MM-DD or YYYY-MM-DD HH:MM), inclusive"),
+        keyword=StringSchema("Optional keyword to filter memories"),
+    )
 )
 class RecallTool(Tool):
     """Tool to search and retrieve relevant memories for enriching context."""
