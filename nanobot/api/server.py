@@ -380,10 +380,7 @@ def create_app(
     app.router.add_get("/v1/models", handle_models)
     app.router.add_get("/health", handle_health)
 
-    # Proxy API routes (hub <-> proxy communication)
-    from nanobot.proxy.hub import setup_proxy_routes
-    from nanobot.proxy.manager import ProxyManager
-    proxy_manager = ProxyManager(f"http://127.0.0.1:{api_port}")
-    setup_proxy_routes(app, agent_loop, proxy_manager)
+    # Proxy communication now uses TCP (started separately in _run_gateway).
+    # HTTP proxy routes are no longer used.
 
     return app

@@ -67,6 +67,17 @@ class HubResponse:
             "error": self.error,
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "HubResponse":
+        return cls(
+            success=d.get("success", False),
+            reply_to=d.get("reply_to", ""),
+            content=d.get("content", ""),
+            media=d.get("media", []),
+            metadata=d.get("metadata", {}),
+            error=d.get("error", ""),
+        )
+
 
 @dataclass
 class ProxyRegistration:

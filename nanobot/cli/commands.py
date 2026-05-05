@@ -826,7 +826,8 @@ def _run_gateway(
 
     # Spawn proxy processes for channels configured to run out-of-process
     from nanobot.proxy.manager import ProxyManager
-    proxy_manager = ProxyManager(f"http://127.0.0.1:{port}")
+    proxy_tcp_port = port + 1  # TCP server on API port + 1
+    proxy_manager = ProxyManager(f"http://127.0.0.1:{port}", proxy_tcp_port=proxy_tcp_port)
     _spawn_proxy_processes(config, proxy_manager, port)
     api_runner = None  # set by _run_api_server
 
@@ -902,14 +903,20 @@ def _run_gateway(
         except Exception as e:
             console.print(f"[yellow]Could not open browser ({e}); visit {open_browser_url}[/yellow]")
 
+    from nanobot.proxy.hub import start_tcp_server
+
     async def run():
         try:
             await cron.start()
             await heartbeat.start()
+            # Start TCP server for proxy connections
+            tcp_server = await start_tcp_server(
+                config.gateway.host, proxy_tcp_port, agent, proxy_manager
+            )
             tasks = [
                 agent.run(),
                 channels.start_all(),
-                proxy_manager.start_monitoring(),  # type: ignore[operator]
+                proxy_manager.start_monitoring(),
                 _run_api_server(config.gateway.host, port),
             ]
             if open_browser_url:

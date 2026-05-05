@@ -1,4 +1,4 @@
-"""Feishu proxy - runs as a separate process, connects to Feishu WebSocket and forwards messages to nanobot Hub."""
+"""Feishu proxy - runs as a separate process, connects to Feishu WebSocket and forwards messages to nanobot Hub via TCP."""
 
 from __future__ import annotations
 
@@ -11,13 +11,15 @@ import time
 import threading
 from typing import Any
 
-import requests
 from loguru import logger
+
+from nanobot.proxy.protocol import HubResponse, ProxyMessage
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Feishu proxy - connects to Feishu and forwards messages to Hub")
-    parser.add_argument("--hub-url", required=True, help="Hub API base URL")
+    parser = argparse.ArgumentParser(description="Feishu proxy - connects to Feishu and forwards messages to Hub via TCP")
+    parser.add_argument("--hub-url", required=True, help="Hub API base URL (ignored, TCP is used)")
+    parser.add_argument("--hub-tcp-port", required=True, type=int, help="Hub TCP port for proxy connections")
     parser.add_argument("--channel", required=True, help="Channel name")
     parser.add_argument("--bot", required=True, help="Bot name")
     return parser.parse_args()
@@ -29,58 +31,56 @@ def _get_config() -> dict[str, Any]:
     return json.loads(config_str)
 
 
-def _register(hub_url: str, channel: str, bot: str, pid: int) -> dict[str, Any]:
-    """Register this proxy with the Hub."""
-    payload = {
-        "channel": channel,
-        "bot": bot,
-        "pid": pid,
-        "heartbeat_interval": 30,
-    }
-    resp = requests.post(
-        f"{hub_url}/api/proxy/register",
-        json=payload,
-        timeout=10,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _send_heartbeat(hub_url: str, channel: str, bot: str) -> None:
-    """Send heartbeat to Hub."""
-    try:
-        requests.post(
-            f"{hub_url}/api/proxy/heartbeat",
-            json={"channel": channel, "bot": bot},
-            timeout=5,
-        )
-    except Exception as e:
-        logger.warning("Heartbeat to Hub failed: {}", e)
-
-
-def _send_message(hub_url: str, msg: dict[str, Any]) -> dict[str, Any]:
-    """Send message to Hub and return response."""
-    resp = requests.post(
-        f"{hub_url}/api/proxy/message",
-        json=msg,
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
 class FeishuProxyChannel:
-    """Handles Feishu message events and forwards to Hub."""
+    """Handles Feishu message events and forwards to Hub via TCP."""
 
-    def __init__(self, config: dict, hub_url: str, channel: str, bot: str, client: Any):
+    def __init__(self, config: dict, hub_tcp_host: str, hub_tcp_port: int, channel: str, bot: str, client: Any):
         self.config = config
-        self.hub_url = hub_url
+        self.hub_tcp_host = hub_tcp_host
+        self.hub_tcp_port = hub_tcp_port
         self.channel = channel
         self.bot = bot
         self._client = client
         self._processed: set[str] = set()
         self._reaction_emoji = config.get("react_emoji", "THUMBSUP")
         self._done_emoji = config.get("done_emoji")
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+
+    async def _connect_tcp(self) -> None:
+        """Establish TCP connection to Hub."""
+        self._reader, self._writer = await asyncio.open_connection(
+            self.hub_tcp_host, self.hub_tcp_port
+        )
+        logger.info("Connected to Hub via TCP at {}:{}", self.hub_tcp_host, self.hub_tcp_port)
+
+        # Send registration
+        register_msg = {
+            "type": "register",
+            "channel": self.channel,
+            "bot": self.bot,
+            "pid": os.getpid(),
+        }
+        self._writer.write((json.dumps(register_msg) + "\n").encode())
+        await self._writer.drain()
+
+        # Wait for registration response
+        resp_line = await self._reader.readline()
+        resp = json.loads(resp_line.decode())
+        if resp.get("success"):
+            logger.info("Registered with Hub via TCP")
+        else:
+            raise RuntimeError(f"TCP registration failed: {resp}")
+
+    async def _send_message(self, msg: dict[str, Any]) -> HubResponse:
+        """Send message to Hub via TCP and wait for response."""
+        msg["type"] = "message"
+        self._writer.write((json.dumps(msg) + "\n").encode())
+        await self._writer.drain()
+
+        # Read response
+        resp_line = await self._reader.readline()
+        return HubResponse.from_dict(json.loads(resp_line.decode()))
 
     def on_message(self, data: Any) -> None:
         """Sync callback from Feishu SDK - forward message to Hub."""
@@ -114,28 +114,34 @@ class FeishuProxyChannel:
             # Add THUMBSUP reaction immediately
             self._add_reaction(message_id, self._reaction_emoji)
 
-            # Forward to Hub
+            # Forward to Hub via TCP
             def forward():
                 try:
-                    response = _send_message(self.hub_url, {
-                        "channel": self.channel,
-                        "bot": self.bot,
-                        "sender_id": sender_id,
-                        "chat_id": chat_id,
-                        "content": text,
-                        "message_id": message_id,
-                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    })
-                    if response.get("success") and response.get("content"):
-                        self._send_text_reply(chat_id, message_id, response["content"])
-                    if response.get("success") and response.get("metadata", {}).get("done_emoji"):
-                        self._add_reaction(message_id, response["metadata"]["done_emoji"])
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    response = loop.run_until_complete(
+                        self._send_message({
+                            "channel": self.channel,
+                            "bot": self.bot,
+                            "sender_id": sender_id,
+                            "chat_id": chat_id,
+                            "content": text,
+                            "message_id": message_id,
+                            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        })
+                    )
+                    loop.close()
+
+                    if response.success and response.content:
+                        self._send_text_reply(chat_id, message_id, response.content)
+                    if response.success and response.metadata.get("done_emoji"):
+                        self._add_reaction(message_id, response.metadata["done_emoji"])
                     else:
                         self._add_reaction(message_id, self._done_emoji)
                     # Remove THUMBSUP
                     self._remove_reaction(message_id)
                 except Exception as e:
-                    logger.warning("Failed to forward message: {}", e)
+                    logger.warning("Failed to forward message via TCP: {}", e)
 
             t = threading.Thread(target=forward, daemon=True)
             t.start()
@@ -145,7 +151,6 @@ class FeishuProxyChannel:
 
     def on_reaction(self, data: Any) -> None:
         """Handle reaction events (im.message.reaction.created_v1)."""
-        # No action needed - reaction events are informational only
         pass
 
     def _add_reaction(self, message_id: str, emoji: str) -> None:
@@ -203,13 +208,13 @@ class FeishuProxyChannel:
             logger.error("Failed to send reply: {}", e)
 
 
-def run_ws_loop(config: dict, hub_url: str, channel: str, bot: str, client: Any) -> None:
+def run_ws_loop(config: dict, hub_tcp_host: str, hub_tcp_port: int, channel: str, bot: str, client: Any) -> None:
     """Run the Feishu WebSocket connection in a dedicated thread."""
     import lark_oapi as lark
 
     domain = "https://open.feishu.cn" if config.get("domain", "feishu") == "feishu" else "https://open.larksuite.com"
 
-    proxy_channel = FeishuProxyChannel(config, hub_url, channel, bot, client)
+    proxy_channel = FeishuProxyChannel(config, hub_tcp_host, hub_tcp_port, channel, bot, client)
 
     builder = (
         lark.EventDispatcherHandler.builder(
@@ -262,38 +267,12 @@ def main() -> None:
         logger.error("Feishu proxy: appId and appSecret required in config")
         sys.exit(1)
 
-    hub_url = args.hub_url
+    hub_tcp_host = "127.0.0.1"
+    hub_tcp_port = args.hub_tcp_port
     channel = args.channel
     bot = args.bot
 
     logger.info("Feishu proxy starting for {}:{}", channel, bot)
-
-    # Register with Hub
-    try:
-        result = _register(hub_url, channel, bot, os.getpid())
-        logger.info("Registered with Hub: {}", result)
-    except Exception as e:
-        logger.error("Failed to register with Hub: {}", e)
-        sys.exit(1)
-
-    # Start heartbeat thread - first heartbeat fires immediately after registration
-    def heartbeat_loop():
-        _send_heartbeat(hub_url, channel, bot)  # immediate first heartbeat
-        hb_count = 0
-        while True:
-            time.sleep(30)
-            hb_count += 1
-            try:
-                _send_heartbeat(hub_url, channel, bot)
-                if hb_count % 4 == 0:
-                    logger.info("Heartbeat #{} sent for {}:{}", hb_count, channel, bot)
-            except Exception as e:
-                logger.warning("Heartbeat #{} failed for {}:{}: {}", hb_count, channel, bot, e)
-            if hb_count % 10 == 0:
-                logger.info("Heartbeat #{} sent for {}:{}", hb_count, channel, bot)
-
-    hb_thread = threading.Thread(target=heartbeat_loop, daemon=True)
-    hb_thread.start()
 
     # Create Feishu client for sending replies
     import lark_oapi as lark
@@ -307,8 +286,20 @@ def main() -> None:
         .build()
     )
 
+    # Connect to Hub via TCP and register
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        proxy_channel = FeishuProxyChannel(config, hub_tcp_host, hub_tcp_port, channel, bot, client)
+        loop.run_until_complete(proxy_channel._connect_tcp())
+        loop.close()
+        logger.info("Registered with Hub via TCP")
+    except Exception as e:
+        logger.error("Failed to register with Hub via TCP: {}", e)
+        sys.exit(1)
+
     # Run WebSocket loop
-    run_ws_loop(config, hub_url, channel, bot, client)
+    run_ws_loop(config, hub_tcp_host, hub_tcp_port, channel, bot, client)
 
 
 if __name__ == "__main__":

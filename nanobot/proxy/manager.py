@@ -30,24 +30,38 @@ class ProxyInfo:
         self.config = config or {}
         self.last_heartbeat: float = time.time()
         self.running = True
+        self.reader: asyncio.StreamReader | None = None
+        self.writer: asyncio.StreamWriter | None = None
 
     @property
     def key(self) -> str:
         return f"{self.channel}:{self.bot}"
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if TCP connection is still alive."""
+        if self.writer is None:
+            return False
+        try:
+            return not self.writer.is_closing()
+        except Exception:
+            return False
 
 
 class ProxyManager:
     """
     Manages lifecycle of proxy processes.
 
-    Spawns proxy processes on startup, monitors heartbeats,
+    Spawns proxy processes on startup, monitors TCP connections,
     and restarts dead proxies automatically.
     """
 
-    def __init__(self, hub_api_base: str):
+    def __init__(self, hub_api_base: str, proxy_tcp_port: int | None = None):
         self._hub_api_base = hub_api_base
+        self._proxy_tcp_port = proxy_tcp_port
         self._proxies: dict[str, ProxyInfo] = {}  # key -> ProxyInfo
         self._monitor_task: asyncio.Task | None = None
+        self._writers: dict[int, str] = {}  # writer_id -> proxy key
 
     def key_for(self, channel: str, bot: str) -> str:
         return f"{channel}:{bot}"
@@ -69,17 +83,16 @@ class ProxyManager:
         Returns:
             Popen handle to the spawned process
         """
-        # Build the proxy entrypoint
         proxy_module = f"nanobot.proxy.channels.{channel}"
 
         cmd = [
             sys.executable, "-m", proxy_module,
             "--hub-url", self._hub_api_base,
+            "--hub-tcp-port", str(self._proxy_tcp_port or 18791),
             "--channel", channel,
             "--bot", bot,
         ]
 
-        # Pass channel config via env for security (no CLI args for secrets)
         import json
         env = dict(os.environ)
         env["NANOBOT_PROXY_CONFIG"] = json.dumps(config)
@@ -91,7 +104,6 @@ class ProxyManager:
             stderr=subprocess.STDOUT,
         )
 
-        # Capture proxy output for crash diagnostics
         import io
         proxy_output = io.BytesIO()
         def capture_output():
@@ -120,15 +132,44 @@ class ProxyManager:
         return process
 
     def register(self, registration: dict[str, Any]) -> None:
-        """Record a proxy's registration info (called after proxy calls /api/register)."""
+        """Record a proxy's registration info (HTTP-based, legacy)."""
         key = self.key_for(registration["channel"], registration["bot"])
         if key in self._proxies:
             self._proxies[key].registration = registration
             self._proxies[key].last_heartbeat = time.time()
             logger.debug("Proxy {} registered", key)
 
+    def register_via_tcp(
+        self,
+        key: str,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        registration: dict[str, Any],
+    ) -> None:
+        """Record a proxy's TCP connection."""
+        if key in self._proxies:
+            self._proxies[key].reader = reader
+            self._proxies[key].writer = writer
+            self._proxies[key].registration = registration
+            self._proxies[key].last_heartbeat = time.time()
+            self._proxies[key].running = True
+            writer_id = id(writer)
+            self._writers[writer_id] = key
+            logger.debug("Proxy {} registered via TCP", key)
+
+    def unregister_by_writer(self, writer: asyncio.StreamWriter) -> None:
+        """Remove proxy registration by writer instance."""
+        writer_id = id(writer)
+        if writer_id in self._writers:
+            key = self._writers.pop(writer_id)
+            if key in self._proxies:
+                self._proxies[key].reader = None
+                self._proxies[key].writer = None
+                self._proxies[key].running = False
+            logger.debug("Proxy {} unregistered (TCP disconnected)", key)
+
     def heartbeat(self, registration: dict[str, Any]) -> None:
-        """Update last heartbeat for a proxy."""
+        """Update last heartbeat for a proxy (HTTP-based, legacy)."""
         key = self.key_for(registration["channel"], registration["bot"])
         if key in self._proxies:
             self._proxies[key].last_heartbeat = time.time()
@@ -160,16 +201,17 @@ class ProxyManager:
 
         self._proxies.clear()
 
-    async def _monitor_loop(self, heartbeat_timeout: float) -> None:
-        """Periodically check proxies are alive and restart dead ones."""
+    async def _monitor_loop(self, heartbeat_timeout: float = 0.0) -> None:
+        """Periodically check proxies are alive via TCP connection state.
+
+        No heartbeat timeout needed — TCP connection liveness IS the heartbeat.
+        """
         while True:
             await asyncio.sleep(15)
-            now = time.time()
             for key, proxy in list(self._proxies.items()):
+                # Check if process exited
                 if proxy.process.poll() is not None:
-                    # Process has exited
                     if proxy.running:
-                        # Log captured proxy output for diagnostics
                         output = getattr(proxy, '_proxy_output', None)
                         if output:
                             output.seek(0)
@@ -183,17 +225,18 @@ class ProxyManager:
                         )
                         proxy.running = False
                         self._restart_proxy(proxy)
-                elif heartbeat_timeout > 0 and now - proxy.last_heartbeat > heartbeat_timeout:
-                    # No heartbeat, assume dead - log proxy output for diagnostics
+                # Check if TCP connection is dead (connection closed by proxy)
+                elif not proxy.is_connected:
+                    # TCP connection lost — proxy is dead, restart
                     output = getattr(proxy, '_proxy_output', None)
                     if output:
                         output.seek(0)
                         content = output.read().decode('utf-8', errors='replace')
                         if content.strip():
                             for line in content.strip().splitlines()[-50:]:
-                                logger.warning("[proxy {} heartbeat-timeout] {}", key, line)
+                                logger.warning("[proxy {} TCP-disconnect] {}", key, line)
                     logger.warning(
-                        "Proxy {} missed heartbeat, restarting...",
+                        "Proxy {} TCP connection lost, restarting...",
                         key
                     )
                     self._restart_proxy(proxy)
