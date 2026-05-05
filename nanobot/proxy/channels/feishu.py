@@ -283,7 +283,10 @@ def main() -> None:
         while True:
             time.sleep(20)
             hb_count += 1
-            _send_heartbeat(hub_url, channel, bot)
+            try:
+                _send_heartbeat(hub_url, channel, bot)
+            except Exception as e:
+                logger.warning("Heartbeat #{} failed for {}:{}: {}", hb_count, channel, bot, e)
             if hb_count % 10 == 0:
                 logger.info("Heartbeat #{} sent for {}:{}", hb_count, channel, bot)
 
