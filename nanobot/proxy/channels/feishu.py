@@ -46,9 +46,10 @@ class FeishuProxyChannel:
         self._done_emoji = config.get("done_emoji")
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
+        self._send_lock = threading.Lock()
 
-    async def _connect_tcp(self) -> None:
-        """Establish TCP connection to Hub."""
+    async def _do_connect(self) -> None:
+        """Actual TCP connection logic (runs in thread)."""
         self._reader, self._writer = await asyncio.open_connection(
             self.hub_tcp_host, self.hub_tcp_port
         )
@@ -72,13 +73,36 @@ class FeishuProxyChannel:
         else:
             raise RuntimeError(f"TCP registration failed: {resp}")
 
-    async def _send_message(self, msg: dict[str, Any]) -> HubResponse:
-        """Send message to Hub via TCP and wait for response."""
+    def _connect_tcp(self) -> None:
+        """Connect to Hub via TCP in a dedicated thread with persistent loop."""
+        self._conn_loop = asyncio.new_event_loop()
+        self._conn_thread = threading.Thread(target=self._conn_loop.run_forever, daemon=True)
+        self._conn_thread.start()
+
+        # Run connection coroutine on _conn_loop (not ws_loop)
+        async def do_connect() -> None:
+            self._reader, self._writer = await asyncio.open_connection(
+                self.hub_tcp_host, self.hub_tcp_port
+            )
+            logger.info("Connected to Hub via TCP at {}:{}", self.hub_tcp_host, self.hub_tcp_port)
+            register_msg = {"type": "register", "channel": self.channel, "bot": self.bot, "pid": os.getpid()}
+            self._writer.write((json.dumps(register_msg) + "\n").encode())
+            await self._writer.drain()
+            resp_line = await self._reader.readline()
+            resp = json.loads(resp_line.decode())
+            if resp.get("success"):
+                logger.info("Registered with Hub via TCP")
+            else:
+                raise RuntimeError(f"TCP registration failed: {resp}")
+
+        future = asyncio.run_coroutine_threadsafe(do_connect(), self._conn_loop)
+        future.result()  # block until connected
+
+    async def _do_send(self, msg: dict[str, Any]) -> HubResponse:
+        """Send message to Hub via TCP and wait for response (runs in conn_loop)."""
         msg["type"] = "message"
         self._writer.write((json.dumps(msg) + "\n").encode())
         await self._writer.drain()
-
-        # Read response
         resp_line = await self._reader.readline()
         return HubResponse.from_dict(json.loads(resp_line.decode()))
 
@@ -114,29 +138,30 @@ class FeishuProxyChannel:
             # Add THUMBSUP reaction immediately
             self._add_reaction(message_id, self._reaction_emoji)
 
-            # Forward to Hub via TCP
+            # Forward to Hub via TCP (atomic send+receive to prevent response interleaving)
             def forward():
+                response = None
                 try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    response = loop.run_until_complete(
-                        self._send_message({
-                            "channel": self.channel,
-                            "bot": self.bot,
-                            "sender_id": sender_id,
-                            "chat_id": chat_id,
-                            "content": text,
-                            "message_id": message_id,
-                            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                        })
-                    )
-                    loop.close()
+                    with self._send_lock:
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._do_send({
+                                "channel": self.channel,
+                                "bot": self.bot,
+                                "sender_id": sender_id,
+                                "chat_id": chat_id,
+                                "content": text,
+                                "message_id": message_id,
+                                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            }),
+                            self._conn_loop,
+                        )
+                        response = future.result(timeout=120)
 
-                    if response.success and response.content:
+                    if response and response.success and response.content:
                         self._send_text_reply(chat_id, message_id, response.content)
-                    if response.success and response.metadata.get("done_emoji"):
+                    if response and response.success and response.metadata.get("done_emoji"):
                         self._add_reaction(message_id, response.metadata["done_emoji"])
-                    else:
+                    elif response:
                         self._add_reaction(message_id, self._done_emoji)
                     # Remove THUMBSUP
                     self._remove_reaction(message_id)
@@ -208,13 +233,18 @@ class FeishuProxyChannel:
             logger.error("Failed to send reply: {}", e)
 
 
-def run_ws_loop(config: dict, hub_tcp_host: str, hub_tcp_port: int, channel: str, bot: str, client: Any) -> None:
+def run_ws_loop(
+    config: dict, hub_tcp_host: str, hub_tcp_port: int, channel: str, bot: str,
+    client: Any, proxy_channel: FeishuProxyChannel | None = None,
+    _ws_loop: asyncio.AbstractEventLoop | None = None,
+) -> None:
     """Run the Feishu WebSocket connection in a dedicated thread."""
     import lark_oapi as lark
 
     domain = "https://open.feishu.cn" if config.get("domain", "feishu") == "feishu" else "https://open.larksuite.com"
 
-    proxy_channel = FeishuProxyChannel(config, hub_tcp_host, hub_tcp_port, channel, bot, client)
+    if proxy_channel is None:
+        proxy_channel = FeishuProxyChannel(config, hub_tcp_host, hub_tcp_port, channel, bot, client)
 
     builder = (
         lark.EventDispatcherHandler.builder(
@@ -234,12 +264,13 @@ def run_ws_loop(config: dict, hub_tcp_host: str, hub_tcp_port: int, channel: str
         log_level=lark.LogLevel.INFO,
     )
 
-    def run_ws():
+    def run_ws(ws_loop: asyncio.AbstractEventLoop | None) -> None:
         import lark_oapi.ws as _lark_ws
 
         logger.info("Feishu WS loop starting, connecting to {}...", domain)
-        ws_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(ws_loop)
+        if ws_loop is None or ws_loop.is_closed():
+            ws_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(ws_loop)
         _lark_ws.client.loop = ws_loop
 
         try:
@@ -249,10 +280,11 @@ def run_ws_loop(config: dict, hub_tcp_host: str, hub_tcp_port: int, channel: str
         except Exception as e:
             logger.error("Feishu WS error: {}", e)
         finally:
-            ws_loop.close()
+            if ws_loop is not None and not ws_loop.is_closed():
+                ws_loop.close()
             logger.info("Feishu WS loop ended")
 
-    thread = threading.Thread(target=run_ws, daemon=True)
+    thread = threading.Thread(target=run_ws, args=(_ws_loop,), daemon=True)
     thread.start()
 
     while True:
@@ -286,20 +318,17 @@ def main() -> None:
         .build()
     )
 
-    # Connect to Hub via TCP and register
+    # Connect to Hub via TCP in a dedicated thread with persistent loop
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         proxy_channel = FeishuProxyChannel(config, hub_tcp_host, hub_tcp_port, channel, bot, client)
-        loop.run_until_complete(proxy_channel._connect_tcp())
-        loop.close()
+        proxy_channel._connect_tcp()  # sync, blocks until connected
         logger.info("Registered with Hub via TCP")
+
+        # Run WebSocket in a separate thread with its own loop
+        run_ws_loop(config, hub_tcp_host, hub_tcp_port, channel, bot, client, proxy_channel, None)
     except Exception as e:
         logger.error("Failed to register with Hub via TCP: {}", e)
         sys.exit(1)
-
-    # Run WebSocket loop
-    run_ws_loop(config, hub_tcp_host, hub_tcp_port, channel, bot, client)
 
 
 if __name__ == "__main__":

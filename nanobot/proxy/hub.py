@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any
 
@@ -18,40 +17,6 @@ from loguru import logger
 from nanobot.agent.loop import AgentLoop
 from nanobot.proxy.manager import ProxyManager
 from nanobot.proxy.protocol import HubResponse, ProxyMessage
-
-# Thread pool for processing proxy messages without blocking TCP server
-_proxy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="proxy_msg_")
-
-
-async def _process_message_in_thread(
-    agent_loop: AgentLoop,
-    msg: ProxyMessage,
-) -> HubResponse:
-    """Run message processing in thread pool (non-blocking)."""
-    session_key = f"{msg.channel}:{msg.bot}:{msg.sender_id}"
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(
-        _proxy_executor,
-        partial(
-            agent_loop.process_direct_sync,
-            content=msg.content,
-            session_key=session_key,
-            channel=f"proxy:{msg.channel}:{msg.bot}",
-            chat_id=msg.chat_id,
-            media=msg.media if msg.media else None,
-        ),
-    )
-
-    if response is None:
-        return HubResponse(success=True, content="")
-
-    reply_content = response.content if hasattr(response, "content") else str(response)
-    return HubResponse(
-        success=True,
-        reply_to=msg.message_id,
-        content=reply_content,
-        metadata=response.metadata if hasattr(response, "metadata") else {},
-    )
 
 
 async def _handle_proxy_tcp(
@@ -118,8 +83,23 @@ async def _handle_proxy_tcp(
                 logger.info("TCP proxy message for {}: {} (session={})", session_key, msg.content[:50], session_key)
 
                 try:
-                    response = await _process_message_in_thread(agent_loop, msg)
-                    resp = response
+                    response = await agent_loop.process_direct(
+                        content=msg.content,
+                        session_key=session_key,
+                        channel=f"proxy:{msg.channel}:{msg.bot}",
+                        chat_id=msg.chat_id,
+                        media=msg.media if msg.media else None,
+                    )
+                    if response is None:
+                        resp = HubResponse(success=True, content="")
+                    else:
+                        reply_content = response.content if hasattr(response, "content") else str(response)
+                        resp = HubResponse(
+                            success=True,
+                            reply_to=msg.message_id,
+                            content=reply_content,
+                            metadata=response.metadata if hasattr(response, "metadata") else {},
+                        )
                 except Exception as e:
                     logger.exception("Error processing proxy TCP message: {}", e)
                     resp = HubResponse(success=False, error=str(e))

@@ -266,6 +266,7 @@ class ProxyManager:
         cmd = [
             sys.executable, "-m", f"nanobot.proxy.channels.{proxy.channel}",
             "--hub-url", self._hub_api_base,
+            "--hub-tcp-port", str(self._proxy_tcp_port or 18791),
             "--channel", proxy.channel,
             "--bot", proxy.bot,
         ]
