@@ -9,6 +9,11 @@ from aiohttp import web
 __all__ = ["create_app"]
 
 
+async def handle_health(request: web.Request) -> web.Response:
+    """GET /health"""
+    return web.json_response({"status": "ok"})
+
+
 async def handle_settings_get(request: web.Request) -> web.Response:
     """GET /api/settings"""
     try:
@@ -101,6 +106,7 @@ def create_app(index_html_path: str | Path = "") -> web.Application:
     app = web.Application()
     app["index_html_path"] = str(index_html_path)
     app.router.add_get("/", lambda r: web.FileResponse(r.app["index_html_path"]))
+    app.router.add_get("/health", handle_health)
     app.router.add_get("/api/settings", handle_settings_get)
     app.router.add_put("/api/settings/update", handle_settings_update)
     return app
