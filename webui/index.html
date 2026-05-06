@@ -162,16 +162,33 @@ function renderAgent() {
     <div class="card">
       <div class="card-header">AI Model</div>
       ${selectField('provider', 'Provider', a.provider, 'agents.defaults.provider', [
-        {v:'openai',l:'OpenAI'},{v:'anthropic',l:'Anthropic'},{v:'deepseek',l:'DeepSeek'},
-        {v:'minimax',l:'minimax'},{v:'minimax_anthropic',l:'minimax_anthropic'},
-        {v:'minimax_cn',l:'minimax_cn'},{v:'minimax_anthropic_cn',l:'minimax_anthropic_cn'},
-        {v:'moonshot',l:'Moonshot'},{v:'gemini',l:'Gemini'},{v:'ollama',l:'Ollama'},
-        {v:'azure_openai',l:'Azure OpenAI'},{v:'openrouter',l:'OpenRouter'},
-        {v:'dashscope',l:'DashScope'},{v:'zhipu',l:'Zhipu'},{v:'groq',l:'Groq'},
-        {v:'mistral',l:'Mistral'},{v:'stepfun',l:'Stepfun'},{v:'qianfan',l:'Qianfan'},
-        {v:'custom',l:'Custom'},{v:'vllm',l:'vLLM'},{v:'lm_studio',l:'LM Studio'},
-        {v:'ovms',l:'OVMS'},{v:'siliconflow',l:'SiliconFlow'},{v:'volcengine',l:'Volcengine'},
-        {v:'byteplus',l:'BytePlus'},{v:'xiaomi_mimo',l:'Xiaomi MiMo'},{v:'aihubmix',l:'AIHubMix'},
+        {v:'openai',l:'OpenAI'},
+        {v:'anthropic',l:'Anthropic'},
+        {v:'deepseek',l:'DeepSeek'},
+        {v:'minimax',l:'Minimax (OpenAI兼容)'},
+        {v:'minimax_anthropic',l:'Minimax (Anthropic兼容)'},
+        {v:'minimax_cn',l:'Minimax CN (OpenAI兼容)'},
+        {v:'minimax_anthropic_cn',l:'Minimax CN (Anthropic兼容)'},
+        {v:'moonshot',l:'Moonshot'},
+        {v:'gemini',l:'Gemini'},
+        {v:'ollama',l:'Ollama'},
+        {v:'azure_openai',l:'Azure OpenAI'},
+        {v:'openrouter',l:'OpenRouter'},
+        {v:'dashscope',l:'DashScope'},
+        {v:'zhipu',l:'Zhipu'},
+        {v:'groq',l:'Groq'},
+        {v:'mistral',l:'Mistral'},
+        {v:'stepfun',l:'Stepfun'},
+        {v:'qianfan',l:'Qianfan'},
+        {v:'custom',l:'Custom'},
+        {v:'vllm',l:'vLLM'},
+        {v:'lm_studio',l:'LM Studio'},
+        {v:'ovms',l:'OVMS'},
+        {v:'siliconflow',l:'SiliconFlow'},
+        {v:'volcengine',l:'Volcengine'},
+        {v:'byteplus',l:'BytePlus'},
+        {v:'xiaomi_mimo',l:'Xiaomi MiMo'},
+        {v:'aihubmix',l:'AIHubMix'},
       ], 'onProviderChange()')}
       ${selectField('model', 'Model', a.model, 'agents.defaults.model', [], 'onModelChange()')}
       <div class="row" id="model-loading-row" style="display:none"><label></label><span class="hint">Loading models...</span></div>
@@ -470,7 +487,11 @@ function toggleChannel(name) {
 // ── Providers ─────────────────────────────────────────────────────────────────
 function renderProviders() {
   const tab = document.getElementById('tabProviders');
-  const known = ['openai','anthropic','deepseek','groq','minimax','minimax_anthropic','minimax_anthropic_cn','minimax_cn','moonshot','gemini','ollama','azure_openai','openrouter','dashscope','zhipu','mistral','stepfun','qianfan','wecom','volcengine','siliconflow'];
+  const known = ['openai','anthropic','deepseek','groq',
+    'minimax_anthropic_cn','minimax_cn','minimax_anthropic','minimax',
+    'moonshot','gemini','ollama','azure_openai','openrouter','dashscope','zhipu',
+    'mistral','stepfun','qianfan','custom','vllm','lm_studio','ovms',
+    'siliconflow','volcengine','wecom'];
   let html = '<div class="provider-grid">';
   for (const name of known) {
     const p = config.providers[name];
