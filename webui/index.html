@@ -44,12 +44,15 @@ const app = document.getElementById('app');
 
 async function load() {
   try {
-    const res = await fetch('/api/settings');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch('/api/settings', { signal: controller.signal });
+    clearTimeout(timer);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const s = await res.json();
     render(s);
   } catch(e) {
-    app.innerHTML = '<div class="error">Failed to load settings: ' + e.message + '</div>';
+    app.innerHTML = '<div class="error">Failed to load settings: ' + e.name + ' ' + e.message + '</div>';
   }
 }
 
@@ -89,18 +92,22 @@ async function save() {
   btn.disabled = true;
   msg.textContent = '';
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
     const res = await fetch('/api/settings/update', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, provider })
+      body: JSON.stringify({ model, provider }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     const s = await res.json();
     if (!res.ok) throw new Error(s.error || 'HTTP ' + res.status);
     msg.className = 'msg ok';
     msg.textContent = s.requires_restart ? 'Saved. Restart nanobot to apply.' : 'Saved.';
   } catch(e) {
     msg.className = 'msg err';
-    msg.textContent = e.message;
+    msg.textContent = e.name === 'AbortError' ? 'Request timed out' : e.message;
   } finally {
     btn.disabled = false;
   }
