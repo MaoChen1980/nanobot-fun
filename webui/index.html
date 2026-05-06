@@ -470,17 +470,17 @@ function toggleChannel(name) {
 // ── Providers ─────────────────────────────────────────────────────────────────
 function renderProviders() {
   const tab = document.getElementById('tabProviders');
-  const known = ['openai','anthropic','deepseek','groq','minimax','minimaxAnthropicCn','moonshot','gemini','ollama','azureOpenai','openrouter','dashscope','zhipu','mistral','stepfun','qianfan','wecom','volcengine','siliconflow'];
+  const known = ['openai','anthropic','deepseek','groq','minimax','minimax_anthropic','minimax_anthropic_cn','minimax_cn','moonshot','gemini','ollama','azure_openai','openrouter','dashscope','zhipu','mistral','stepfun','qianfan','wecom','volcengine','siliconflow'];
   let html = '<div class="provider-grid">';
   for (const name of known) {
     const p = config.providers[name];
     if (!p) continue;
-    const hasKey = p.apiKey && p.apiKey.length > 0;
+    const hasKey = p.api_key && p.api_key.length > 0;
     html += `
     <div class="card">
       <div class="card-header">${name} ${hasKey ? '<span class="badge enabled">KEY</span>' : ''}</div>
-      ${field('apiKey', 'API Key', hasKey ? '••••••••' : '', 'password', `providers.${name}.apiKey`)}
-      ${field('apiBase', 'API Base', p.apiBase || '', 'text', `providers.${name}.apiBase`)}
+      ${field('api_key_'+name, 'API Key', hasKey ? '••••••••' : '', 'password', `providers.${name}.api_key`)}
+      ${field('api_base_'+name, 'API Base', p.api_base || '', 'text', `providers.${name}.api_base`)}
     </div>`;
   }
   html += '</div>';
