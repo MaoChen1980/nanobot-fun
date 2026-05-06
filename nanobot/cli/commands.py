@@ -923,7 +923,7 @@ def _run_gateway(
         except Exception as e:
             console.print(f"[yellow]Could not open browser ({e}); visit {open_browser_url}[/yellow]")
 
-    from nanobot.proxy.hub import start_tcp_server
+    from nanobot.proxy.hub import start_tcp_server, stop_tcp_server
 
     async def run():
         try:
@@ -954,6 +954,9 @@ def _run_gateway(
             heartbeat.stop()
             cron.stop()
             agent.stop()
+            # Stop TCP server (no new proxy connections), then close
+            # existing proxy connections and kill lingering processes.
+            await stop_tcp_server(tcp_server)
             await proxy_manager.stop()
             if api_runner is not None:
                 await api_runner.cleanup()

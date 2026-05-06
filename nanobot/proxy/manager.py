@@ -238,6 +238,21 @@ class ProxyManager:
             except asyncio.CancelledError:
                 pass
 
+        # Step 1: close all proxy TCP writers — this causes any proxy
+        # currently inside _do_send() to get a connection error and
+        # self-terminate via os._exit(1) in send_to_hub / async_send_to_hub.
+        for key, proxy in list(self._proxies.items()):
+            if proxy.writer and not proxy.writer.is_closing():
+                try:
+                    proxy.writer.close()
+                except Exception:
+                    pass
+
+        # Step 2: brief window for proxies to notice the disconnection
+        # and exit on their own
+        await asyncio.sleep(3)
+
+        # Step 3: force-kill any remaining (idle) proxy processes
         for key, proxy in list(self._proxies.items()):
             logger.info("Stopping proxy {} (pid={})", key, proxy.process.pid)
             try:
