@@ -600,9 +600,16 @@ def _spawn_proxy_processes(config: Config, proxy_manager: Any, port: int) -> Non
     Spawn proxy processes for all channels with a bots list.
     Channels without bots list run in-process via ChannelManager.
     """
+    # Pydantic stores extra fields (like 'feishu') in __pydantic_extra__, not in dir()
+    extra = getattr(config.channels, "__pydantic_extra__", None) or {}
+    # Also include model_fields for any first-class channel fields
+    model_keys = set(getattr(type(config.channels), "model_fields", {}) or {})
+    channel_names = set(extra.keys()) | model_keys
+
     spawned = 0
-    for name in dir(config.channels):
-        if name.startswith("_") or name in ("model_config", "model_dump", "model_fields"):
+    spawned_channels = set()
+    for name in channel_names:
+        if name.startswith("_"):
             continue
         section = getattr(config.channels, name, None)
         if section is None:
@@ -617,9 +624,10 @@ def _spawn_proxy_processes(config: Config, proxy_manager: Any, port: int) -> Non
             if bot_name:
                 proxy_manager.spawn(name, bot_name, bot_config)
                 spawned += 1
+                spawned_channels.add(name)
 
     if spawned:
-        console.print(f"[green]✓[/green] Spawned {spawned} proxy(s) across {len([n for n in dir(config.channels) if not n.startswith('_') and _get_bots_list(getattr(config.channels, n, None))])} channel(s)")
+        console.print(f"[green]✓[/green] Spawned {spawned} proxy(s) across {len(spawned_channels)} channel(s)")
 
 
 # ============================================================================
