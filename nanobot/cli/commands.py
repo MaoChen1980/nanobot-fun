@@ -549,30 +549,22 @@ def serve(
         tools_config=runtime_config.tools,
     )
 
+    # Resolve webui/index.html path relative to this project
+    from pathlib import Path as P
+    webui_index = (P(__file__).parent.parent / "webui" / "index.html").resolve()
+
     model_name = runtime_config.agents.defaults.model
-    console.print(f"{__logo__} Starting OpenAI-compatible API server")
-    console.print(f"  [cyan]Endpoint[/cyan] : http://{host}:{port}/v1/chat/completions")
-    console.print(f"  [cyan]Model[/cyan]    : {model_name}")
-    console.print("  [cyan]Session[/cyan]  : api:default")
-    console.print(f"  [cyan]Timeout[/cyan]  : {timeout}s")
+    console.print(f"{__logo__} Starting settings server")
+    console.print(f"  [cyan]URL[/cyan]      : http://{host}:{port}/")
+    console.print(f"  [cyan]Local only[/cyan]: http://127.0.0.1:{port}/ for browser access")
     if host in {"0.0.0.0", "::"}:
         console.print(
-            "[yellow]Warning:[/yellow] API is bound to all interfaces. "
-            "Only do this behind a trusted network boundary, firewall, or reverse proxy."
+            "[yellow]Warning:[/yellow] Server is bound to all interfaces. "
+            "Only do this behind a trusted network boundary."
         )
     console.print()
 
-    api_app = create_app(agent_loop, model_name=model_name, request_timeout=timeout, api_port=port)
-
-    async def on_startup(_app):
-        await agent_loop._connect_mcp()
-
-    async def on_cleanup(_app):
-        await agent_loop.close_mcp()
-
-    api_app.on_startup.append(on_startup)
-    api_app.on_cleanup.append(on_cleanup)
-
+    api_app = create_app(webui_index)
     web.run_app(api_app, host=host, port=port, print=lambda msg: logger.info(msg))
 
 
@@ -867,18 +859,20 @@ def _run_gateway(
     console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
 
     async def _run_api_server(host: str, api_port: int):
-        """Run the aiohttp API server (with proxy routes) on the gateway port."""
+        """Run the aiohttp settings server on the gateway port."""
         nonlocal api_runner
         from aiohttp import web
         from nanobot.api.server import create_app as make_api_app
+        from pathlib import Path as P
 
-        api_app = make_api_app(agent, model_name=provider_snapshot.model, request_timeout=120.0, api_port=api_port)
+        webui_index = (P(__file__).parent.parent / "webui" / "index.html").resolve()
+        api_app = make_api_app(webui_index)
 
         api_runner = web.AppRunner(api_app, shutdown_timeout=0)
         await api_runner.setup()
         site = web.TCPSite(api_runner, host, api_port)
         await site.start()
-        console.print(f"[green]✓[/green] API+Proxy server: http://{host}:{api_port}")
+        console.print(f"[green]✓[/green] Settings server: http://{host}:{api_port}/")
     # Register Dream system job (always-on, idempotent on restart)
     dream_cfg = config.agents.defaults.dream
     if dream_cfg.model_override:
