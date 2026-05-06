@@ -388,7 +388,7 @@ def _onboard_plugins(config_path: Path) -> None:
     """Inject default config for all discovered channels (built-in + plugins)."""
     import json
 
-    from nanobot.channels.registry import discover_all
+    from nanobot.proxy.registry import discover_all
 
     all_channels = discover_all()
     if not all_channels:
@@ -660,7 +660,7 @@ def _run_gateway(
     from nanobot.agent.tools.message import MessageTool
     from nanobot.agent.db import NanobotDB
     from nanobot.bus.queue import MessageBus
-    from nanobot.channels.manager import ChannelManager
+    from nanobot.bus.manager import ChannelManager
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
@@ -1217,7 +1217,7 @@ def channels_status(
     config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Show channel status."""
-    from nanobot.channels.registry import discover_all
+    from nanobot.proxy.registry import discover_all
     from nanobot.config.loader import load_config, set_config_path
 
     resolved_config_path = Path(config_path).expanduser().resolve() if config_path else None
@@ -1314,7 +1314,7 @@ def channels_login(
     config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Authenticate with a channel via QR code or other interactive login."""
-    from nanobot.channels.registry import discover_all
+    from nanobot.proxy.registry import discover_all
     from nanobot.config.loader import load_config, set_config_path
 
     resolved_config_path = Path(config_path).expanduser().resolve() if config_path else None
@@ -1353,7 +1353,7 @@ app.add_typer(plugins_app, name="plugins")
 @plugins_app.command("list")
 def plugins_list():
     """List all discovered channels (built-in and plugins)."""
-    from nanobot.channels.registry import discover_all, discover_channel_names
+    from nanobot.proxy.registry import discover_all, discover_channel_names
     from nanobot.config.loader import load_config
 
     config = load_config()
