@@ -5,73 +5,147 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>nanobot settings</title>
 <style>
+  :root {
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --border: #e2e8f0;
+    --border-hover: #cbd5e1;
+    --primary: #3b82f6;
+    --primary-hover: #2563eb;
+    --primary-light: rgba(59,130,246,0.12);
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --text-hint: #94a3b8;
+    --success: #10b981;
+    --danger: #ef4444;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    --shadow: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.05);
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, sans-serif; background: #f9fafb; color: #111; min-height: 100vh; }
-  .container { max-width: 800px; margin: 0 auto; padding: 1rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 
-  header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid #e5e7eb; }
-  header img { width: 32px; height: 32px; }
-  header h1 { font-size: 1.125rem; font-weight: 600; }
+  .container { max-width: 860px; margin: 0 auto; padding: 2rem 1rem 6rem; }
 
-  .tabs { display: flex; gap: 0; border-bottom: 2px solid #e5e7eb; margin-bottom: 1.5rem; }
-  .tab { padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; font-weight: 500; color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -2px; }
-  .tab:hover { color: #111; }
-  .tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
+  /* Header */
+  header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 2rem; }
+  header img { width: 36px; height: 36px; border-radius: 10px; box-shadow: var(--shadow-sm); }
+  header h1 { font-size: 1.25rem; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
 
+  /* Tabs */
+  .tabs-wrap { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
+  .tabs { display: flex; gap: 0.25rem; background: var(--surface); padding: 0.3rem; border-radius: var(--radius); box-shadow: var(--shadow-sm); border: 1px solid var(--border); }
+  .tab { padding: 0.5rem 1rem; cursor: pointer; font-size: 0.8rem; font-weight: 500; color: var(--text-muted); border-radius: 6px; transition: all 0.15s; border: none; background: transparent; }
+  .tab:hover { color: var(--text); background: var(--bg); }
+  .tab.active { color: var(--primary); background: var(--primary-light); }
+
+  /* Tab panels */
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
-  .card { background: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; overflow: hidden; margin-bottom: 1rem; }
-  .card-header { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between; }
-  .card-header .badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 9999px; background: #dbeafe; color: #1d4ed8; font-weight: 500; text-transform: none; letter-spacing: 0; }
-  .card-header .badge.enabled { background: #dcfce7; color: #15803d; }
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; gap: 1rem; }
+  /* Cards */
+  .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 1rem; overflow: hidden; }
+  .card-header { padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--border); font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; display: flex; align-items: center; justify-content: space-between; }
+  .card-header .badge { font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 9999px; background: #fee2e2; color: #dc2626; font-weight: 600; text-transform: none; letter-spacing: 0; }
+  .card-header .badge.on { background: #d1fae5; color: #059669; }
+
+  /* Form rows */
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--border); gap: 1.5rem; }
   .row:last-child { border-bottom: none; }
-  .row label { font-size: 0.875rem; font-weight: 500; min-width: 140px; }
-  .row .field { flex: 1; display: flex; justify-content: flex-end; }
+  .row:hover { background: #fafbfc; }
+  .row > label { font-size: 0.875rem; font-weight: 500; color: var(--text); min-width: 160px; flex-shrink: 0; }
+  .row .field { flex: 1; display: flex; justify-content: flex-end; align-items: center; gap: 0.5rem; min-width: 0; position: relative; }
+  .row .hint { font-size: 0.75rem; color: var(--text-hint); white-space: nowrap; }
+
+  /* Inputs */
   .row input[type="text"],
   .row input[type="number"],
   .row input[type="password"],
-  .row select { font-size: 0.875rem; padding: 0.375rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; background: white; min-width: 180px; max-width: 100%; }
-  .row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
-  .row input:focus, .row select:focus { outline: 2px solid #3b82f6; outline-offset: 1px; border-color: #3b82f6; }
-  .row .hint { font-size: 0.75rem; color: #9ca3af; }
+  .row select { font-size: 0.875rem; padding: 0.5rem 0.75rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); min-width: 200px; max-width: 100%; transition: border-color 0.15s; }
+  .row input:hover, .row select:hover { border-color: var(--border-hover); }
+  .row input:focus, .row select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+  .row select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; padding-right: 2.5rem; cursor: pointer; }
+  .row textarea { font-size: 0.8rem; font-family: "SF Mono", "Fira Code", monospace; }
 
-  .footer { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1rem; background: #f9fafb; border-top: 1px solid #e5e7eb; position: sticky; bottom: 0; }
-  .msg { font-size: 0.875rem; }
-  .msg.ok { color: #16a34a; }
-  .msg.err { color: #dc2626; }
-  button { font-size: 0.875rem; padding: 0.5rem 1rem; border: 1px solid #d1d5db; border-radius: 0.375rem; background: white; cursor: pointer; }
-  button:hover { background: #f9fafb; }
+  /* Toggle switch */
+  .toggle-input { width: 0; height: 0; opacity: 0; flex: 0 0 0; margin: 0; padding: 0; border: 0; overflow: hidden; align-self: center; }
+  .toggle-label { display: block; width: 44px; height: 24px; border-radius: 12px; background: #d1d5db; cursor: pointer; transition: background 0.2s; flex: 0 0 auto; box-sizing: border-box; position: relative; overflow: hidden; }
+  .toggle-label .thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: white; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.12); transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); pointer-events: none; z-index: 1; }
+  .toggle-input:checked + .toggle-label { background: #10b981; }
+  .toggle-input:checked + .toggle-label:hover { background: #059669; }
+  .toggle-input:checked + .toggle-label .thumb { transform: translateX(20px); }
+  .toggle-input:focus + .toggle-label { outline: 2px solid rgba(16,185,129,0.3); outline-offset: 1px; }
+  .toggle-label:hover { background: #9ca3af; }
+  .toggle-input:checked + .toggle-label:hover { background: #059669; }
+
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; display: none; }
+
+  /* Footer */
+  .footer { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(255,255,255,0.95); backdrop-filter: blur(8px); border-top: 1px solid var(--border); padding: 0.875rem 1.5rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 -2px 12px rgba(0,0,0,0.05); z-index: 100; }
+  .footer::before { content: ''; position: absolute; top: -40px; left: 0; right: 0; height: 40px; background: linear-gradient(to top, transparent, transparent); pointer-events: none; }
+  .msg { font-size: 0.875rem; font-weight: 500; }
+  .msg.ok { color: var(--success); }
+  .msg.err { color: var(--danger); }
+  .footer-actions { display: flex; gap: 0.5rem; }
+  button { font-size: 0.875rem; font-weight: 500; padding: 0.5rem 1rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.15s; }
+  button:hover { border-color: var(--border-hover); background: var(--bg); }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.primary { background: #3b82f6; color: white; border-color: #3b82f6; }
-  button.primary:hover { background: #2563eb; }
+  button.primary { background: var(--primary); color: white; border-color: var(--primary); }
+  button.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+  button.danger { background: var(--danger); color: white; border-color: var(--danger); }
+  button.danger:hover { background: #dc2626; border-color: #dc2626; }
 
-  .loading { display: flex; align-items: center; justify-content: center; min-height: 200px; color: #6b7280; font-size: 0.875rem; }
-  .error { padding: 1rem; color: #dc2626; font-size: 0.875rem; }
+  .loading { display: flex; align-items: center; justify-content: center; min-height: 200px; color: var(--text-muted); font-size: 0.875rem; }
+  .error { padding: 1rem; color: var(--danger); font-size: 0.875rem; }
 
-  .group-title { font-size: 0.8rem; font-weight: 600; color: #374151; padding: 0.5rem 1rem; background: #f9fafb; border-top: 1px solid #e5e7eb; }
+  .group-title { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); padding: 0.75rem 1.25rem 0.5rem; background: #fafbfc; border-top: 1px solid var(--border); letter-spacing: 0.05em; text-transform: uppercase; }
+  .group-title button { font-size: 0.7rem; padding: 0.15rem 0.5rem; }
   .sub-row { padding-left: 1.5rem; }
 
+  /* Bot cards */
+  .bot-card { border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 0.75rem 0.75rem; overflow: hidden; background: var(--surface); border-left: 3px solid #3b82f6; box-shadow: var(--shadow-sm); }
+  .bot-card + .bot-card { margin-top: 0.75rem; }
+  .bot-card:nth-child(odd) { border-left-color: #3b82f6; }
+  .bot-card:nth-child(even) { border-left-color: #10b981; }
+  .bot-header { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; background: #f8fafc; border-bottom: 1px solid var(--border); font-size: 0.85rem; font-weight: 700; color: var(--text); }
+  .bot-header .bot-remove { background: transparent; border: none; color: var(--danger); cursor: pointer; font-size: 1rem; padding: 0.2rem 0.4rem; line-height: 1; border-radius: 4px; }
+  .bot-header .bot-remove:hover { background: #fee2e2; }
+  .bot-body .row { padding: 0.5rem 0.75rem; }
+  .bot-body .row label { font-size: 0.8rem; min-width: 120px; }
+  .bot-body .row input[type="text"], .bot-body .row input[type="number"], .bot-body .row input[type="password"], .bot-body .row select { min-width: 140px; padding: 0.35rem 0.55rem; }
+  .add-bot-btn { font-size: 0.9rem; padding: 0 0.4rem; margin-left: 0.5rem; line-height: 1.4; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; color: var(--text-muted); }
+  .add-bot-btn:hover { border-color: var(--primary); color: var(--primary); }
+
   .channel-card { margin-bottom: 0.5rem; }
-  .channel-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; cursor: pointer; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
-  .channel-header:hover { background: #f3f4f6; }
-  .channel-body { padding: 0.75rem 1rem; display: none; }
+  .channel-header { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; cursor: pointer; background: #fafbfc; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+  .channel-header:hover { background: var(--bg); }
+  .channel-body { padding: 0.5rem 0; display: none; }
   .channel-body.open { display: block; }
 
-  .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
   @media (max-width: 600px) { .provider-grid { grid-template-columns: 1fr; } }
 
-  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0; }
-  .toggle-row label { font-size: 0.875rem; }
-  .toggle { position: relative; width: 36px; height: 20px; }
-  .toggle input { opacity: 0; width: 0; height: 0; }
-  .toggle .slider { position: absolute; inset: 0; background: #d1d5db; border-radius: 9999px; cursor: pointer; transition: 0.2s; }
-  .toggle .slider:before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s; }
-  .toggle input:checked + .slider { background: #3b82f6; }
-  .toggle input:checked + .slider:before { transform: translateX(16px); }
+  .provider-grid .card { margin-bottom: 0; }
+  .provider-grid .card-header { padding: 0.75rem 1rem; font-size: 0.75rem; }
 
-  .masked { font-family: monospace; letter-spacing: 2px; color: #9ca3af; }
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.5); display: flex; align-items: center; justify-content: center; z-index: 999; backdrop-filter: blur(2px); }
+  .modal-overlay.hidden { display: none; }
+  .modal { background: white; border-radius: var(--radius); padding: 1.75rem; max-width: 400px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+  .modal-icon { width: 48px; height: 48px; background: #fee2e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem; font-size: 1.5rem; }
+  .modal h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text); }
+  .modal p { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.6; }
+  .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+
+  @media (max-width: 600px) {
+    .container { padding: 1rem 0.75rem 6rem; }
+    .tabs-wrap { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+    .row { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+    .row .field { width: 100%; justify-content: space-between; }
+    .row input[type="text"], .row input[type="number"], .row input[type="password"], .row select { min-width: 0; width: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -81,12 +155,14 @@
     <h1>nanobot</h1>
   </header>
 
-  <div class="tabs">
-    <div class="tab active" data-tab="agent">Agent</div>
-    <div class="tab" data-tab="channels">Channels</div>
-    <div class="tab" data-tab="providers">Providers</div>
-    <div class="tab" data-tab="tools">Tools</div>
-    <div class="tab" data-tab="gateway">Gateway</div>
+  <div class="tabs-wrap">
+    <div class="tabs">
+      <div class="tab active" data-tab="agent">Agent</div>
+      <div class="tab" data-tab="channels">Channels</div>
+      <div class="tab" data-tab="providers">Providers</div>
+      <div class="tab" data-tab="tools">Tools</div>
+      <div class="tab" data-tab="gateway">Gateway</div>
+    </div>
   </div>
 
   <form id="configForm">
@@ -96,9 +172,24 @@
     <div id="tabTools" class="tab-panel"></div>
     <div id="tabGateway" class="tab-panel"></div>
   </form>
+</div>
 
-  <div class="footer">
-    <span id="msg" class="msg"></span>
+<div id="restartModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-icon">&#x21bb;</div>
+    <h3>Restart Required</h3>
+    <p>Configuration changes require a restart to take effect. The gateway will restart automatically.</p>
+    <div class="modal-actions">
+      <button type="button" onclick="closeModal()">Later</button>
+      <button type="button" class="primary danger" onclick="restartGateway()">Restart Now</button>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <span id="msg" class="msg"></span>
+  <div class="footer-actions">
+    <button type="button" onclick="showRestartModal()">Restart</button>
     <button type="button" class="primary" onclick="save()">Save</button>
   </div>
 </div>
@@ -193,13 +284,24 @@ function renderAgent() {
       ${selectField('model', 'Model', a.model, 'agents.defaults.model', [], 'onModelChange()')}
       <div class="row" id="model-loading-row" style="display:none"><label></label><span class="hint">Loading models...</span></div>
       <div class="row" id="model-error-row" style="display:none"><label"></label><span class="hint" style="color:#dc2626">Failed to load models</span></div>
+      ${field('workspace', 'Workspace', a.workspace || '', 'text', 'agents.defaults.workspace')}
       ${field('max_tokens', 'Max Tokens', a.max_tokens, 'number', 'agents.defaults.max_tokens')}
       ${field('temperature', 'Temperature', a.temperature, 'number', 'agents.defaults.temperature')}
       ${field('max_tool_iterations', 'Max Tool Iterations', a.max_tool_iterations, 'number', 'agents.defaults.max_tool_iterations')}
+      ${field('max_tool_result_chars', 'Max Tool Result Chars', a.max_tool_result_chars, 'number', 'agents.defaults.max_tool_result_chars')}
       ${field('context_window_tokens', 'Context Window (tokens)', a.context_window_tokens, 'number', 'agents.defaults.context_window_tokens')}
+      ${field('context_block_limit', 'Context Block Limit', a.context_block_limit ?? '', 'text', 'agents.defaults.context_block_limit')}
+      ${selectField('provider_retry_mode', 'Provider Retry', a.provider_retry_mode || 'standard', 'agents.defaults.provider_retry_mode', [
+        {v:'standard',l:'Standard'},{v:'persistent',l:'Persistent'},
+      ])}
+      ${selectField('reasoning_effort', 'Reasoning Effort', a.reasoning_effort || '', 'agents.defaults.reasoning_effort', [
+        {v:'',l:'(none)'},{v:'low',l:'Low'},{v:'medium',l:'Medium'},{v:'high',l:'High'},{v:'max',l:'Max'},{v:'adaptive',l:'Adaptive'},
+      ])}
     </div>
     <div class="card">
       <div class="card-header">Session</div>
+      ${field('session_ttl_minutes', 'Session TTL (min)', a.session_ttl_minutes ?? 0, 'number', 'agents.defaults.session_ttl_minutes')}
+      ${field('consolidation_ratio', 'Consolidation Ratio', a.consolidation_ratio ?? 0.5, 'number', 'agents.defaults.consolidation_ratio')}
       ${selectField('timezone', 'Timezone', a.timezone, 'agents.defaults.timezone', TIMEZONES.map(t => ({v:t,l:t})))}
       ${field('unified_session', 'Unified Session', a.unified_session, 'checkbox', 'agents.defaults.unified_session')}
       ${field('disabled_skills', 'Disabled Skills', Array.isArray(a.disabled_skills) ? a.disabled_skills.join(', ') : '', 'text', 'agents.defaults.disabled_skills')}
@@ -210,6 +312,8 @@ function renderAgent() {
       ${field('model_override', 'Model Override', a.dream.model_override || '', 'text', 'agents.defaults.dream.model_override')}
       ${field('interval_h', 'Interval (h)', a.dream.interval_h, 'number', 'agents.defaults.dream.interval_h')}
       ${field('max_batch_size', 'Max Batch Size', a.dream.max_batch_size, 'number', 'agents.defaults.dream.max_batch_size')}
+      ${field('max_iterations', 'Max Iterations', a.dream.max_iterations, 'number', 'agents.defaults.dream.max_iterations')}
+      ${field('annotate_line_ages', 'Annotate Line Ages', a.dream.annotate_line_ages, 'checkbox', 'agents.defaults.dream.annotate_line_ages')}
     </div>
   `;
   loadModelsForProvider(a.provider, a.model);
@@ -299,6 +403,15 @@ const SECRET_FIELDS = new Set([
   'claw_token',
 ]);
 
+// Channels that support multi-bot
+const BOT_CHANNELS = new Set(['feishu', 'dingtalk']);
+
+// Bot field templates per channel
+const BOT_TEMPLATES = {
+  feishu: {name:'', appId:'', appSecret:'', encryptKey:'', verificationToken:'', allowFrom:'*', reactEmoji:'THUMBSUP', done_emoji:'OK', toolHintPrefix:'🔧', groupPolicy:'open', replyToMessage:0, streaming:1, domain:'feishu'},
+  dingtalk: {name:'', clientId:'', clientSecret:'', allowFrom:'*'},
+};
+
 function renderChannels() {
   const tab = document.getElementById('tabChannels');
   const channels = config.channels || {};
@@ -309,15 +422,15 @@ function renderChannels() {
     const fieldKeys = Object.keys(ch).filter(k => k !== 'bots');
     html += `<div class="card channel-card">
       <div class="channel-header" onclick="toggleChannel('${name}')">
-        <span>${name}</span>
-        <span class="badge ${enabled ? 'enabled' : ''}">${enabled ? 'ON' : 'OFF'}</span>
+        <span style="font-weight:600;font-size:0.875rem;text-transform:capitalize">${name}</span>
+        <span class="badge ${enabled ? 'on' : ''}">${enabled ? 'ON' : 'OFF'}</span>
       </div>
       <div class="channel-body" id="ch-${name}">
         ${fieldKeys.map(k => renderChannelField(name, k, ch[k])).join('')}
-        ${Array.isArray(ch.bots) ? `
-          <div class="group-title">Bots <button type="button" onclick="addBot('${name}')" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-left:0.5rem">+ Add</button></div>
+        ${BOT_CHANNELS.has(name) ? `
+          <div class="group-title">Bots <button type="button" onclick="addBot('${name}')" class="add-bot-btn">+</button></div>
           <div id="bots-${name}">
-          ${ch.bots.map((bot, i) => botRow(name, bot, i)).join('')}
+          ${Array.isArray(ch.bots) ? ch.bots.map((bot, i) => botRow(name, bot, i)).join('') : ''}
           </div>
         ` : ''}
       </div>
@@ -330,7 +443,7 @@ function renderChannelField(chName, key, value) {
   const path = `channels.${chName}.${key}`;
   const id = `ch_${chName}_${key}`;
   if (typeof value === 'boolean') {
-    return `<div class="row"><label>${key}</label><div class="field"><label class="toggle"><input type="checkbox" id="${id}" data-path="${path}" ${value ? 'checked' : ''}><span class="slider"></span></label></div></div>`;
+    return `<div class="row"><label>${key}</label><div class="field"><input type="checkbox" id="${id}" data-path="${path}" class="toggle-input" ${value ? 'checked' : ''}><label class="toggle-label" for="${id}"><span class="thumb"></span></label></div></div>`;
   }
   const selects = SELECT_FIELDS[chName] || {};
   if (selects[key]) {
@@ -349,20 +462,26 @@ function renderChannelField(chName, key, value) {
 function botRow(name, bot, i) {
   if (!bot || typeof bot !== 'object') return '';
   const keys = Object.keys(bot);
-  return `<div class="sub-row" style="position:relative;padding-top:0.5rem;border-top:1px dashed #e5e7eb;margin-top:0.5rem">
-    <button type="button" onclick="removeBot('${name}',${i})" style="position:absolute;right:0;top:0;font-size:0.7rem;padding:0.1rem 0.3rem;color:#dc2626;border-color:#dc2626">✕</button>
-    ${keys.filter(k => bot[k] !== undefined).map(k =>
-      typeof bot[k] === 'boolean'
-        ? `<div class="row"><label>${k}</label><div class="field"><label class="toggle"><input type="checkbox" id="bot_${i}_${k}" data-path="channels.${name}.bots.${i}.${k}" ${bot[k] ? 'checked' : ''}><span class="slider"></span></label></div></div>`
-        : `<div class="row"><label>${k}</label><div class="field"><input type="${SECRET_FIELDS.has(k) ? 'password' : 'text'}" id="bot_${i}_${k}" data-path="channels.${name}.bots.${i}.${k}" value="${esc(String(bot[k] ?? ''))}"></div></div>`
-    ).join('')}
+  return `<div class="bot-card">
+    <div class="bot-header">
+      <span>${esc(bot.name || 'bot ' + (i + 1))}</span>
+      <button type="button" onclick="removeBot('${name}',${i})" class="bot-remove" title="Remove this bot">✕</button>
+    </div>
+    <div class="bot-body">
+      ${keys.filter(k => bot[k] !== undefined).map(k =>
+        typeof bot[k] === 'boolean'
+          ? `<div class="row"><label>${k}</label><div class="field"><input type="checkbox" id="bot_${i}_${k}" data-path="channels.${name}.bots.${i}.${k}" class="toggle-input" ${bot[k] ? 'checked' : ''}><label class="toggle-label" for="bot_${i}_${k}"><span class="thumb"></span></label></div></div>`
+          : `<div class="row"><label>${k}</label><div class="field"><input type="${SECRET_FIELDS.has(k) ? 'password' : 'text'}" id="bot_${i}_${k}" data-path="channels.${name}.bots.${i}.${k}" value="${esc(String(bot[k] ?? ''))}"></div></div>`
+      ).join('')}
+    </div>
   </div>`;
 }
 
 function addBot(name) {
   if (!config.channels[name]) config.channels[name] = {};
   if (!Array.isArray(config.channels[name].bots)) config.channels[name].bots = [];
-  config.channels[name].bots.push({name:'',appId:'',appSecret:'',domain:'feishu'});
+  const tmpl = BOT_TEMPLATES[name] || {name:'', key:'', secret:''};
+  config.channels[name].bots.push({...tmpl});
   renderChannels();
   document.getElementById('ch-' + name).classList.add('open');
 }
@@ -407,18 +526,48 @@ function renderTools() {
   tab.innerHTML = `
     <div class="card">
       <div class="card-header">Web</div>
-      ${field('enable', 'Enabled', t.web.enable, 'checkbox', 'tools.web.enable')}
-      ${field('provider', 'Search Provider', t.web.search?.provider || '', 'select', 'tools.web.search.provider', [
-        {v:'duckduckgo',l:'DuckDuckGo'},{v:'google',l:'Google'},{v:'bing',l:'Bing'},
+      ${field('web_enable', 'Enabled', t.web?.enable, 'checkbox', 'tools.web.enable')}
+      ${field('web_proxy', 'Proxy', t.web?.proxy || '', 'text', 'tools.web.proxy')}
+      ${field('web_user_agent', 'User Agent', t.web?.user_agent || '', 'text', 'tools.web.user_agent')}
+    </div>
+    <div class="card">
+      <div class="card-header">Web Search</div>
+      ${field('search_provider', 'Provider', t.web?.search?.provider || '', 'select', 'tools.web.search.provider', [
+        {v:'duckduckgo',l:'DuckDuckGo'},{v:'google',l:'Google'},{v:'bing',l:'Bing'},{v:'searxng',l:'SearXNG'},{v:'jina',l:'Jina'},{v:'kagi',l:'Kagi'},{v:'tavily',l:'Tavily'},
       ])}
-      ${field('apiKey', 'Search API Key', t.web.search?.apiKey || '', 'password', 'tools.web.search.apiKey')}
+      ${field('search_api_key', 'API Key', t.web?.search?.api_key || '', 'password', 'tools.web.search.api_key')}
+      ${field('search_base_url', 'Base URL', t.web?.search?.base_url || '', 'text', 'tools.web.search.base_url')}
+      ${field('search_max_results', 'Max Results', t.web?.search?.max_results ?? 10, 'number', 'tools.web.search.max_results')}
+      ${field('search_timeout', 'Timeout (s)', t.web?.search?.timeout ?? 30, 'number', 'tools.web.search.timeout')}
+    </div>
+    <div class="card">
+      <div class="card-header">Web Fetch</div>
+      ${field('fetch_use_jina', 'Use Jina Reader', t.web?.fetch?.use_jina_reader, 'checkbox', 'tools.web.fetch.use_jina_reader')}
     </div>
     <div class="card">
       <div class="card-header">Exec</div>
-      ${field('enable', 'Enabled', t.exec?.enable, 'checkbox', 'tools.exec.enable')}
-      ${field('timeout', 'Timeout (s)', t.exec?.timeout || 1200, 'number', 'tools.exec.timeout')}
-      ${field('sandbox', 'Sandbox', t.exec?.sandbox || '', 'text', 'tools.exec.sandbox')}
+      ${field('exec_enable', 'Enabled', t.exec?.enable, 'checkbox', 'tools.exec.enable')}
+      ${field('exec_timeout', 'Timeout (s)', t.exec?.timeout ?? 60, 'number', 'tools.exec.timeout')}
+      ${field('exec_path_append', 'Path Append', t.exec?.path_append || '', 'text', 'tools.exec.path_append')}
+      ${field('exec_sandbox', 'Sandbox', t.exec?.sandbox || '', 'text', 'tools.exec.sandbox')}
+      ${field('exec_allowed_keys', 'Allowed Env Keys', Array.isArray(t.exec?.allowed_env_keys) ? t.exec.allowed_env_keys.join(', ') : '', 'text', 'tools.exec.allowed_env_keys')}
+      <div class="row"><label></label><span class="hint">Comma-separated env var names</span></div>
+    </div>
+    <div class="card">
+      <div class="card-header">My Tool</div>
+      ${field('my_enable', 'Enabled', t.my?.enable, 'checkbox', 'tools.my.enable')}
+      ${field('my_allow_set', 'Allow Set', t.my?.allow_set, 'checkbox', 'tools.my.allow_set')}
+    </div>
+    <div class="card">
+      <div class="card-header">MCP Servers</div>
+      <div class="row"><label>Note</label><span class="hint">MCP servers: ${Object.keys(t.mcp_servers || {}).length} configured (edit as JSON if needed)</span></div>
+      ${field('mcp_servers', 'Servers (JSON)', JSON.stringify(t.mcp_servers || {}, null, 2), 'textarea', 'tools.mcp_servers')}
+    </div>
+    <div class="card">
+      <div class="card-header">SSRF / Security</div>
       ${field('restrict_to_workspace', 'Restrict to Workspace', t.restrict_to_workspace, 'checkbox', 'tools.restrict_to_workspace')}
+      ${field('ssrf_whitelist', 'SSRF Whitelist', Array.isArray(t.ssrf_whitelist) ? t.ssrf_whitelist.join(', ') : '', 'text', 'tools.ssrf_whitelist')}
+      <div class="row"><label></label><span class="hint">Comma-separated CIDR ranges (e.g. 100.64.0.0/10)</span></div>
     </div>
   `;
 }
@@ -426,23 +575,34 @@ function renderTools() {
 // ── Gateway ───────────────────────────────────────────────────────────────────
 function renderGateway() {
   const g = config.gateway;
+  const a = config.api || {};
   const tab = document.getElementById('tabGateway');
   tab.innerHTML = `
     <div class="card">
-      <div class="card-header">Network</div>
-      ${field('host', 'Host', g.host, 'text', 'gateway.host')}
-      ${field('port', 'Port', g.port, 'number', 'gateway.port')}
+      <div class="card-header">Gateway</div>
+      ${field('gateway_host', 'Host', g.host, 'text', 'gateway.host')}
+      ${field('gateway_port', 'Port', g.port, 'number', 'gateway.port')}
     </div>
     <div class="card">
       <div class="card-header">Heartbeat</div>
-      ${field('enabled', 'Enabled', g.heartbeat?.enabled, 'checkbox', 'gateway.heartbeat.enabled')}
-      ${field('interval_s', 'Interval (s)', g.heartbeat?.interval_s || 1800, 'number', 'gateway.heartbeat.interval_s')}
+      ${field('hb_enabled', 'Enabled', g.heartbeat?.enabled, 'checkbox', 'gateway.heartbeat.enabled')}
+      ${field('hb_interval_s', 'Interval (s)', g.heartbeat?.interval_s || 1800, 'number', 'gateway.heartbeat.interval_s')}
+      ${field('hb_keep_messages', 'Keep Recent Messages', g.heartbeat?.keep_recent_messages ?? 8, 'number', 'gateway.heartbeat.keep_recent_messages')}
+    </div>
+    <div class="card">
+      <div class="card-header">OpenAI API</div>
+      ${field('api_host', 'Host', a.host || '127.0.0.1', 'text', 'api.host')}
+      ${field('api_port', 'Port', a.port || 8900, 'number', 'api.port')}
+      ${field('api_timeout', 'Timeout (s)', a.timeout || 120, 'number', 'api.timeout')}
     </div>
     <div class="card">
       <div class="card-header">Logging</div>
-      ${field('level', 'Level', config.logging?.level || 'INFO', 'select', 'logging.level', [
+      ${field('log_enabled', 'Enabled', config.logging?.enabled, 'checkbox', 'logging.enabled')}
+      ${field('log_level', 'Level', config.logging?.level || 'WARNING', 'select', 'logging.level', [
         {v:'DEBUG',l:'DEBUG'},{v:'INFO',l:'INFO'},{v:'WARNING',l:'WARNING'},{v:'ERROR',l:'ERROR'},
       ])}
+      ${field('log_file', 'File', config.logging?.file || 'logs/nanobot.log', 'text', 'logging.file')}
+      ${field('log_console', 'Console', config.logging?.console, 'checkbox', 'logging.console')}
     </div>
   `;
 }
@@ -452,11 +612,15 @@ function field(id, label, value, type, path, opts) {
   const pathId = path.replace(/\./g, '_').replace(/\[/g, '_').replace(/\]/g, '_');
   if (type === 'checkbox') {
     const checked = value ? 'checked' : '';
-    return `<div class="row"><label>${label}</label><div class="field"><label class="toggle"><input type="checkbox" id="${pathId}" data-path="${path}" ${checked}><span class="slider"></span></label></div></div>`;
+    return `<div class="row"><label>${label}</label><div class="field"><input type="checkbox" id="${pathId}" data-path="${path}" class="toggle-input" ${checked}><label class="toggle-label" for="${pathId}"><span class="thumb"></span></label></div></div>`;
   }
   if (type === 'select') {
     const options = (opts || []).map(o => `<option value="${o.v}" ${value == o.v ? 'selected' : ''}>${o.l}</option>`).join('');
     return `<div class="row"><label>${label}</label><div class="field"><select id="${pathId}" data-path="${path}">${options}</select></div></div>`;
+  }
+  if (type === 'textarea') {
+    const val = (value === null || value === undefined) ? '' : esc(String(value));
+    return `<div class="row" style="align-items:flex-start"><label style="padding-top:0.25rem">${label}</label><div class="field" style="flex:1"><textarea id="${pathId}" data-path="${path}" rows="4" style="width:100%;font-size:0.8rem;font-family:monospace;resize:vertical;box-sizing:border-box;border:1px solid #d1d5db;border-radius:0.375rem;padding:0.375rem">${val}</textarea></div></div>`;
   }
   const val = (value === null || value === undefined) ? '' : esc(String(value));
   const step = type === 'number' ? ' step="any"' : '';
@@ -489,9 +653,25 @@ function applyEdit(obj, path, value) {
     }
   }
   const last = parts[i];
-  // disabled_skills: stored as comma-separated string, config needs list
-  if (last === 'disabled_skills') {
+  // List fields: stored as comma-separated string, config needs list
+  if (last === 'disabled_skills' || last === 'ssrf_whitelist' || last === 'allowed_env_keys') {
     cur[last] = value === '' ? [] : value.split(',').map(s => s.trim()).filter(Boolean);
+    return;
+  }
+  // mcp_servers: JSON string to dict
+  if (last === 'mcp_servers') {
+    try { cur[last] = value === '' ? {} : JSON.parse(value); }
+    catch { cur[last] = {}; }
+    return;
+  }
+  // Nullable integer fields: empty string → null
+  if (last === 'context_block_limit') {
+    cur[last] = value === '' ? null : (isNaN(value) ? null : Number(value));
+    return;
+  }
+  // Nullable string fields: empty stays empty (already handled above)
+  if (last === 'reasoning_effort') {
+    cur[last] = value === '' ? null : value;
     return;
   }
   if (value === '') cur[last] = '';
@@ -511,7 +691,7 @@ async function save() {
   // Collect all edits from form
   const edited = JSON.parse(JSON.stringify(config));
   document.querySelectorAll('input[data-path], select[data-path]').forEach(el => {
-    let val = el.type === 'checkbox' ? el.checked : el.value;
+    let val = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value;
     applyEdit(edited, el.dataset.path, val);
   });
 
@@ -529,14 +709,57 @@ async function save() {
     if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
     config = edited;
     original = JSON.parse(JSON.stringify(config));
-    msg.className = 'msg ok';
-    msg.textContent = 'Saved. Restart nanobot to apply.';
+    showRestartModal();
   } catch(e) {
     msg.className = 'msg err';
     msg.textContent = e.name === 'AbortError' ? 'Request timed out' : e.message;
   } finally {
     btn.disabled = false;
   }
+}
+
+function showRestartModal() {
+  document.getElementById('restartModal').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('restartModal').classList.add('hidden');
+}
+
+async function restartGateway() {
+  closeModal();
+  const restartBtn = document.querySelector('.footer button:nth-child(2)');
+  const saveBtn = document.querySelector('.footer button:nth-child(3)');
+  restartBtn.disabled = true;
+  if (saveBtn) saveBtn.disabled = true;
+  msg.textContent = 'Restarting...';
+  msg.className = 'msg';
+  try {
+    await fetch('/api/shutdown', { method: 'POST' });
+  } catch(e) {
+    // gateway dies immediately, fetch may fail — that's expected
+  }
+  // Poll for gateway to come back
+  msg.textContent = 'Waiting for gateway to restart...';
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const res = await fetch('/health');
+      if (res.ok) {
+        msg.textContent = 'Gateway restarted. Reloading...';
+        msg.className = 'msg ok';
+        setTimeout(() => location.reload(), 500);
+        return;
+      }
+    } catch(e) {
+      // still down
+    }
+    msg.textContent = 'Waiting for gateway to restart... (' + (i + 1) + 's)';
+  }
+  msg.textContent = 'Gateway did not restart. Run: nanobot gateway';
+  msg.className = 'msg err';
+  restartBtn.disabled = false;
+  if (saveBtn) saveBtn.disabled = false;
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
