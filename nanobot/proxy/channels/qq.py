@@ -69,28 +69,40 @@ class QQProxyChannel(BaseProxyChannel):
             logger.error("QQ reply error: {}", e)
 
     def start(self) -> None:
-        """Run the QQ bot connection."""
-        import botpy
+        """Run the QQ bot connection on a separate thread with its own event loop."""
+        import asyncio
+        import threading
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
         intents = botpy.Intents(public_messages=True, direct_message=True)
+
+        _channel = self
 
         class Bot(botpy.Client):
             async def on_ready(self):
                 logger.info("QQ proxy bot ready: {}", self.robot.name)
 
             async def on_c2c_message_create(self, message):
-                await self._on_message(message, is_group=False)
+                await _channel._on_message(message, is_group=False)
 
             async def on_group_at_message_create(self, message):
-                await self._on_message(message, is_group=True)
+                await _channel._on_message(message, is_group=True)
 
-        self._client = Bot(intents=intents, ext_handlers=False)
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(
-            self._client.start(appid=str(self.config.get("appId", "")), secret=self.config.get("secret", ""))
-        )
+        self._client = Bot(intents=intents)
+
+        def run_bot():
+            loop.run_until_complete(
+                self._client.start(appid=str(self.config.get("appId", "")), secret=self.config.get("secret", ""))
+            )
+
+        thread = threading.Thread(target=run_bot, daemon=True)
+        thread.start()
+
+        while True:
+            import time
+            time.sleep(5)
 
 
 def main() -> None:

@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,13 +13,12 @@ from loguru import logger
 
 from nanobot.config.paths import get_legacy_sessions_dir
 from nanobot.utils.helpers import (
-    estimate_message_tokens,
     ensure_dir,
+    estimate_message_tokens,
     find_legal_message_start,
     image_placeholder_text,
     safe_filename,
 )
-
 
 HISTORY_MAX_MESSAGES = 120
 FILE_MAX_MESSAGES = 2000
@@ -186,13 +186,6 @@ class Session:
         if start:
             retained = retained[start:]
 
-        # Hard-cap guarantee: never keep more than max_messages.
-        if len(retained) > max_messages:
-            retained = retained[-max_messages:]
-            start = find_legal_message_start(retained)
-            if start:
-                retained = retained[start:]
-
         dropped = len(self.messages) - len(retained)
         self.messages = retained
         self.last_consolidated = max(0, self.last_consolidated - dropped)
@@ -242,6 +235,7 @@ class SessionManager:
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self.legacy_sessions_dir = get_legacy_sessions_dir()
         self._cache: dict[str, Session] = {}
+        self._cache_lock = threading.Lock()
 
     @staticmethod
     def safe_key(key: str) -> str:
@@ -266,14 +260,17 @@ class SessionManager:
         Returns:
             The session.
         """
-        if key in self._cache:
-            return self._cache[key]
+        with self._cache_lock:
+            cached = self._cache.get(key)
+            if cached is not None:
+                return cached
 
         session = self._load(key)
         if session is None:
             session = Session(key=key)
 
-        self._cache[key] = session
+        with self._cache_lock:
+            self._cache[key] = session
         return session
 
     @staticmethod
@@ -312,12 +309,12 @@ class SessionManager:
         for msg in messages:
             if msg.get("role") == "tool":
                 content = msg.get("content", "")
-                if isinstance(content, str) and "[ABANDONED]" in content:
+                if isinstance(content, str) and ("[ABANDONED]" in content or "[PENDING]" in content):
                     continue
             filtered.append(msg)
         dropped = original_count - len(filtered)
         if dropped:
-            logger.info("Dropped {} [ABANDONED] tool messages from session", dropped)
+            logger.info("Dropped {} abandoned/pending tool messages from session", dropped)
         return filtered
 
     def _load(self, key: str) -> Session | None:
@@ -452,6 +449,7 @@ class SessionManager:
             "updated_at": session.updated_at.isoformat(),
             "metadata": session.metadata,
             "messages": session.messages,
+            "last_consolidated": session.last_consolidated,
         }
 
     def save(self, session: Session, *, fsync: bool = False) -> None:
@@ -463,10 +461,12 @@ class SessionManager:
         """
         if self._db is not None:
             self._db.save_session(session)
-            self._cache[session.key] = session
+            with self._cache_lock:
+                self._cache[session.key] = session
             return
         self._save_to_file(session, fsync=fsync)
-        self._cache[session.key] = session
+        with self._cache_lock:
+            self._cache[session.key] = session
 
     def _save_to_file(self, session: Session, *, fsync: bool = False) -> None:
         path = self._get_session_path(session.key)
@@ -524,7 +524,9 @@ class SessionManager:
         flushed.
         """
         flushed = 0
-        for key, session in list(self._cache.items()):
+        with self._cache_lock:
+            items = list(self._cache.items())
+        for key, session in items:
             try:
                 self.save(session, fsync=True)
                 flushed += 1
@@ -534,11 +536,12 @@ class SessionManager:
 
     def invalidate(self, key: str) -> None:
         """Remove a session from the in-memory cache."""
-        self._cache.pop(key, None)
+        with self._cache_lock:
+            self._cache.pop(key, None)
 
     def delete_session(self, key: str) -> bool:
         """Remove a session from disk/DB and the in-memory cache."""
-        self.invalidate(key)
+        self.invalidate(key)  # invalidate acquires _cache_lock internally
         if self._db is not None:
             self._db.delete_session(key)
             return True
@@ -562,13 +565,7 @@ class SessionManager:
             session = self._db.load_session(key)
             if session is None:
                 return None
-            return {
-                "key": session.key,
-                "created_at": session.created_at.isoformat(),
-                "updated_at": session.updated_at.isoformat(),
-                "metadata": session.metadata,
-                "messages": session.messages,
-            }
+            return self._session_payload(session)
         return self._read_session_file_from_file(key)
 
     def _read_session_file_from_file(self, key: str) -> dict[str, Any] | None:
@@ -582,6 +579,7 @@ class SessionManager:
             created_at: str | None = None
             updated_at: str | None = None
             stored_key: str | None = None
+            last_consolidated: int = 0
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
@@ -593,6 +591,7 @@ class SessionManager:
                         created_at = data.get("created_at")
                         updated_at = data.get("updated_at")
                         stored_key = data.get("key")
+                        last_consolidated = data.get("last_consolidated", 0)
                     else:
                         messages.append(data)
             messages = self._fix_tool_protocol_violations(messages)
@@ -602,6 +601,7 @@ class SessionManager:
                 "updated_at": updated_at,
                 "metadata": metadata,
                 "messages": messages,
+                "last_consolidated": last_consolidated,
             }
         except Exception as e:
             logger.warning("Failed to read session {}: {}", key, e)
