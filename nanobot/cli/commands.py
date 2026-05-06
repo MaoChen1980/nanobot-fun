@@ -573,42 +573,58 @@ def serve(
     web.run_app(api_app, host=host, port=port, print=lambda msg: logger.info(msg))
 
 
+def _get_bots_list(section: Any) -> list:
+    """Extract bots list from a channel config section."""
+    if isinstance(section, dict):
+        return section.get("bots", [])
+    extra = getattr(section, "__pydantic_extra__", None) or {}
+    return extra.get("bots", [])
+
+
+def _merge_bot_config(section: Any, bot_item: Any) -> tuple[str, dict]:
+    """Merge section + extra fields + bot-specific fields into one config dict."""
+    if isinstance(section, dict):
+        base = dict(section)
+    else:
+        base = section.model_dump() if hasattr(section, "model_dump") else dict(section)
+        extra = getattr(section, "__pydantic_extra__", None) or {}
+        base.update(extra)
+
+    if isinstance(bot_item, dict):
+        bot_name = bot_item.get("name")
+        merged = {**base, **bot_item}
+    else:
+        bot_name = str(bot_item)
+        merged = dict(base)
+
+    return bot_name, merged
+
+
 def _spawn_proxy_processes(config: Config, proxy_manager: Any, port: int) -> None:
     """
-    Spawn proxy processes for channels that support out-of-process mode.
-    Currently only feishu with multi-bot config uses proxy mode.
+    Spawn proxy processes for all channels with a bots list.
+    Channels without bots list run in-process via ChannelManager.
     """
-    feishu_section = getattr(config.channels, "feishu", None)
-    if feishu_section is None:
-        return
+    spawned = 0
+    for name in dir(config.channels):
+        if name.startswith("_") or name in ("model_config", "model_dump", "model_fields"):
+            continue
+        section = getattr(config.channels, name, None)
+        if section is None:
+            continue
 
-    # Check if feishu section is dict-like or Pydantic model
-    bots = []
-    extra = {}
-    if isinstance(feishu_section, dict):
-        bots = feishu_section.get("bots", [])
-    else:
-        extra = getattr(feishu_section, "__pydantic_extra__", None) or {}
-        bots = extra.get("bots", [])
+        bots = _get_bots_list(section)
+        if not bots:
+            continue
 
-    if not bots:
-        return
+        for bot_item in bots:
+            bot_name, bot_config = _merge_bot_config(section, bot_item)
+            if bot_name:
+                proxy_manager.spawn(name, bot_name, bot_config)
+                spawned += 1
 
-    for bot_item in bots:
-        if isinstance(bot_item, dict):
-            bot_name = bot_item.get("name")
-            # Merge base config + extra fields + bot-specific fields
-            base = dict(feishu_section) if not isinstance(feishu_section, dict) else {}
-            base.update(extra)
-            bot_config = {**base, **bot_item}
-        else:
-            bot_name = str(bot_item)
-            bot_config = dict(feishu_section) if isinstance(feishu_section, dict) else {}
-
-        if bot_name:
-            proxy_manager.spawn("feishu", bot_name, bot_config)
-
-    console.print(f"[green]✓[/green] Spawned {len(bots)} feishu proxy(s)")
+    if spawned:
+        console.print(f"[green]✓[/green] Spawned {spawned} proxy(s) across {len([n for n in dir(config.channels) if not n.startswith('_') and _get_bots_list(getattr(config.channels, n, None))])} channel(s)")
 
 
 # ============================================================================
@@ -820,9 +836,7 @@ def _run_gateway(
 
     cron.on_job = on_cron_job
 
-    # Create channel manager (forwards SessionManager so the WebSocket channel
-    # can serve the embedded webui's REST surface).
-    channels = ChannelManager(config, bus, session_manager=session_manager)
+    channels = ChannelManager(config, bus)
 
     # Spawn proxy processes for channels configured to run out-of-process
     from nanobot.proxy.manager import ProxyManager

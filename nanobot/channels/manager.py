@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from loguru import logger
 
@@ -13,19 +12,6 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
 from nanobot.utils.restart import consume_restart_notice_from_env, format_restart_completed_message
-
-if TYPE_CHECKING:
-    from nanobot.session.manager import SessionManager
-
-
-def _default_webui_dist() -> Path | None:
-    """Return the absolute path to the bundled webui dist directory if it exists."""
-    try:
-        import nanobot.web as web_pkg  # type: ignore[import-not-found]
-    except ImportError:
-        return None
-    candidate = Path(web_pkg.__file__).resolve().parent / "dist"
-    return candidate if candidate.is_dir() else None
 
 # Retry delays for message sending (exponential backoff: 1s, 2s, 4s)
 _SEND_RETRY_DELAYS = (1, 2, 4)
@@ -45,12 +31,9 @@ class ChannelManager:
         self,
         config: Config,
         bus: MessageBus,
-        *,
-        session_manager: "SessionManager | None" = None,
     ):
         self.config = config
         self.bus = bus
-        self._session_manager = session_manager
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
 
@@ -93,21 +76,6 @@ class ChannelManager:
                 # Multi-bot mode: proxy processes handle these, skip in-process.
                 logger.debug("Channel {}: multi-bot config detected ({} bots), skipping in-process", name, len(bots))
                 continue
-                # Multi-bot mode: create one instance per bot
-                for bot_item in bots:
-                    if isinstance(bot_item, dict):
-                        bot_name = bot_item.get("name")
-                        # Merge model fields + extra fields + bot_item
-                        section_dict = section.model_dump() if hasattr(section, 'model_dump') else dict(section)
-                        section_dict.update(extra)
-                        bot_section = {**section_dict, **bot_item}
-                    else:
-                        bot_name = str(bot_item)
-                        bot_section = section
-                    self._create_channel(
-                        cls, bot_section, name, bot_name,
-                        transcription_provider, transcription_key, transcription_base, transcription_language,
-                    )
             else:
                 # Legacy single-bot mode
                 self._create_channel(
@@ -134,11 +102,6 @@ class ChannelManager:
             kwargs: dict[str, Any] = {}
             if bot_name:
                 kwargs["bot_name"] = bot_name
-            if cls.name == "websocket" and self._session_manager is not None:
-                kwargs["session_manager"] = self._session_manager
-                static_path = _default_webui_dist()
-                if static_path is not None:
-                    kwargs["static_dist_path"] = static_path
             channel = cls(section, self.bus, **kwargs)
             channel.transcription_provider = transcription_provider
             channel.transcription_api_key = transcription_key
