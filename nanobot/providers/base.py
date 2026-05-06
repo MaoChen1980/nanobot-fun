@@ -12,7 +12,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.utils.helpers import image_placeholder_text
+from nanobot.utils.media_decode import image_placeholder_text
 
 
 @dataclass

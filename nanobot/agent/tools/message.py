@@ -116,7 +116,7 @@ class MessageTool(Tool):
         buttons: list[list[str]] | None = None,
         **kwargs: Any
     ) -> str:
-        from nanobot.utils.helpers import strip_think
+        from nanobot.agent.loop_utils import strip_think
         content = strip_think(content)
 
         if buttons is not None:

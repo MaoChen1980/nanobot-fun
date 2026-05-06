@@ -50,7 +50,7 @@ class _LoopHook(AgentHook):
         return self._on_stream is not None
 
     async def on_stream(self, context: AgentHookContext, delta: str) -> None:
-        from nanobot.utils.helpers import strip_think
+        from nanobot.agent.loop_utils import strip_think
 
         prev_clean = strip_think(self._stream_buf)
         self._stream_buf += delta

@@ -47,7 +47,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.providers.factory import ProviderSnapshot
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.document import extract_documents
-from nanobot.utils.helpers import image_placeholder_text
+from nanobot.utils.media_decode import image_placeholder_text
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.progress_events import (
     build_tool_event_finish_payloads,
@@ -365,7 +365,7 @@ class AgentLoop:
         """Remove <think>…</think> blocks that some models embed in content."""
         if not text:
             return None
-        from nanobot.utils.helpers import strip_think
+        from nanobot.agent.loop_utils import strip_think
 
         return strip_think(text) or None
 

@@ -2,10 +2,11 @@
 
 import mimetypes
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
-from nanobot.utils.helpers import detect_image_mime
+from nanobot.utils.media_decode import detect_image_mime
 
 
 # Supported file extensions for text extraction
@@ -281,3 +282,18 @@ def extract_documents(
         text = text + "\n\n" + "\n\n".join(doc_texts)
 
     return text, image_paths
+
+
+def stringify_text_blocks(content: list[dict[str, Any]]) -> str | None:
+    """Join text blocks into a single string. Returns None on malformed input."""
+    parts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            return None
+        if block.get("type") != "text":
+            return None
+        text = block.get("text")
+        if not isinstance(text, str):
+            return None
+        parts.append(text)
+    return "\n".join(parts)

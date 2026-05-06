@@ -1,4 +1,4 @@
-from nanobot.utils.helpers import strip_think
+from nanobot.agent.loop_utils import strip_think
 
 
 class TestStripThinkTag:

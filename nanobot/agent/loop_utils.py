@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -12,11 +13,34 @@ if TYPE_CHECKING:
 
 
 def strip_think(text: str | None) -> str | None:
-    """Remove <think> blocks that some models embed in content."""
+    """Remove thinking blocks, unclosed trailing tags, and tokenizer-level
+    template leaks occasionally emitted by some models (notably Gemma 4's
+    Ollama renderer).
+
+    Covers:
+      1. Well-formed ``<think>...</think>`` and ``<thought>...</thought>`` blocks.
+      2. Streaming prefixes where the block is never closed.
+      3. *Malformed* opening tags missing the ``>`` -- e.g. ``<think广场…``.
+      4. Harmony-style channel markers like ``<channel|>`` / ``<|channel|>``
+         **at the start of the text** -- conservative to avoid eating
+         explanatory prose that mentions these tokens.
+      5. Orphan closing tags ``</think>`` / ``</thought>`` **at the very start
+         or end of the text** only, for the same reason.
+    """
     if not text:
-        return None
-    from nanobot.utils.helpers import strip_think
-    return strip_think(text) or None
+        return text
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text)
+    text = re.sub(r"^\s*<think>[\s\S]*$", "", text)
+    text = re.sub(r"<thought>[\s\S]*?</thought>", "", text)
+    text = re.sub(r"^\s*<thought>[\s\S]*$", "", text)
+    text = re.sub(r"<think(?![A-Za-z0-9_\-:>/])", "", text)
+    text = re.sub(r"<thought(?![A-Za-z0-9_\-:>/])", "", text)
+    text = re.sub(r"^\s*</think>\s*", "", text)
+    text = re.sub(r"\s*</think>\s*$", "", text)
+    text = re.sub(r"^\s*</thought>\s*", "", text)
+    text = re.sub(r"\s*</thought>\s*$", "", text)
+    text = re.sub(r"^\s*<\|?channel\|?>\s*", "", text)
+    return text.strip()
 
 
 def runtime_chat_id(msg: Any) -> str:

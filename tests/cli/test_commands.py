@@ -765,6 +765,10 @@ def _patch_cli_command_runtime(
         sync_templates or (lambda _path: None),
     )
     monkeypatch.setattr(
+        "nanobot.gateway.app.sync_workspace_templates",
+        sync_templates or (lambda _path: None),
+    )
+    monkeypatch.setattr(
         "nanobot.cli.commands._make_provider",
         provider_factory,
     )

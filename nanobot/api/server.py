@@ -189,10 +189,9 @@ async def handle_settings_update(request: web.Request) -> web.Response:
 
 async def handle_shutdown(request: web.Request) -> web.Response:
     """POST /api/shutdown — stop proxies then restart the gateway process."""
-    import sys
     import os
     import subprocess
-    import tempfile
+    import sys
     import threading
 
     # Stop proxy children first so they don't orphan WS connections.
@@ -206,17 +205,22 @@ async def handle_shutdown(request: web.Request) -> web.Response:
     def deferred_restart():
         import time
         time.sleep(0.3)
-        log_path = os.path.join(tempfile.gettempdir(), "_nanobot_restart.log")
-        bat_path = os.path.join(tempfile.gettempdir(), "_nanobot_restart.bat")
-        with open(bat_path, "w") as f:
-            f.write("@echo off\n")
-            f.write(f'echo [%time%] restart batch started >> "{log_path}"\n')
-            f.write(f'timeout /t 3 /nobreak >nul\n')
-            f.write(f'echo [%time%] launching gateway >> "{log_path}"\n')
-            f.write(f'"{sys.executable}" -m nanobot gateway >> "{log_path}" 2>&1\n')
-            f.write(f'echo [%time%] exit code %%ERRORLEVEL%% >> "{log_path}"\n')
+
+        # Reconstruct gateway command, forwarding --config if present
+        restart_cmd = [sys.executable, "-m", "nanobot", "gateway"]
+        for i, a in enumerate(sys.argv):
+            if a in ("--config", "-c") and i + 1 < len(sys.argv):
+                restart_cmd.extend([a, sys.argv[i + 1]])
+
+        # Cross-platform delayed restart: spawn a Python child that waits
+        # then execs the gateway, while this process exits immediately.
+        delay_cmd = (
+            f"import time,subprocess,sys;"
+            f"time.sleep(3);"
+            f"sys.exit(subprocess.call({restart_cmd!r}))"
+        )
         subprocess.Popen(
-            ["cmd", "/c", bat_path],
+            [sys.executable, "-c", delay_cmd],
             cwd=os.getcwd(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, Any, Iterator
 
 from loguru import logger
 
-from nanobot.utils.helpers import ensure_dir, strip_think, truncate_text
+from nanobot.utils.helpers import ensure_dir, truncate_text
+from nanobot.agent.loop_utils import strip_think
 from nanobot.utils.gitstore import GitStore
 
 if TYPE_CHECKING:

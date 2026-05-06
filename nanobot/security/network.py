@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
 import socket
@@ -43,7 +44,21 @@ def _is_private(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return any(addr in net for net in _BLOCKED_NETWORKS)
 
 
-def validate_url_target(url: str) -> tuple[bool, str]:
+async def _resolve_hostname(hostname: str) -> list:
+    """Async DNS resolution with 10s timeout."""
+    try:
+        infos = await asyncio.wait_for(
+            asyncio.getaddrinfo(
+                hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
+            ),
+            timeout=10.0,
+        )
+        return infos
+    except asyncio.TimeoutError:
+        raise socket.gaierror(f"DNS resolution timed out for {hostname}")
+
+
+async def validate_url_target(url: str) -> tuple[bool, str]:
     """Validate a URL is safe to fetch: scheme, hostname, and resolved IPs.
 
     Returns (ok, error_message).  When ok is True, error_message is empty.
@@ -63,7 +78,7 @@ def validate_url_target(url: str) -> tuple[bool, str]:
         return False, "Missing hostname"
 
     try:
-        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        infos = await _resolve_hostname(hostname)
     except socket.gaierror:
         return False, f"Cannot resolve hostname: {hostname}"
 
@@ -78,7 +93,7 @@ def validate_url_target(url: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_resolved_url(url: str) -> tuple[bool, str]:
+async def validate_resolved_url(url: str) -> tuple[bool, str]:
     """Validate an already-fetched URL (e.g. after redirect). Only checks the IP, skips DNS."""
     try:
         p = urlparse(url)
@@ -96,7 +111,7 @@ def validate_resolved_url(url: str) -> tuple[bool, str]:
     except ValueError:
         # hostname is a domain name, resolve it
         try:
-            infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            infos = await _resolve_hostname(hostname)
         except socket.gaierror:
             return True, ""
         for info in infos:
@@ -114,7 +129,24 @@ def contains_internal_url(command: str) -> bool:
     """Return True if the command string contains a URL targeting an internal/private address."""
     for m in _URL_RE.finditer(command):
         url = m.group(0)
-        ok, _ = validate_url_target(url)
-        if not ok:
-            return True
+        try:
+            p = urlparse(url)
+        except Exception:
+            continue
+        if p.scheme not in ("http", "https"):
+            continue
+        hostname = p.hostname
+        if not hostname:
+            continue
+        try:
+            infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        except socket.gaierror:
+            continue
+        for info in infos:
+            try:
+                addr = ipaddress.ip_address(info[4][0])
+            except ValueError:
+                continue
+            if _is_private(addr):
+                return True
     return False

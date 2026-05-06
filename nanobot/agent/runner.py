@@ -13,11 +13,11 @@ from nanobot.agent.context_vars import _current_messages_for_subagent
 from nanobot.agent.hook import AgentHook, AgentHookContext
 from nanobot.providers.base import LLMProvider
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.session.manager import find_legal_message_start
 from nanobot.utils.helpers import (
     build_assistant_message,
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
-    find_legal_message_start,
     maybe_persist_tool_result,
     truncate_text,
 )

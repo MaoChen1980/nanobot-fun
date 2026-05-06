@@ -15,7 +15,7 @@ from loguru import logger
 
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
-from nanobot.utils.helpers import build_image_content_blocks
+from nanobot.utils.media_decode import build_image_content_blocks
 
 if TYPE_CHECKING:
     from nanobot.config.schema import WebSearchConfig
@@ -65,10 +65,10 @@ def _validate_url(url: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def _validate_url_safe(url: str) -> tuple[bool, str]:
+async def _validate_url_safe(url: str) -> tuple[bool, str]:
     """Validate URL with SSRF protection: scheme, domain, and resolved IP check."""
     from nanobot.security.network import validate_url_target
-    return validate_url_target(url)
+    return await validate_url_target(url)
 
 
 def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
@@ -328,7 +328,7 @@ class WebFetchTool(WebToolBase, Tool):
         # Strip whitespace, markdown backticks, and quotes that LLM-generated URLs often carry
         url = url.strip().strip("`").strip('"').strip("'")
         max_chars = maxChars or self.max_chars
-        is_valid, error_msg = _validate_url_safe(url)
+        is_valid, error_msg = await _validate_url_safe(url)
         if not is_valid:
             return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False)
 
@@ -338,7 +338,7 @@ class WebFetchTool(WebToolBase, Tool):
                 async with client.stream("GET", url, headers={"User-Agent": self.user_agent}) as r:
                     from nanobot.security.network import validate_resolved_url
 
-                    redir_ok, redir_err = validate_resolved_url(str(r.url))
+                    redir_ok, redir_err = await validate_resolved_url(str(r.url))
                     if not redir_ok:
                         return json.dumps({"error": f"Redirect blocked: {redir_err}", "url": url}, ensure_ascii=False)
 
@@ -408,7 +408,7 @@ class WebFetchTool(WebToolBase, Tool):
                 r.raise_for_status()
 
             from nanobot.security.network import validate_resolved_url
-            redir_ok, redir_err = validate_resolved_url(str(r.url))
+            redir_ok, redir_err = await validate_resolved_url(str(r.url))
             if not redir_ok:
                 return json.dumps({"error": f"Redirect blocked: {redir_err}", "url": url}, ensure_ascii=False)
 

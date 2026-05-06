@@ -1,6 +1,5 @@
 """Utility functions for nanobot."""
 
-import base64
 import json
 import re
 import shutil
@@ -13,82 +12,15 @@ from typing import Any
 import tiktoken
 from loguru import logger
 
-# Cached tiktoken encoder — creation is expensive (~50-100ms)
-_cached_encoder = tiktoken.get_encoding("cl100k_base")
+# Lazy-init cached tiktoken encoder — creation is expensive (~50-100ms)
+_cached_encoder: Any = None
 
 
-def strip_think(text: str) -> str:
-    """Remove thinking blocks, unclosed trailing tags, and tokenizer-level
-    template leaks occasionally emitted by some models (notably Gemma 4's
-    Ollama renderer).
-
-    Covers:
-      1. Well-formed `<think>...</think>` and `<thought>...</thought>` blocks.
-      2. Streaming prefixes where the block is never closed.
-      3. *Malformed* opening tags missing the `>` — e.g. `<think广场…`. The
-         model sometimes emits the tag name directly followed by user-facing
-         content with no delimiter; without this step the literal `<think`
-         leaks into the rendered message.
-      4. Harmony-style channel markers like `<channel|>` / `<|channel|>`
-         **at the start of the text** — conservative to avoid eating
-         explanatory prose that mentions these tokens.
-      5. Orphan closing tags `</think>` / `</thought>` **at the very start
-         or end of the text** only, for the same reason.
-
-    Since this is also applied before persisting to history (memory.py),
-    the edge-only stripping of (4) and (5) is deliberate: stripping those
-    tokens mid-text would silently rewrite any message where a user or the
-    assistant discusses the tokens themselves.
-    """
-    # Well-formed blocks first.
-    text = re.sub(r"<think>[\s\S]*?</think>", "", text)
-    text = re.sub(r"^\s*<think>[\s\S]*$", "", text)
-    text = re.sub(r"<thought>[\s\S]*?</thought>", "", text)
-    text = re.sub(r"^\s*<thought>[\s\S]*$", "", text)
-    # Malformed opening tags: `<think` / `<thought` where the next char is
-    # NOT one that could continue a valid tag / identifier name. Explicitly
-    # listing ASCII tag-name chars (letters, digits, `_`, `-`, `:`) plus
-    # `>` / `/` — we can't use `\w` here because in Python's default
-    # Unicode regex mode it matches CJK characters too, which would defeat
-    # the primary fix for `<think广场…` leaks.
-    text = re.sub(r"<think(?![A-Za-z0-9_\-:>/])", "", text)
-    text = re.sub(r"<thought(?![A-Za-z0-9_\-:>/])", "", text)
-    # Edge-only orphan closing tags (start or end of text).
-    text = re.sub(r"^\s*</think>\s*", "", text)
-    text = re.sub(r"\s*</think>\s*$", "", text)
-    text = re.sub(r"^\s*</thought>\s*", "", text)
-    text = re.sub(r"\s*</thought>\s*$", "", text)
-    # Edge-only channel markers (harmony / Gemma 4 variant leaks).
-    text = re.sub(r"^\s*<\|?channel\|?>\s*", "", text)
-    return text.strip()
-
-
-def detect_image_mime(data: bytes) -> str | None:
-    """Detect image MIME type from magic bytes, ignoring file extension."""
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return "image/png"
-    if data[:3] == b"\xff\xd8\xff":
-        return "image/jpeg"
-    if data[:6] in (b"GIF87a", b"GIF89a"):
-        return "image/gif"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    return None
-
-
-def build_image_content_blocks(
-    raw: bytes, mime: str, path: str, label: str
-) -> list[dict[str, Any]]:
-    """Build native image blocks plus a short text label."""
-    b64 = base64.b64encode(raw).decode()
-    return [
-        {
-            "type": "image_url",
-            "image_url": {"url": f"data:{mime};base64,{b64}"},
-            "_meta": {"path": path},
-        },
-        {"type": "text", "text": label},
-    ]
+def _get_encoder():
+    global _cached_encoder
+    if _cached_encoder is None:
+        _cached_encoder = tiktoken.get_encoding("cl100k_base")
+    return _cached_encoder
 
 
 def ensure_dir(path: Path) -> Path:
@@ -130,53 +62,11 @@ def safe_filename(name: str) -> str:
     return _UNSAFE_CHARS.sub("_", name).strip()
 
 
-def image_placeholder_text(path: str | None, *, empty: str = "[image]") -> str:
-    """Build an image placeholder string."""
-    return f"[image: {path}]" if path else empty
-
-
 def truncate_text(text: str, max_chars: int) -> str:
     """Truncate text with a stable suffix."""
     if max_chars <= 0 or len(text) <= max_chars:
         return text
     return text[:max_chars] + "\n... (truncated)"
-
-
-def find_legal_message_start(messages: list[dict[str, Any]]) -> int:
-    """Find the first index whose tool results have matching assistant calls."""
-    declared: set[str] = set()
-    start = 0
-    for i, msg in enumerate(messages):
-        role = msg.get("role")
-        if role == "assistant":
-            for tc in msg.get("tool_calls") or []:
-                if isinstance(tc, dict) and tc.get("id"):
-                    declared.add(str(tc["id"]))
-        elif role == "tool":
-            tid = msg.get("tool_call_id")
-            if tid and str(tid) not in declared:
-                start = i + 1
-                declared.clear()
-                for prev in messages[start : i + 1]:
-                    if prev.get("role") == "assistant":
-                        for tc in prev.get("tool_calls") or []:
-                            if isinstance(tc, dict) and tc.get("id"):
-                                declared.add(str(tc["id"]))
-    return start
-
-
-def stringify_text_blocks(content: list[dict[str, Any]]) -> str | None:
-    parts: list[str] = []
-    for block in content:
-        if not isinstance(block, dict):
-            return None
-        if block.get("type") != "text":
-            return None
-        text = block.get("text")
-        if not isinstance(text, str):
-            return None
-        parts.append(text)
-    return "\n".join(parts)
 
 
 def _render_tool_result_reference(
@@ -366,7 +256,7 @@ def estimate_prompt_tokens(
             parts.append(json.dumps(tools, ensure_ascii=False))
 
         per_message_overhead = len(messages) * 4
-        return len(_cached_encoder.encode("\n".join(parts))) + per_message_overhead
+        return len(_get_encoder().encode("\n".join(parts))) + per_message_overhead
     except Exception:
         return 0
 
@@ -403,7 +293,7 @@ def estimate_message_tokens(message: dict[str, Any]) -> int:
     if not payload:
         return 4
     try:
-        enc = _cached_encoder
+        enc = _get_encoder()
         return max(4, len(enc.encode(payload)) + 4)
     except Exception:
         return max(4, len(payload) // 4 + 4)
@@ -487,53 +377,3 @@ def build_status_content(
     return "\n".join(lines)
 
 
-def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]:
-    """Sync bundled templates to workspace. Only creates missing files."""
-    from importlib.resources import files as pkg_files
-
-    try:
-        tpl = pkg_files("nanobot") / "templates"
-    except Exception:
-        return []
-    if not tpl.is_dir():
-        return []
-
-    added: list[str] = []
-
-    def _write(src, dest: Path):
-        if dest.exists():
-            return
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(src.read_text(encoding="utf-8") if src else "", encoding="utf-8")
-        added.append(str(dest.relative_to(workspace)))
-
-    for item in tpl.iterdir():
-        if item.name.endswith(".md") and not item.name.startswith("."):
-            _write(item, workspace / item.name)
-    _write(tpl / "memory" / "MEMORY.md", workspace / "memory" / "MEMORY.md")
-    _write(None, workspace / "memory" / "history.jsonl")
-    (workspace / "skills").mkdir(exist_ok=True)
-
-    if added and not silent:
-        from rich.console import Console
-
-        for name in added:
-            Console().print(f"  [dim]Created {name}[/dim]")
-
-    # Initialize git for memory version control
-    try:
-        from nanobot.utils.gitstore import GitStore
-
-        gs = GitStore(
-            workspace,
-            tracked_files=[
-                "SOUL.md",
-                "USER.md",
-                "memory/MEMORY.md",
-            ],
-        )
-        gs.init()
-    except Exception:
-        logger.warning("Failed to initialize git store for {}", workspace)
-
-    return added

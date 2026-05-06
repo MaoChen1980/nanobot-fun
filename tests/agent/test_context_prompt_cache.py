@@ -176,7 +176,7 @@ def test_partial_dream_processing_shows_only_remainder(tmp_path) -> None:
 
 def test_execution_rules_in_system_prompt(tmp_path) -> None:
     """Execution rules should appear in the system prompt via default SOUL.md."""
-    from nanobot.utils.helpers import sync_workspace_templates
+    from nanobot.utils.gitstore import sync_workspace_templates
 
     workspace = _make_workspace(tmp_path)
     sync_workspace_templates(workspace, silent=True)
@@ -320,7 +320,7 @@ def test_always_skills_excluded_from_skills_index(tmp_path) -> None:
 def test_template_memory_md_is_skipped(tmp_path) -> None:
     """MEMORY.md matching the bundled template should not inject the Memory section."""
     workspace = _make_workspace(tmp_path)
-    from nanobot.utils.helpers import sync_workspace_templates
+    from nanobot.utils.gitstore import sync_workspace_templates
     sync_workspace_templates(workspace, silent=True)
 
     builder = ContextBuilder(workspace)
@@ -337,7 +337,7 @@ def test_template_memory_md_is_skipped(tmp_path) -> None:
 def test_customized_memory_md_is_injected(tmp_path) -> None:
     """A Dream-populated MEMORY.md should be injected normally."""
     workspace = _make_workspace(tmp_path)
-    from nanobot.utils.helpers import sync_workspace_templates
+    from nanobot.utils.gitstore import sync_workspace_templates
     sync_workspace_templates(workspace, silent=True)
 
     (workspace / "memory" / "MEMORY.md").write_text(

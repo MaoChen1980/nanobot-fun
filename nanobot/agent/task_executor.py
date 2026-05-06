@@ -7,6 +7,7 @@ Follows the architecture in task-execution-system.md.
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -126,6 +127,7 @@ class TaskExecutor:
             # Execute subtask via AgentRunner
             result = await self._execute_subtask(
                 goal_id=goal_id,
+                goal=goal,
                 subtask=current,
                 goal_scope=goal_scope,
                 session_key=session_key,
@@ -137,6 +139,8 @@ class TaskExecutor:
             # Check if subtask done
             if self._check_subtask_done(result, current):
                 self._mark_subtask_done(goal_id, current["id"])
+                # Also update local copy so loop can progress without DB
+                current["status"] = "done"
 
             # Save checkpoint
             self._save_checkpoint(goal_id, current["id"], result)
@@ -167,7 +171,9 @@ class TaskExecutor:
                 )
 
             # Refresh goal data for next iteration
-            goal = self._get_goal(goal_id)
+            refreshed = self._get_goal(goal_id)
+            if refreshed:
+                goal = refreshed
 
         # === Phase 4: Complete ===
         self._update_goal_status(goal_id, "completed")
@@ -205,9 +211,65 @@ class TaskExecutor:
 
         return None
 
+    def _build_subtask_messages(
+        self,
+        goal: dict[str, Any],
+        subtask: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Build initial messages with goal/subtask context for the LLM."""
+        goal_title = goal.get("title", "Untitled")
+        goal_desc = goal.get("description", "")
+        project = goal.get("project", "")
+
+        subtask_id = subtask.get("id", "?")
+        subtask_title = subtask.get("title", subtask_id)
+
+        subtasks = goal.get("data", {}).get("subtasks", [])
+        done_count = sum(1 for s in subtasks if s.get("status") == "done")
+        total_count = len(subtasks)
+
+        scope = goal.get("scope", {})
+        constraints = scope.get("structural_constraints", {})
+
+        parts = [
+            f"You are executing a goal. Current context:\n",
+            f"## Goal: {goal_title}",
+        ]
+        if goal_desc:
+            parts.append(f"Description: {goal_desc}")
+        if project:
+            parts.append(f"Project: {project}")
+
+        parts.append("")
+        parts.append(f"## Current Subtask: {subtask_title} ({subtask_id})")
+        parts.append(f"Progress: {done_count}/{total_count} subtasks completed")
+        parts.append("")
+
+        if constraints.get("influential_files"):
+            parts.append(f"influential files: {', '.join(constraints['influential_files'])}")
+        if constraints.get("file_patterns"):
+            parts.append(f"Allowed file patterns: {', '.join(constraints['file_patterns'])}")
+        if constraints.get("deny_patterns"):
+            parts.append(f"Denied file patterns: {', '.join(constraints['deny_patterns'])}")
+        if constraints.get("operation_constraints"):
+            parts.append(f"Operation constraints: {', '.join(constraints['operation_constraints'])}")
+        if constraints.get("success_criteria"):
+            parts.append(f"Success criteria: {', '.join(constraints['success_criteria'])}")
+
+        parts.append("")
+        parts.append(f"Use declare_checkpoint when subtask '{subtask_id}' is complete.")
+
+        system_msg = "\n".join(parts)
+
+        return [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": f"Execute subtask {subtask_id}: {subtask_title}"},
+        ]
+
     async def _execute_subtask(
         self,
         goal_id: str,
+        goal: dict[str, Any],
         subtask: dict[str, Any],
         goal_scope: dict[str, Any],
         session_key: str | None,
@@ -217,11 +279,12 @@ class TaskExecutor:
     ) -> SubtaskExecutionResult:
         """Execute a single subtask via AgentRunner.
 
-        Passes goal_scope to AgentRunSpec so AgentRunner can do
-        StructuralConstraintVerifier checks before tool execution.
+        Builds context messages with goal/subtask info so the LLM
+        knows what it's working on. Passes goal_scope to AgentRunSpec
+        for StructuralConstraintVerifier checks before tool execution.
         """
         spec = AgentRunSpec(
-            initial_messages=[],
+            initial_messages=self._build_subtask_messages(goal, subtask),
             tools=self._tools,
             model=self._model,
             max_iterations=self._max_iterations,
@@ -231,8 +294,7 @@ class TaskExecutor:
             context_window_tokens=context_window_tokens,
             context_block_limit=context_block_limit,
             provider_retry_mode=provider_retry_mode,
-            # Pass goal_scope for constraint verification
-            hook=None,  # Could pass a custom hook for goal tracking
+            hook=None,
         )
 
         result = await self._runner.run(spec)
@@ -260,10 +322,48 @@ class TaskExecutor:
         return True
 
     def _check_subtask_done(self, result: SubtaskExecutionResult, subtask: dict[str, Any]) -> bool:
-        """Check if subtask is complete based on execution result."""
-        # For now, assume subtask completes when iteration finishes
-        # A more sophisticated version would check checkpoint_callback or explicit declaration
+        """Check if subtask is complete based on execution result.
+
+        A subtask is considered done if:
+        1. The LLM explicitly called declare_checkpoint for this subtask, OR
+        2. The run completed naturally (stop_reason == 'completed')
+        """
+        # Check if LLM explicitly declared checkpoint for this subtask
+        subtask_id = subtask.get("id")
+        if self._has_declared_checkpoint(result.messages, subtask_id):
+            return True
+
+        # Fallback: normal completion
         return result.stop_reason == "completed"
+
+    def _has_declared_checkpoint(self, messages: list[dict[str, Any]], subtask_id: str) -> bool:
+        """Check if any assistant message contains a declare_checkpoint call for subtask_id."""
+        for msg in messages:
+            if msg.get("role") != "assistant":
+                continue
+            content = msg.get("content", "")
+            tool_calls = msg.get("tool_calls", [])
+
+            # Check OpenAI format: tool_calls array
+            for tc in tool_calls:
+                fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+                if fn.get("name") == "declare_checkpoint":
+                    try:
+                        args = json.loads(fn.get("arguments", "{}")) if isinstance(fn.get("arguments"), str) else fn.get("arguments", {})
+                        if args.get("subtask_id") == subtask_id:
+                            return True
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+            # Check Anthropic format: content blocks with type="tool_use"
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        if block.get("name") == "declare_checkpoint":
+                            inp = block.get("input", {})
+                            if isinstance(inp, dict) and inp.get("subtask_id") == subtask_id:
+                                return True
+        return False
 
     def _get_next_subtask(self, goal: dict[str, Any]) -> dict[str, Any] | None:
         """Get the next uncompleted subtask."""
@@ -311,7 +411,7 @@ class TaskExecutor:
         }
         self._db.insert_event(
             event_type="checkpoint",
-            content=str(checkpoint_data),
+            content=json.dumps(checkpoint_data, ensure_ascii=False),
             goal_id=goal_id,
         )
 
@@ -428,17 +528,12 @@ class TaskExecutor:
         events = self._db.list_events(goal_id=goal_id, event_type="checkpoint", limit=10)
         if not events:
             return None
-        # Parse checkpoint from the most recent event
-        import json
         for event in reversed(events):
             try:
                 content = event.get("content", "")
                 if content.startswith("{"):
                     return json.loads(content)
-                # Try to parse as Python dict representation
-                checkpoint_data = eval(content)  # Safe here since we control the format
-                return checkpoint_data
-            except Exception:
+            except (json.JSONDecodeError, Exception):
                 continue
         return None
 

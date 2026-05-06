@@ -15,10 +15,9 @@ from nanobot.config.paths import get_legacy_sessions_dir
 from nanobot.utils.helpers import (
     ensure_dir,
     estimate_message_tokens,
-    find_legal_message_start,
-    image_placeholder_text,
     safe_filename,
 )
+from nanobot.utils.media_decode import image_placeholder_text
 
 HISTORY_MAX_MESSAGES = 120
 FILE_MAX_MESSAGES = 2000
@@ -514,8 +513,6 @@ class SessionManager:
             tmp_path.unlink(missing_ok=True)
             raise
 
-        self._cache[session.key] = session
-
     def flush_all(self) -> int:
         """Re-save every cached session with fsync for durable shutdown.
 
@@ -646,3 +643,26 @@ class SessionManager:
                     })
                 continue
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)
+
+
+def find_legal_message_start(messages: list[dict[str, Any]]) -> int:
+    """Find the first index whose tool results have matching assistant calls."""
+    declared: set[str] = set()
+    start = 0
+    for i, msg in enumerate(messages):
+        role = msg.get("role")
+        if role == "assistant":
+            for tc in msg.get("tool_calls") or []:
+                if isinstance(tc, dict) and tc.get("id"):
+                    declared.add(str(tc["id"]))
+        elif role == "tool":
+            tid = msg.get("tool_call_id")
+            if tid and str(tid) not in declared:
+                start = i + 1
+                declared.clear()
+                for prev in messages[start : i + 1]:
+                    if prev.get("role") == "assistant":
+                        for tc in prev.get("tool_calls") or []:
+                            if isinstance(tc, dict) and tc.get("id"):
+                                declared.add(str(tc["id"]))
+    return start
