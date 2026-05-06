@@ -16,8 +16,9 @@ from loguru import logger
 
 from nanobot.agent.db import NanobotDB
 from nanobot.agent.runner import AgentRunSpec, AgentRunner
-from nanobot.providers.base import LLMProvider
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.agent.verify.result import VerifierAgent, VerifierResult
+from nanobot.providers.base import LLMProvider
 
 
 MAX_HYPOTHESIS_VERIFICATION_ATTEMPTS = 3
@@ -72,6 +73,11 @@ class TaskExecutor:
         self._max_tool_result_chars = max_tool_result_chars
         self._workspace = workspace
         self._runner = AgentRunner(provider, db=db)
+        self._verifier = VerifierAgent(
+            provider=provider,
+            tools=tools,
+            model=model,
+        )
 
     async def execute_goal(
         self,
@@ -144,6 +150,16 @@ class TaskExecutor:
 
             # Save checkpoint
             self._save_checkpoint(goal_id, current["id"], result)
+
+            # === Result verification ===
+            # Only run if subtask was completed and success_criteria exists
+            if self._check_subtask_done(result, current):
+                vr = await self._verify_subtask_result(goal, current, result)
+                if vr and not vr.passed:
+                    logger.warning(
+                        "Result verification failed for subtask {}: {}",
+                        current["id"], vr.details,
+                    )
 
             # Check stop conditions
             if result.stop_reason == "context_full":
@@ -294,6 +310,8 @@ class TaskExecutor:
             context_window_tokens=context_window_tokens,
             context_block_limit=context_block_limit,
             provider_retry_mode=provider_retry_mode,
+            goal_scope=goal_scope,
+            goal_id=goal_id,
             hook=None,
         )
 
@@ -413,6 +431,28 @@ class TaskExecutor:
             event_type="checkpoint",
             content=json.dumps(checkpoint_data, ensure_ascii=False),
             goal_id=goal_id,
+        )
+
+    async def _verify_subtask_result(
+        self,
+        goal: dict[str, Any],
+        subtask: dict[str, Any],
+        result: SubtaskExecutionResult,
+    ) -> VerifierResult | None:
+        """Run result verification for a completed subtask.
+
+        Only runs when the goal has success_criteria defined.
+        Returns None if no criteria or verifier not available.
+        """
+        scope = goal.get("scope", {})
+        constraints = scope.get("structural_constraints", {})
+        if not constraints.get("success_criteria"):
+            return None
+        return await self._verifier.verify(
+            goal=goal,
+            subtask=subtask,
+            final_content=result.final_content,
+            tools_used=result.tools_used,
         )
 
     def _get_latest_hypothesis_verification(self, goal_id: str) -> dict[str, Any] | None:

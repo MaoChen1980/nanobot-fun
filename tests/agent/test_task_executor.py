@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from nanobot.agent.task_executor import TaskExecutor, SubtaskExecutionResult
+from nanobot.agent.verify.result import VerifierResult
 
 
 # ---------------------------------------------------------------------------
@@ -505,3 +506,37 @@ class TestResumeGoal:
         db.get_goal.return_value = goal
         result = await executor.resume_goal(goal_id="g1")
         assert result.status == "blocked"
+
+
+# ---------------------------------------------------------------------------
+# _verify_subtask_result
+# ---------------------------------------------------------------------------
+
+
+class TestVerifySubtaskResult:
+    async def test_no_criteria_returns_none(self, executor):
+        goal = _make_goal(scope={"structural_constraints": {}})
+        subtask = {"id": "s1"}
+        result = _make_subtask_result()
+        vr = await executor._verify_subtask_result(goal, subtask, result)
+        assert vr is None
+
+    async def test_with_criteria_returns_verifier_result(self, executor):
+        goal = _make_goal(
+            scope={
+                "structural_constraints": {
+                    "success_criteria": ["output exists"],
+                },
+            },
+        )
+        subtask = {"id": "s1"}
+        result = _make_subtask_result()
+
+        executor._verifier = MagicMock()
+        executor._verifier.verify = AsyncMock(
+            return_value=VerifierResult(passed=True, evidence=["ok"], details="ok"),
+        )
+
+        vr = await executor._verify_subtask_result(goal, subtask, result)
+        assert vr is not None
+        assert vr.passed

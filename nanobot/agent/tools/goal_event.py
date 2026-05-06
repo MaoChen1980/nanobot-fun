@@ -4,6 +4,7 @@ LLM calls these to write structured data to the DB instead of writing Markdown f
 Read paths (context assembly) go directly through memory._db - these tools are for writes only.
 """
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -578,7 +579,7 @@ class DeclareCheckpoint(Tool):
         }
         self._memory._db.insert_event(
             event_type="checkpoint",
-            content=str(checkpoint_data),
+            content=json.dumps(checkpoint_data, ensure_ascii=False),
             goal_id=goal_id,
         )
 
