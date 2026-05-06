@@ -48,6 +48,38 @@ async def handle_settings_get(request: web.Request) -> web.Response:
     })
 
 
+async def handle_config_get(request: web.Request) -> web.Response:
+    """GET /api/config — return full config as JSON"""
+    try:
+        from nanobot.config.loader import load_config
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+    try:
+        config = load_config()
+        return web.json_response(config.model_dump())
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_config_update(request: web.Request) -> web.Response:
+    """PUT /api/config — save full config from JSON"""
+    try:
+        from nanobot.config.loader import load_config, save_config
+        from nanobot.config.schema import Config
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    try:
+        validated = Config.model_validate(data)
+        save_config(validated)
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"error": f"Validation failed: {e}"}, status=400)
+
+
 async def handle_settings_update(request: web.Request) -> web.Response:
     """PUT /api/settings/update"""
     try:
@@ -109,6 +141,8 @@ def create_app(index_html_path: str | Path = "") -> web.Application:
     public_dir = Path(index_html_path).parent / "public"
     app.router.add_get("/", lambda r: web.FileResponse(r.app["index_html_path"]))
     app.router.add_get("/health", handle_health)
+    app.router.add_get("/api/config", handle_config_get)
+    app.router.add_put("/api/config", handle_config_update)
     app.router.add_get("/api/settings", handle_settings_get)
     app.router.add_put("/api/settings/update", handle_settings_update)
     # Serve /brand/* from webui/public/brand/

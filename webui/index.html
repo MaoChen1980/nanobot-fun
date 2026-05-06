@@ -7,26 +7,71 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, sans-serif; background: #f9fafb; color: #111; min-height: 100vh; }
-  .container { max-width: 640px; margin: 0 auto; padding: 2rem 1rem; }
-  header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #e5e7eb; }
+  .container { max-width: 800px; margin: 0 auto; padding: 1rem; }
+
+  header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid #e5e7eb; }
   header img { width: 32px; height: 32px; }
   header h1 { font-size: 1.125rem; font-weight: 600; }
-  .card { background: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; overflow: hidden; margin-bottom: 1.5rem; }
-  .card-header { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; font-size: 0.75rem; font-weight: 500; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1rem; border-bottom: 1px solid #f3f4f6; }
+
+  .tabs { display: flex; gap: 0; border-bottom: 2px solid #e5e7eb; margin-bottom: 1.5rem; }
+  .tab { padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; font-weight: 500; color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab:hover { color: #111; }
+  .tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .card { background: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; overflow: hidden; margin-bottom: 1rem; }
+  .card-header { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between; }
+  .card-header .badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 9999px; background: #dbeafe; color: #1d4ed8; font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .card-header .badge.enabled { background: #dcfce7; color: #15803d; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; gap: 1rem; }
   .row:last-child { border-bottom: none; }
-  .row label { font-size: 0.875rem; font-weight: 500; }
-  select, input { font-size: 0.875rem; padding: 0.375rem 0.625rem; border: 1px solid #d1d5db; border-radius: 0.375rem; background: white; min-width: 200px; }
-  select:focus, input:focus { outline: 2px solid #3b82f6; outline-offset: 1px; border-color: #3b82f6; }
-  .footer { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1rem; }
-  .msg { font-size: 0.875rem; color: #6b7280; }
+  .row label { font-size: 0.875rem; font-weight: 500; min-width: 140px; }
+  .row .field { flex: 1; display: flex; justify-content: flex-end; }
+  .row input[type="text"],
+  .row input[type="number"],
+  .row input[type="password"],
+  .row select { font-size: 0.875rem; padding: 0.375rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; background: white; min-width: 180px; max-width: 100%; }
+  .row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+  .row input:focus, .row select:focus { outline: 2px solid #3b82f6; outline-offset: 1px; border-color: #3b82f6; }
+  .row .hint { font-size: 0.75rem; color: #9ca3af; }
+
+  .footer { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1rem; background: #f9fafb; border-top: 1px solid #e5e7eb; position: sticky; bottom: 0; }
+  .msg { font-size: 0.875rem; }
   .msg.ok { color: #16a34a; }
   .msg.err { color: #dc2626; }
   button { font-size: 0.875rem; padding: 0.5rem 1rem; border: 1px solid #d1d5db; border-radius: 0.375rem; background: white; cursor: pointer; }
   button:hover { background: #f9fafb; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: #3b82f6; color: white; border-color: #3b82f6; }
+  button.primary:hover { background: #2563eb; }
+
   .loading { display: flex; align-items: center; justify-content: center; min-height: 200px; color: #6b7280; font-size: 0.875rem; }
   .error { padding: 1rem; color: #dc2626; font-size: 0.875rem; }
+
+  .group-title { font-size: 0.8rem; font-weight: 600; color: #374151; padding: 0.5rem 1rem; background: #f9fafb; border-top: 1px solid #e5e7eb; }
+  .sub-row { padding-left: 1.5rem; }
+
+  .channel-card { margin-bottom: 0.5rem; }
+  .channel-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; cursor: pointer; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+  .channel-header:hover { background: #f3f4f6; }
+  .channel-body { padding: 0.75rem 1rem; display: none; }
+  .channel-body.open { display: block; }
+
+  .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  @media (max-width: 600px) { .provider-grid { grid-template-columns: 1fr; } }
+
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0; }
+  .toggle-row label { font-size: 0.875rem; }
+  .toggle { position: relative; width: 36px; height: 20px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; inset: 0; background: #d1d5db; border-radius: 9999px; cursor: pointer; transition: 0.2s; }
+  .toggle .slider:before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+  .toggle input:checked + .slider { background: #3b82f6; }
+  .toggle input:checked + .slider:before { transform: translateX(16px); }
+
+  .masked { font-family: monospace; letter-spacing: 2px; color: #9ca3af; }
 </style>
 </head>
 <body>
@@ -35,75 +80,306 @@
     <img src="/brand/nanobot_icon.png" alt="nanobot">
     <h1>nanobot</h1>
   </header>
-  <div id="app">
-    <div class="loading">Loading...</div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="agent">Agent</div>
+    <div class="tab" data-tab="channels">Channels</div>
+    <div class="tab" data-tab="providers">Providers</div>
+    <div class="tab" data-tab="tools">Tools</div>
+    <div class="tab" data-tab="gateway">Gateway</div>
+  </div>
+
+  <form id="configForm">
+    <div id="tabAgent" class="tab-panel active"></div>
+    <div id="tabChannels" class="tab-panel"></div>
+    <div id="tabProviders" class="tab-panel"></div>
+    <div id="tabTools" class="tab-panel"></div>
+    <div id="tabGateway" class="tab-panel"></div>
+  </form>
+
+  <div class="footer">
+    <span id="msg" class="msg"></span>
+    <button type="button" class="primary" onclick="save()">Save</button>
   </div>
 </div>
-<script>
-const app = document.getElementById('app');
 
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+let config = null;
+let original = null;
+const msg = document.getElementById('msg');
+
+// ── Init ──────────────────────────────────────────────────────────────────────
 async function load() {
   try {
+    const div = document.getElementById('tabAgent');
+    div.innerHTML = '<div class="loading">Loading...</div>';
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch('/api/settings', { signal: controller.signal });
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch('/api/config', { signal: controller.signal });
     clearTimeout(timer);
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const s = await res.json();
-    render(s);
+    config = await res.json();
+    original = JSON.parse(JSON.stringify(config));
+    renderAll();
   } catch(e) {
-    app.innerHTML = '<div class="error">Failed to load settings: ' + e.name + ' ' + e.message + '</div>';
+    document.getElementById('tabAgent').innerHTML =
+      '<div class="error">Failed to load config: ' + e.name + ' ' + e.message + '</div>';
   }
 }
 
-function render(s) {
-  const providers = s.providers || [];
-  const opts = providers.map(p => `<option value="${p.name}">${p.label}</option>`).join('');
-  app.innerHTML = `
+// ── Tab switching ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab' + capitalize(tab.dataset.tab)).classList.add('active');
+  });
+});
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ── Render all tabs ───────────────────────────────────────────────────────────
+function renderAll() {
+  renderAgent();
+  renderChannels();
+  renderProviders();
+  renderTools();
+  renderGateway();
+}
+
+// ── Agent ──────────────────────────────────────────────────────────────────────
+function renderAgent() {
+  const a = config.agents.defaults;
+  const tab = document.getElementById('tabAgent');
+  tab.innerHTML = `
     <div class="card">
-      <div class="card-header">AI</div>
-      <div class="row">
-        <label>Provider</label>
-        <select id="provider">${opts}</select>
-      </div>
-      <div class="row">
-        <label>Model</label>
-        <input id="model" type="text" value="${esc(s.agent.model)}">
-      </div>
-      <div class="footer">
-        <span id="msg" class="msg"></span>
-        <button id="saveBtn" onclick="save()">Save</button>
-      </div>
+      <div class="card-header">AI Model</div>
+      ${field('model', 'Model', a.model, 'text', 'agents.defaults.model')}
+      ${field('provider', 'Provider', a.provider, 'select', 'agents.defaults.provider', [
+        {v:'openai',l:'OpenAI'},{v:'anthropic',l:'Anthropic'},{v:'deepseek',l:'DeepSeek'},
+        {v:'minimaxAnthropicCn',l:'Minimax Anthropic CN'},{v:'minimax',l:'Minimax'},
+        {v:'moonshot',l:'Moonshot'},{v:'gemini',l:'Gemini'},{v:'ollama',l:'Ollama'},
+        {v:'azureOpenai',l:'Azure OpenAI'},{v:'openrouter',l:'OpenRouter'},
+        {v:'dashscope',l:'DashScope'},{v:'zhipu',l:'Zhipu'},{v:'groq',l:'Groq'},
+        {v:'mistral',l:'Mistral'},{v:'stepfun',l:'Stepfun'},{v:'qianfan',l:'Qianfan'},
+      ])}
+      ${field('max_tokens', 'Max Tokens', a.max_tokens, 'number', 'agents.defaults.max_tokens')}
+      ${field('temperature', 'Temperature', a.temperature, 'number', 'agents.defaults.temperature')}
+      ${field('max_tool_iterations', 'Max Tool Iterations', a.max_tool_iterations, 'number', 'agents.defaults.max_tool_iterations')}
+      ${field('context_window_tokens', 'Context Window (tokens)', a.context_window_tokens, 'number', 'agents.defaults.context_window_tokens')}
+    </div>
+    <div class="card">
+      <div class="card-header">Session</div>
+      ${field('timezone', 'Timezone', a.timezone, 'text', 'agents.defaults.timezone')}
+      ${field('unified_session', 'Unified Session', a.unified_session, 'checkbox', 'agents.defaults.unified_session')}
+      ${field('disabled_skills', 'Disabled Skills', Array.isArray(a.disabled_skills) ? a.disabled_skills.join(', ') : '', 'text', 'agents.defaults.disabled_skills')}
+      <div class="row"><label>Hint</label><span class="hint">Comma-separated skill names</span></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Dream</div>
+      ${field('model_override', 'Model Override', a.dream.model_override || '', 'text', 'agents.defaults.dream.model_override')}
+      ${field('interval_h', 'Interval (h)', a.dream.interval_h, 'number', 'agents.defaults.dream.interval_h')}
+      ${field('max_batch_size', 'Max Batch Size', a.dream.max_batch_size, 'number', 'agents.defaults.dream.max_batch_size')}
     </div>
   `;
-  document.getElementById('provider').value = s.agent.provider || 'auto';
+}
+
+// ── Channels ───────────────────────────────────────────────────────────────────
+function renderChannels() {
+  const tab = document.getElementById('tabChannels');
+  const known = ['feishu','dingtalk','discord','email','telegram','slack','msteams','qq','wecom','weixin','whatsapp','websocket','mochat'];
+  let html = '';
+  for (const name of known) {
+    const ch = config.channels[name];
+    if (!ch) continue;
+    const enabled = ch.enabled;
+    const bots = ch.bots;
+    html += `
+    <div class="card channel-card">
+      <div class="channel-header" onclick="toggleChannel('${name}')">
+        <span>${name}</span>
+        <span class="badge ${enabled ? 'enabled' : ''}">${enabled ? 'ON' : 'OFF'}</span>
+      </div>
+      <div class="channel-body" id="ch-${name}">
+        ${field('enabled', 'Enabled', enabled, 'checkbox', `channels.${name}.enabled`)}
+        ${bots ? `
+          <div class="group-title">Bots</div>
+          ${bots.map((bot, i) => `
+            <div class="sub-row">
+              ${field('name', 'Name', bot.name || '', 'text', `channels.${name}.bots.${i}.name`)}
+              ${field('appId', 'App ID', bot.appId || '', 'text', `channels.${name}.bots.${i}.appId`)}
+              ${field('appSecret', 'App Secret', bot.appSecret || '', 'password', `channels.${name}.bots.${i}.appSecret`)}
+              ${field('domain', 'Domain', bot.domain || '', 'text', `channels.${name}.bots.${i}.domain`)}
+            </div>
+          `).join('')}
+        ` : `
+          ${field('token', 'Token', ch.token || '', 'password', `channels.${name}.token`)}
+          ${field('clientId', 'Client ID', ch.clientId || '', 'text', `channels.${name}.clientId`)}
+          ${field('clientSecret', 'Client Secret', ch.clientSecret || '', 'password', `channels.${name}.clientSecret`)}
+        `}
+      </div>
+    </div>`;
+  }
+  tab.innerHTML = html || '<div class="error">No channels found</div>';
+}
+
+function toggleChannel(name) {
+  document.getElementById('ch-' + name).classList.toggle('open');
+}
+
+// ── Providers ─────────────────────────────────────────────────────────────────
+function renderProviders() {
+  const tab = document.getElementById('tabProviders');
+  const known = ['openai','anthropic','deepseek','groq','minimax','minimaxAnthropicCn','moonshot','gemini','ollama','azureOpenai','openrouter','dashscope','zhipu','mistral','stepfun','qianfan','wecom','volcengine','siliconflow'];
+  let html = '<div class="provider-grid">';
+  for (const name of known) {
+    const p = config.providers[name];
+    if (!p) continue;
+    const hasKey = p.apiKey && p.apiKey.length > 0;
+    html += `
+    <div class="card">
+      <div class="card-header">${name} ${hasKey ? '<span class="badge enabled">KEY</span>' : ''}</div>
+      ${field('apiKey', 'API Key', hasKey ? '••••••••' : '', 'password', `providers.${name}.apiKey`)}
+      ${field('apiBase', 'API Base', p.apiBase || '', 'text', `providers.${name}.apiBase`)}
+    </div>`;
+  }
+  html += '</div>';
+  tab.innerHTML = html;
+}
+
+// ── Tools ─────────────────────────────────────────────────────────────────────
+function renderTools() {
+  const t = config.tools;
+  const tab = document.getElementById('tabTools');
+  tab.innerHTML = `
+    <div class="card">
+      <div class="card-header">Web</div>
+      ${field('enable', 'Enabled', t.web.enable, 'checkbox', 'tools.web.enable')}
+      ${field('provider', 'Search Provider', t.web.search?.provider || '', 'select', 'tools.web.search.provider', [
+        {v:'duckduckgo',l:'DuckDuckGo'},{v:'google',l:'Google'},{v:'bing',l:'Bing'},
+      ])}
+      ${field('apiKey', 'Search API Key', t.web.search?.apiKey || '', 'password', 'tools.web.search.apiKey')}
+    </div>
+    <div class="card">
+      <div class="card-header">Exec</div>
+      ${field('enable', 'Enabled', t.exec?.enable, 'checkbox', 'tools.exec.enable')}
+      ${field('timeout', 'Timeout (s)', t.exec?.timeout || 1200, 'number', 'tools.exec.timeout')}
+      ${field('sandbox', 'Sandbox', t.exec?.sandbox || '', 'text', 'tools.exec.sandbox')}
+      ${field('restrict_to_workspace', 'Restrict to Workspace', t.restrict_to_workspace, 'checkbox', 'tools.restrict_to_workspace')}
+    </div>
+  `;
+}
+
+// ── Gateway ───────────────────────────────────────────────────────────────────
+function renderGateway() {
+  const g = config.gateway;
+  const tab = document.getElementById('tabGateway');
+  tab.innerHTML = `
+    <div class="card">
+      <div class="card-header">Network</div>
+      ${field('host', 'Host', g.host, 'text', 'gateway.host')}
+      ${field('port', 'Port', g.port, 'number', 'gateway.port')}
+    </div>
+    <div class="card">
+      <div class="card-header">Heartbeat</div>
+      ${field('enabled', 'Enabled', g.heartbeat?.enabled, 'checkbox', 'gateway.heartbeat.enabled')}
+      ${field('interval_s', 'Interval (s)', g.heartbeat?.interval_s || 1800, 'number', 'gateway.heartbeat.interval_s')}
+    </div>
+    <div class="card">
+      <div class="card-header">Logging</div>
+      ${field('level', 'Level', config.logging?.level || 'INFO', 'select', 'logging.level', [
+        {v:'DEBUG',l:'DEBUG'},{v:'INFO',l:'INFO'},{v:'WARNING',l:'WARNING'},{v:'ERROR',l:'ERROR'},
+      ])}
+    </div>
+  `;
+}
+
+// ── Field helpers ─────────────────────────────────────────────────────────────
+function field(id, label, value, type, path, opts) {
+  const pathId = path.replace(/\./g, '_').replace(/\[/g, '_').replace(/\]/g, '_');
+  if (type === 'checkbox') {
+    const checked = value ? 'checked' : '';
+    return `<div class="row"><label>${label}</label><div class="field"><label class="toggle"><input type="checkbox" id="${pathId}" data-path="${path}" ${checked}><span class="slider"></span></label></div></div>`;
+  }
+  if (type === 'select') {
+    const options = (opts || []).map(o => `<option value="${o.v}" ${value == o.v ? 'selected' : ''}>${o.l}</option>`).join('');
+    return `<div class="row"><label>${label}</label><div class="field"><select id="${pathId}" data-path="${path}">${options}</select></div></div>`;
+  }
+  const val = (value === null || value === undefined) ? '' : esc(String(value));
+  const step = type === 'number' ? ' step="any"' : '';
+  return `<div class="row"><label>${label}</label><div class="field"><input type="${type}" id="${pathId}" data-path="${path}" value="${val}"${step}></div></div>`;
 }
 
 function esc(s) {
   return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Build nested config from flat path edits ──────────────────────────────────
+function applyEdit(obj, path, value) {
+  const parts = path.split('.');
+  let cur = obj;
+  let i = 0;
+  while (i < parts.length - 1) {
+    const key = parts[i];
+    const nextKey = parts[i + 1];
+    if (/^\d+$/.test(nextKey)) {
+      // Array index: ensure element exists as object
+      if (!Array.isArray(cur[key])) cur[key] = [];
+      const idx = parseInt(nextKey, 10);
+      if (cur[key][idx] === undefined) cur[key][idx] = {};
+      cur = cur[key][idx];
+      i += 2; // skip both key and index
+    } else {
+      if (typeof cur[key] !== 'object' || cur[key] === null) cur[key] = {};
+      cur = cur[key];
+      i++;
+    }
+  }
+  const last = parts[i];
+  // disabled_skills is stored as comma-separated string but config needs array
+  if (last === 'disabled_skills' && typeof value === 'string' && value.includes(',')) {
+    value = value.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  if (value === '') cur[last] = null;
+  else if (value === 'true') cur[last] = true;
+  else if (value === 'false') cur[last] = false;
+  else if (!isNaN(value) && value !== '') cur[last] = Number(value);
+  else cur[last] = value;
+}
+
+// ── Save ───────────────────────────────────────────────────────────────────────
 async function save() {
-  const model = document.getElementById('model').value.trim();
-  const provider = document.getElementById('provider').value;
-  const msg = document.getElementById('msg');
-  const btn = document.getElementById('saveBtn');
+  const btn = document.querySelector('.footer button');
   btn.disabled = true;
   msg.textContent = '';
+  msg.className = 'msg';
+
+  // Collect all edits from form
+  const edited = JSON.parse(JSON.stringify(config));
+  document.querySelectorAll('input[data-path], select[data-path]').forEach(el => {
+    let val = el.type === 'checkbox' ? el.checked : el.value;
+    // Don't overwrite real keys with masked placeholder
+    if (el.type === 'password' && el.value === '••••••••') return;
+    applyEdit(edited, el.dataset.path, val);
+  });
+
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch('/api/settings/update', {
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch('/api/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, provider }),
+      body: JSON.stringify(edited),
       signal: controller.signal,
     });
     clearTimeout(timer);
-    const s = await res.json();
-    if (!res.ok) throw new Error(s.error || 'HTTP ' + res.status);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+    config = edited;
+    original = JSON.parse(JSON.stringify(config));
     msg.className = 'msg ok';
-    msg.textContent = s.requires_restart ? 'Saved. Restart nanobot to apply.' : 'Saved.';
+    msg.textContent = 'Saved. Restart nanobot to apply.';
   } catch(e) {
     msg.className = 'msg err';
     msg.textContent = e.name === 'AbortError' ? 'Request timed out' : e.message;
@@ -112,6 +388,7 @@ async function save() {
   }
 }
 
+// ── Start ─────────────────────────────────────────────────────────────────────
 load();
 </script>
 </body>
