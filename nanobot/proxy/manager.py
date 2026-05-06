@@ -56,9 +56,10 @@ class ProxyManager:
     and restarts dead proxies automatically.
     """
 
-    def __init__(self, hub_api_base: str, proxy_tcp_port: int | None = None):
+    def __init__(self, hub_api_base: str, proxy_tcp_port: int | None = None, config_path: str | None = None):
         self._hub_api_base = hub_api_base
         self._proxy_tcp_port = proxy_tcp_port
+        self._config_path = config_path
         self._proxies: dict[str, ProxyInfo] = {}  # key -> ProxyInfo
         self._monitor_task: asyncio.Task | None = None
         self._writers: dict[int, str] = {}  # writer_id -> proxy key
@@ -195,8 +196,8 @@ class ProxyManager:
         if pids:
             logger.info("Cleaned up {} orphan proxy process(es)", len(pids))
 
-    @staticmethod
     def _create_proxy_process(
+        self,
         channel: str,
         bot: str,
         config: dict[str, Any] | None,
@@ -222,6 +223,8 @@ class ProxyManager:
         env = dict(os.environ)
         if config:
             env["NANOBOT_PROXY_CONFIG"] = json.dumps(config)
+        if self._config_path:
+            env["NANOBOT_CONFIG_PATH"] = self._config_path
 
         process = subprocess.Popen(
             cmd, env=env,
@@ -424,9 +427,11 @@ class ProxyManager:
         while True:
             await asyncio.sleep(15)
             for key, proxy in list(self._proxies.items()):
+                enabled = proxy.config.get("enabled", True)
                 # Check if process exited
                 if proxy.process.poll() is not None:
                     if proxy.running:
+                        proxy.running = False
                         output = getattr(proxy, '_proxy_output', None)
                         if output:
                             output.seek(0)
@@ -434,14 +439,21 @@ class ProxyManager:
                             if content.strip():
                                 for line in content.strip().splitlines()[-50:]:
                                     logger.warning("[proxy {} crash] {}", key, line)
+                        if not enabled:
+                            logger.warning("Proxy {} (pid={}) is disabled, removing", key, proxy.process.pid)
+                            del self._proxies[key]
+                            continue
                         logger.warning(
                             "Proxy {} (pid={}) died unexpectedly, restarting...",
                             key, proxy.process.pid
                         )
-                        proxy.running = False
                         self._restart_proxy(proxy)
                 # Check if TCP connection is dead (connection closed by proxy)
                 elif not proxy.is_connected:
+                    if not enabled:
+                        logger.warning("Proxy {} is disabled, removing", key)
+                        del self._proxies[key]
+                        continue
                     # TCP connection lost — proxy is dead, restart
                     output = getattr(proxy, '_proxy_output', None)
                     if output:
@@ -510,3 +522,31 @@ class ProxyManager:
 
     def get_proxy_keys(self) -> list[str]:
         return list(self._proxies.keys())
+
+    def stop_proxy(self, key: str) -> None:
+        """Stop a single proxy process and remove it from tracking."""
+        proxy = self._proxies.pop(key, None)
+        if proxy is None:
+            return
+        # Clear TCP writer state
+        if proxy.writer is not None:
+            writer_id = id(proxy.writer)
+            if writer_id in self._writers:
+                del self._writers[writer_id]
+            try:
+                if not proxy.writer.is_closing():
+                    proxy.writer.close()
+            except Exception:
+                pass
+        # Force-kill
+        import platform
+        pid = proxy.process.pid
+        try:
+            if platform.system() == "Windows":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
+            else:
+                proxy.process.terminate()
+                proxy.process.wait(timeout=3)
+        except Exception:
+            pass
+        logger.info("Stopped proxy {} (pid={})", key, pid)

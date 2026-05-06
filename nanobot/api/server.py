@@ -75,6 +75,17 @@ async def handle_config_update(request: web.Request) -> web.Response:
     try:
         validated = Config.model_validate(data)
         save_config(validated)
+
+        # Reconcile running proxies: stop any whose channel is now disabled
+        channels_data = data.get("channels", {})
+        proxy_manager = request.app.get("proxy_manager")
+        if proxy_manager:
+            for key in list(proxy_manager.get_proxy_keys()):
+                ch, _ = key.split(":", 1)
+                ch_cfg = channels_data.get(ch, {})
+                if not ch_cfg.get("enabled", False):
+                    proxy_manager.stop_proxy(key)
+
         return web.json_response({"ok": True})
     except Exception as e:
         return web.json_response({"error": f"Validation failed: {e}"}, status=400)

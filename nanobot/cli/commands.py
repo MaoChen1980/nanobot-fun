@@ -616,6 +616,11 @@ def _spawn_proxy_processes(config: Config, proxy_manager: Any, port: int) -> Non
         if section is None:
             continue
 
+        # Skip disabled channels
+        enabled = section.get("enabled", False) if isinstance(section, dict) else getattr(section, "enabled", False)
+        if not enabled:
+            continue
+
         bots = _get_bots_list(section)
         if not bots:
             continue
@@ -843,9 +848,10 @@ def _run_gateway(
     channels = ChannelManager(config, bus)
 
     # Spawn proxy processes for channels configured to run out-of-process
+    from nanobot.config.loader import get_config_path as _get_cfg_path
     from nanobot.proxy.manager import ProxyManager
     proxy_tcp_port = port + 1  # TCP server on API port + 1
-    proxy_manager = ProxyManager(f"http://127.0.0.1:{port}", proxy_tcp_port=proxy_tcp_port)
+    proxy_manager = ProxyManager(f"http://127.0.0.1:{port}", proxy_tcp_port=proxy_tcp_port, config_path=str(_get_cfg_path()))
     ProxyManager._set_pid_file(str(config.workspace_path / "gateway.pid"))
     ProxyManager.cleanup_orphans()
     ProxyManager._save_gateway_pid()

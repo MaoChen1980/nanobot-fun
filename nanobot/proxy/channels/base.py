@@ -214,13 +214,35 @@ class BaseProxyChannel:
                 return True  # fail safe
         return os.getppid() == self._parent_pid
 
+    def _check_config_enabled(self) -> None:
+        """Re-read config file from disk and exit if this channel is disabled.
+
+        Respects the user's intent when they toggle ``enabled: false``
+        in config.json while the gateway is running.
+        """
+        import json
+        config_path = os.environ.get("NANOBOT_CONFIG_PATH")
+        if not config_path:
+            return
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                data = json.load(f)
+            ch = data.get("channels", {}).get(self.channel, {})
+            if not ch.get("enabled", False):
+                logger.warning("Channel {} disabled in config, exiting", self.channel)
+                os._exit(0)
+        except Exception:
+            pass  # benign — will retry on next cycle
+
     async def _heartbeat_loop(self) -> None:
-        """Periodic health check: parent alive + hub connected.
+        """Periodic health check: parent alive + hub connected + config enabled.
 
         Checks every 5s:
         1. Parent process (nanobot gateway) is still alive via PPID
         2. Hub responds to ping via TCP
+        3. Channel is still enabled in config file on disk
         """
+        config_check_interval = 0  # counter-based throttle: check every 6th tick (30s)
         while True:
             await asyncio.sleep(5)
 
@@ -239,6 +261,12 @@ class BaseProxyChannel:
                 except Exception:
                     logger.error("Heartbeat: hub not reachable, exiting")
                     os._exit(1)
+
+            # Check 3: config file says channel is still enabled (every 30s)
+            config_check_interval += 1
+            if config_check_interval >= 6:
+                config_check_interval = 0
+                self._check_config_enabled()
 
     async def _send_with_reconnect(self, msg: dict[str, Any]) -> HubResponse:
         """Send with automatic reconnect on failure."""
