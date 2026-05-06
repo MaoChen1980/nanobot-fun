@@ -268,187 +268,49 @@ function selectField(id, label, value, path, opts, onchange) {
 }
 
 // ── Channels ───────────────────────────────────────────────────────────────────
-// Schema: channel name → list of field definitions {key, label, type, secret}
-// type: 'text' | 'password' | 'number' | 'bool' | 'select'
-const CHANNEL_SCHEMAS = {
-  feishu: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'bots',l:'Bots',t:'bots'},
-    {k:'domain',l:'Domain',t:'text'},
-  ],
-  dingtalk: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'clientId',l:'Client ID',t:'text'},
-    {k:'clientSecret',l:'Client Secret',t:'password'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-  ],
-  discord: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'token',l:'Token',t:'password'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'allowChannels',l:'Allow Channels',t:'text'},
-    {k:'intents',l:'Intents',t:'number'},
-    {k:'groupPolicy',l:'Group Policy',t:'select',opts:['open','mention']},
-    {k:'readReceiptEmoji',l:'Read Receipt Emoji',t:'text'},
-    {k:'workingEmoji',l:'Working Emoji',t:'text'},
-    {k:'streaming',l:'Streaming',t:'bool'},
-    {k:'proxy',l:'Proxy',t:'text'},
-    {k:'proxyUsername',l:'Proxy Username',t:'text'},
-    {k:'proxyPassword',l:'Proxy Password',t:'password'},
-  ],
-  email: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'consentGranted',l:'Consent Granted',t:'bool'},
-    {k:'imapHost',l:'IMAP Host',t:'text'},
-    {k:'imapPort',l:'IMAP Port',t:'number'},
-    {k:'imapUsername',l:'IMAP Username',t:'text'},
-    {k:'imapPassword',l:'IMAP Password',t:'password'},
-    {k:'imapMailbox',l:'IMAP Mailbox',t:'text'},
-    {k:'imapUseSsl',l:'IMAP SSL',t:'bool'},
-    {k:'smtpHost',l:'SMTP Host',t:'text'},
-    {k:'smtpPort',l:'SMTP Port',t:'number'},
-    {k:'smtpUsername',l:'SMTP Username',t:'text'},
-    {k:'smtpPassword',l:'SMTP Password',t:'password'},
-    {k:'smtpUseTls',l:'SMTP TLS',t:'bool'},
-    {k:'smtpUseSsl',l:'SMTP SSL',t:'bool'},
-    {k:'fromAddress',l:'From Address',t:'text'},
-    {k:'autoReplyEnabled',l:'Auto Reply',t:'bool'},
-    {k:'pollIntervalSeconds',l:'Poll Interval (s)',t:'number'},
-    {k:'markSeen',l:'Mark Seen',t:'bool'},
-    {k:'maxBodyChars',l:'Max Body Chars',t:'number'},
-    {k:'subjectPrefix',l:'Subject Prefix',t:'text'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-  ],
-  telegram: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'token',l:'Token',t:'password'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'proxy',l:'Proxy',t:'text'},
-    {k:'replyToMessage',l:'Reply to Message',t:'bool'},
-    {k:'reactEmoji',l:'React Emoji',t:'text'},
-    {k:'groupPolicy',l:'Group Policy',t:'select',opts:['mention','open']},
-    {k:'connectionPoolSize',l:'Connection Pool Size',t:'number'},
-    {k:'poolTimeout',l:'Pool Timeout',t:'number'},
-    {k:'streaming',l:'Streaming',t:'bool'},
-    {k:'streamEditInterval',l:'Stream Edit Interval',t:'number'},
-  ],
-  slack: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'mode',l:'Mode',t:'select',opts:['socket','webhook']},
-    {k:'webhookPath',l:'Webhook Path',t:'text'},
-    {k:'botToken',l:'Bot Token',t:'password'},
-    {k:'appToken',l:'App Token',t:'password'},
-    {k:'replyInThread',l:'Reply in Thread',t:'bool'},
-    {k:'reactEmoji',l:'React Emoji',t:'text'},
-    {k:'doneEmoji',l:'Done Emoji',t:'text'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'groupPolicy',l:'Group Policy',t:'select',opts:['mention','open']},
-  ],
-  msteams: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'appId',l:'App ID',t:'text'},
-    {k:'appPassword',l:'App Password',t:'password'},
-    {k:'tenantId',l:'Tenant ID',t:'text'},
-    {k:'host',l:'Host',t:'text'},
-    {k:'port',l:'Port',t:'number'},
-    {k:'path',l:'Path',t:'text'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'replyInThread',l:'Reply in Thread',t:'bool'},
-    {k:'mentionOnlyResponse',l:'Mention Only Response',t:'text'},
-    {k:'validateInboundAuth',l:'Validate Inbound Auth',t:'bool'},
-  ],
-  qq: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'appId',l:'App ID',t:'text'},
-    {k:'secret',l:'Secret',t:'password'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'msgFormat',l:'Msg Format',t:'select',opts:['plain','json']},
-    {k:'ackMessage',l:'Ack Message',t:'text'},
-    {k:'mediaDir',l:'Media Dir',t:'text'},
-    {k:'downloadChunkSize',l:'Download Chunk Size',t:'number'},
-    {k:'downloadMaxBytes',l:'Download Max Bytes',t:'number'},
-  ],
-  wecom: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'botId',l:'Bot ID',t:'text'},
-    {k:'secret',l:'Secret',t:'password'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'welcomeMessage',l:'Welcome Message',t:'text'},
-  ],
-  weixin: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'baseUrl',l:'Base URL',t:'text'},
-    {k:'cdnBaseUrl',l:'CDN Base URL',t:'text'},
-    {k:'routeTag',l:'Route Tag',t:'text'},
-    {k:'token',l:'Token',t:'password'},
-    {k:'stateDir',l:'State Dir',t:'text'},
-    {k:'pollTimeout',l:'Poll Timeout',t:'number'},
-  ],
-  whatsapp: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'bridgeUrl',l:'Bridge URL',t:'text'},
-    {k:'bridgeToken',l:'Bridge Token',t:'password'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'groupPolicy',l:'Group Policy',t:'select',opts:['open','mention']},
-  ],
-  websocket: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'host',l:'Host',t:'text'},
-    {k:'port',l:'Port',t:'number'},
-    {k:'path',l:'Path',t:'text'},
-    {k:'token',l:'Token',t:'password'},
-    {k:'tokenTtlS',l:'Token TTL (s)',t:'number'},
-    {k:'websocketRequiresToken',l:'Requires Token',t:'bool'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'streaming',l:'Streaming',t:'bool'},
-    {k:'maxMessageBytes',l:'Max Message Bytes',t:'number'},
-    {k:'pingIntervalS',l:'Ping Interval (s)',t:'number'},
-    {k:'pingTimeoutS',l:'Ping Timeout (s)',t:'number'},
-    {k:'sslCertfile',l:'SSL Cert File',t:'text'},
-    {k:'sslKeyfile',l:'SSL Key File',t:'text'},
-  ],
-  mochat: [
-    {k:'enabled',l:'Enabled',t:'bool'},
-    {k:'baseUrl',l:'Base URL',t:'text'},
-    {k:'socketUrl',l:'Socket URL',t:'text'},
-    {k:'socketPath',l:'Socket Path',t:'text'},
-    {k:'refreshIntervalMs',l:'Refresh Interval (ms)',t:'number'},
-    {k:'watchTimeoutMs',l:'Watch Timeout (ms)',t:'number'},
-    {k:'watchLimit',l:'Watch Limit',t:'number'},
-    {k:'clawToken',l:'Claw Token',t:'password'},
-    {k:'agentUserId',l:'Agent User ID',t:'text'},
-    {k:'allowFrom',l:'Allow From',t:'text'},
-    {k:'replyDelayMode',l:'Reply Delay Mode',t:'select',opts:['non-mention','always']},
-    {k:'replyDelayMs',l:'Reply Delay (ms)',t:'number'},
-  ],
+// Select-type fields per channel
+const SELECT_FIELDS = {
+  dingtalk: {},
+  discord: { group_policy: ['open','mention'] },
+  email: {},
+  feishu: {},
+  mochat: { reply_delay_mode: ['non-mention','always'] },
+  msteams: {},
+  qq: { msg_format: ['plain','json'] },
+  slack: { mode: ['socket','webhook'], group_policy: ['mention','open'] },
+  telegram: { group_policy: ['mention','open'] },
+  wecom: {},
+  weixin: {},
+  whatsapp: { group_policy: ['open','mention'] },
+  websocket: {},
 };
+
+// Password fields (should not reveal actual value)
+const SECRET_FIELDS = new Set([
+  'token','app_secret','client_secret','api_key','password','proxy_password',
+  'bot_token','app_token','smtp_password','imap_password','bridge_token',
+  'claw_token',
+]);
 
 function renderChannels() {
   const tab = document.getElementById('tabChannels');
+  const channels = config.channels || {};
   let html = '';
-  for (const [name, schema] of Object.entries(CHANNEL_SCHEMAS)) {
-    const ch = config.channels[name] || {};
-    const enabled = ch.enabled || false;
-    const bots = ch.bots || [];
-    const hasBots = name === 'feishu' && Array.isArray(bots);
+  for (const [name, ch] of Object.entries(channels)) {
+    if (!ch || typeof ch !== 'object') continue;
+    const enabled = !!ch.enabled;
+    const fieldKeys = Object.keys(ch).filter(k => k !== 'bots');
     html += `<div class="card channel-card">
       <div class="channel-header" onclick="toggleChannel('${name}')">
         <span>${name}</span>
         <span class="badge ${enabled ? 'enabled' : ''}">${enabled ? 'ON' : 'OFF'}</span>
       </div>
       <div class="channel-body" id="ch-${name}">
-        ${schema.filter(f => f.t !== 'bots').map(f => {
-          let val = ch[f.k];
-          if (val === undefined || val === null) val = '';
-          if (f.t === 'bool') return field(f.k+'_'+name, f.l, val, 'checkbox', `channels.${name}.${f.k}`);
-          if (f.t === 'select') return selectField(f.k+'_'+name, f.l, val, `channels.${name}.${f.k}`, (f.opts||[]).map(o=>({v:o,l:o})));
-          return field(f.k+'_'+name, f.l, val, f.t === 'password' ? 'password' : 'text', `channels.${name}.${f.k}`);
-        }).join('')}
-        ${hasBots ? `
+        ${fieldKeys.map(k => renderChannelField(name, k, ch[k])).join('')}
+        ${Array.isArray(ch.bots) ? `
           <div class="group-title">Bots <button type="button" onclick="addBot('${name}')" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-left:0.5rem">+ Add</button></div>
           <div id="bots-${name}">
-          ${bots.map((bot, i) => botRow(name, bot, i)).join('')}
+          ${ch.bots.map((bot, i) => botRow(name, bot, i)).join('')}
           </div>
         ` : ''}
       </div>
@@ -457,12 +319,35 @@ function renderChannels() {
   tab.innerHTML = html;
 }
 
+function renderChannelField(chName, key, value) {
+  const path = `channels.${chName}.${key}`;
+  const id = `ch_${chName}_${key}`;
+  if (typeof value === 'boolean') {
+    return `<div class="row"><label>${key}</label><div class="field"><label class="toggle"><input type="checkbox" id="${id}" data-path="${path}" ${value ? 'checked' : ''}><span class="slider"></span></label></div></div>`;
+  }
+  const selects = SELECT_FIELDS[chName] || {};
+  if (selects[key]) {
+    const opts = selects[key];
+    const selOpts = opts.map(o => `<option value="${o}" ${value == o ? 'selected' : ''}>${o}</option>`).join('');
+    return `<div class="row"><label>${key}</label><div class="field"><select id="${id}" data-path="${path}">${selOpts}</select></div></div>`;
+  }
+  if (typeof value === 'number') {
+    return `<div class="row"><label>${key}</label><div class="field"><input type="number" id="${id}" data-path="${path}" value="${value}"></div></div>`;
+  }
+  const type = SECRET_FIELDS.has(key) ? 'password' : 'text';
+  const displayVal = (value === null || value === undefined) ? '' : String(value);
+  return `<div class="row"><label>${key}</label><div class="field"><input type="${type}" id="${id}" data-path="${path}" value="${esc(displayVal)}"></div></div>`;
+}
+
 function botRow(name, bot, i) {
-  const keys = ['name','appId','appSecret','encryptKey','verificationToken','domain','allowFrom','reactEmoji','done_emoji','groupPolicy','replyToMessage','streaming'];
+  if (!bot || typeof bot !== 'object') return '';
+  const keys = Object.keys(bot);
   return `<div class="sub-row" style="position:relative;padding-top:0.5rem;border-top:1px dashed #e5e7eb;margin-top:0.5rem">
     <button type="button" onclick="removeBot('${name}',${i})" style="position:absolute;right:0;top:0;font-size:0.7rem;padding:0.1rem 0.3rem;color:#dc2626;border-color:#dc2626">✕</button>
     ${keys.filter(k => bot[k] !== undefined).map(k =>
-      field(`bot_${i}_${k}`, k, bot[k] || '', 'text', `channels.${name}.bots.${i}.${k}`)
+      typeof bot[k] === 'boolean'
+        ? `<div class="row"><label>${k}</label><div class="field"><label class="toggle"><input type="checkbox" id="bot_${i}_${k}" data-path="channels.${name}.bots.${i}.${k}" ${bot[k] ? 'checked' : ''}><span class="slider"></span></label></div></div>`
+        : `<div class="row"><label>${k}</label><div class="field"><input type="${SECRET_FIELDS.has(k) ? 'password' : 'text'}" id="bot_${i}_${k}" data-path="channels.${name}.bots.${i}.${k}" value="${esc(String(bot[k] ?? ''))}"></div></div>`
     ).join('')}
   </div>`;
 }
