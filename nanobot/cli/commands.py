@@ -549,9 +549,10 @@ def serve(
         tools_config=runtime_config.tools,
     )
 
-    # Resolve webui/index.html path relative to this project
+    # Resolve webui/index.html path relative to project root
+    # __file__ = nanobot/cli/commands.py → parent.parent = nanobot/ → parent.parent.parent = project root
     from pathlib import Path as P
-    webui_index = (P(__file__).parent.parent / "webui" / "index.html").resolve()
+    webui_index = (P(__file__).parent.parent.parent / "webui" / "index.html").resolve()
 
     model_name = runtime_config.agents.defaults.model
     console.print(f"{__logo__} Starting settings server")
@@ -873,7 +874,7 @@ def _run_gateway(
         from nanobot.api.server import create_app as make_api_app
         from pathlib import Path as P
 
-        webui_index = (P(__file__).parent.parent / "webui" / "index.html").resolve()
+        webui_index = (P(__file__).parent.parent.parent / "webui" / "index.html").resolve()
         api_app = make_api_app(webui_index)
 
         api_runner = web.AppRunner(api_app, shutdown_timeout=0)
