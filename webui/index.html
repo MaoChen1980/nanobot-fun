@@ -58,25 +58,24 @@ async function load() {
 
 function render(s) {
   const providers = s.providers || [];
-  app.innerHTML = '
+  const opts = providers.map(p => `<option value="${p.name}">${p.label}</option>`).join('');
+  app.innerHTML = `
     <div class="card">
       <div class="card-header">AI</div>
       <div class="row">
         <label>Provider</label>
-        <select id="provider">' +
-          providers.map(p => '<option value="' + p.name + '">' + p.label + '</option>').join('') +
-        '</select>
+        <select id="provider">${opts}</select>
       </div>
       <div class="row">
         <label>Model</label>
-        <input id="model" type="text" value="' + esc(s.agent.model) + '">
+        <input id="model" type="text" value="${esc(s.agent.model)}">
       </div>
       <div class="footer">
         <span id="msg" class="msg"></span>
         <button id="saveBtn" onclick="save()">Save</button>
       </div>
     </div>
-  ';
+  `;
   document.getElementById('provider').value = s.agent.provider || 'auto';
 }
 
