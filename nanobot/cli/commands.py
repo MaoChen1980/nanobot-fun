@@ -398,11 +398,14 @@ def _onboard_plugins(config_path: Path) -> None:
         data = json.load(f)
 
     channels = data.setdefault("channels", {})
-    for name, cls in all_channels.items():
+    for name, info in all_channels.items():
+        default_cfg = info.get("default_config")
+        if not default_cfg:
+            continue
         if name not in channels:
-            channels[name] = cls.default_config()
+            channels[name] = default_cfg()
         else:
-            channels[name] = _merge_missing_defaults(channels[name], cls.default_config())
+            channels[name] = _merge_missing_defaults(channels[name], default_cfg())
 
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
@@ -1230,7 +1233,7 @@ def channels_status(
     table.add_column("Channel", style="cyan")
     table.add_column("Enabled")
 
-    for name, cls in sorted(discover_all().items()):
+    for name, info in sorted(discover_all().items()):
         section = getattr(config.channels, name, None)
         if section is None:
             enabled = False
@@ -1239,7 +1242,7 @@ def channels_status(
         else:
             enabled = getattr(section, "enabled", False)
         table.add_row(
-            cls.display_name,
+            info["display_name"],
             "[green]\u2713[/green]" if enabled else "[dim]\u2717[/dim]",
         )
 
@@ -1331,15 +1334,10 @@ def channels_login(
         console.print(f"[red]Unknown channel: {channel_name}[/red]  Available: {available}")
         raise typer.Exit(1)
 
-    console.print(f"{__logo__} {all_channels[channel_name].display_name} Login\n")
-
-    channel_cls = all_channels[channel_name]
-    channel = channel_cls(channel_cfg, bus=None)
-
-    success = asyncio.run(channel.login(force=force))
-
-    if not success:
-        raise typer.Exit(1)
+    info = all_channels[channel_name]
+    console.print(f"{__logo__} {info['display_name']} channel\n")
+    console.print("Proxy channels use config-based authentication (edit config.json to configure credentials).")
+    console.print("Use 'nanobot channels list' to see available channels.")
 
 
 # ============================================================================
@@ -1366,7 +1364,7 @@ def plugins_list():
     table.add_column("Enabled")
 
     for name in sorted(all_channels):
-        cls = all_channels[name]
+        info = all_channels[name]
         source = "builtin" if name in builtin_names else "plugin"
         section = getattr(config.channels, name, None)
         if section is None:
@@ -1376,7 +1374,7 @@ def plugins_list():
         else:
             enabled = getattr(section, "enabled", False)
         table.add_row(
-            cls.display_name,
+            info["display_name"],
             source,
             "[green]yes[/green]" if enabled else "[dim]no[/dim]",
         )

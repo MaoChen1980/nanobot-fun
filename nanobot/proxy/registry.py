@@ -1,21 +1,18 @@
-"""Auto-discovery for built-in proxy channel modules and external plugins."""
+"""Registry for proxy channel modules — no BaseChannel inheritance required."""
 
 from __future__ import annotations
 
 import importlib
 import pkgutil
-from typing import TYPE_CHECKING
+from typing import Any
 
 from loguru import logger
 
-if TYPE_CHECKING:
-    from nanobot.proxy.base import BaseChannel
-
-_INTERNAL = frozenset({"base", "manager", "registry"})
+_INTERNAL = frozenset({"__init__"})
 
 
 def discover_channel_names() -> list[str]:
-    """Return all built-in channel module names by scanning the package (zero imports)."""
+    """Return all proxy channel module names by scanning the package."""
     import nanobot.proxy.channels as pkg
 
     return [
@@ -25,47 +22,44 @@ def discover_channel_names() -> list[str]:
     ]
 
 
-def load_channel_class(module_name: str) -> type[BaseChannel]:
-    """Import *module_name* and return the first BaseChannel subclass found."""
-    from nanobot.proxy.base import BaseChannel as _Base
+def get_channel_info(name: str) -> dict[str, Any] | None:
+    """Load channel info dict from proxy channel module.
 
-    mod = importlib.import_module(f"nanobot.proxy.channels.{module_name}")
-    for attr in dir(mod):
-        obj = getattr(mod, attr)
-        if isinstance(obj, type) and issubclass(obj, _Base) and obj is not _Base:
-            return obj
-    raise ImportError(f"No BaseChannel subclass in nanobot.proxy.channels.{module_name}")
-
-
-def discover_plugins() -> dict[str, type[BaseChannel]]:
-    """Discover external channel plugins registered via entry_points."""
-    from importlib.metadata import entry_points
-
-    plugins: dict[str, type[BaseChannel]] = {}
-    for ep in entry_points(group="nanobot.channels"):
-        try:
-            cls = ep.load()
-            plugins[ep.name] = cls
-        except Exception as e:
-            logger.warning("Failed to load channel plugin '{}': {}", ep.name, e)
-    return plugins
-
-
-def discover_all() -> dict[str, type[BaseChannel]]:
-    """Return all channels: built-in (pkgutil) merged with external (entry_points).
-
-    Built-in channels take priority — an external plugin cannot shadow a built-in name.
+    Returns dict with keys:
+      - display_name: str
+      - config_cls: the *Config class (if found)
+      - default_config: callable returning default config dict (if config_cls found)
+    Returns None if the module can't be loaded.
     """
-    builtin: dict[str, type[BaseChannel]] = {}
-    for modname in discover_channel_names():
-        try:
-            builtin[modname] = load_channel_class(modname)
-        except ImportError as e:
-            logger.debug("Skipping built-in channel '{}': {}", modname, e)
+    try:
+        mod = importlib.import_module(f"nanobot.proxy.channels.{name}")
+    except Exception as e:
+        logger.debug("Skipping channel '{}': {}", name, e)
+        return None
 
-    external = discover_plugins()
-    shadowed = set(external) & set(builtin)
-    if shadowed:
-        logger.warning("Plugin(s) shadowed by built-in channels (ignored): {}", shadowed)
+    # Display name: from ProxyChannel class or fallback to name
+    proxy_cls = getattr(mod, f"{name.title().replace('_', '')}ProxyChannel", None) or \
+                getattr(mod, f"{name.capitalize()}ProxyChannel", None)
+    display_name = getattr(proxy_cls, "display_name", name.capitalize()) if proxy_cls else name.capitalize()
 
-    return {**external, **builtin}
+    # Config class: named {Name}Config or {Name}ProxyConfig
+    config_cls = getattr(mod, f"{name.title().replace('_', '')}Config", None) or \
+                 getattr(mod, f"{name.capitalize()}Config", None)
+
+    default_config = getattr(config_cls, "model_dump", None) if config_cls else None
+
+    return {
+        "display_name": display_name,
+        "config_cls": config_cls,
+        "default_config": default_config,
+    }
+
+
+def discover_all() -> dict[str, dict[str, Any]]:
+    """Return all proxy channels as {name: info_dict}."""
+    result = {}
+    for name in discover_channel_names():
+        info = get_channel_info(name)
+        if info is not None:
+            result[name] = info
+    return result
