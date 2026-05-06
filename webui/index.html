@@ -489,9 +489,10 @@ function applyEdit(obj, path, value) {
     }
   }
   const last = parts[i];
-  // disabled_skills is stored as comma-separated string but config needs array
-  if (last === 'disabled_skills' && typeof value === 'string' && value.includes(',')) {
-    value = value.split(',').map(s => s.trim()).filter(Boolean);
+  // disabled_skills: stored as comma-separated string, config needs list
+  if (last === 'disabled_skills') {
+    cur[last] = value === '' ? [] : value.split(',').map(s => s.trim()).filter(Boolean);
+    return;
   }
   if (value === '') cur[last] = '';
   else if (value === 'true') cur[last] = true;
