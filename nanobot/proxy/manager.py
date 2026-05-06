@@ -63,6 +63,137 @@ class ProxyManager:
         self._monitor_task: asyncio.Task | None = None
         self._writers: dict[int, str] = {}  # writer_id -> proxy key
 
+    _pid_file: str | None = None
+
+    @staticmethod
+    def _set_pid_file(path: str) -> None:
+        ProxyManager._pid_file = path
+
+    @staticmethod
+    def _get_pid_file() -> str:
+        if ProxyManager._pid_file:
+            return ProxyManager._pid_file
+        workspace = os.environ.get(
+            "NANOBOT_WORKSPACE",
+            os.path.join(os.path.expanduser("~"), ".nanobot"),
+        )
+        return os.path.join(workspace, "gateway.pid")
+
+    @staticmethod
+    def _load_gateway_pid() -> int | None:
+        """Read the PID file left by the previous gateway instance, if any."""
+        try:
+            with open(ProxyManager._get_pid_file()) as f:
+                return int(f.read().strip())
+        except (FileNotFoundError, ValueError):
+            return None
+
+    @staticmethod
+    def _save_gateway_pid() -> None:
+        """Write current PID so future gateways can detect orphans."""
+        pid_file = ProxyManager._get_pid_file()
+        try:
+            os.makedirs(os.path.dirname(pid_file), exist_ok=True)
+            with open(pid_file, "w") as f:
+                f.write(str(os.getpid()))
+        except OSError:
+            pass
+
+    @staticmethod
+    def _pid_is_alive(pid: int) -> bool:
+        """Check if a given PID is still running."""
+        import platform
+        import subprocess
+
+        try:
+            if platform.system() == "Windows":
+                result = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                return str(pid) in result.stdout
+            else:
+                os.kill(pid, 0)
+                return True
+        except OSError:
+            return False
+        except Exception:
+            return False
+
+    @staticmethod
+    def _find_proxy_pids() -> list[int]:
+        """Return PIDs of running proxy processes (nanobot.proxy.channels.*)."""
+        import platform
+        import subprocess
+
+        pids: list[int] = []
+
+        try:
+            if platform.system() == "Windows":
+                result = subprocess.run(
+                    ["wmic", "process", "where",
+                     'CommandLine like "%nanobot.proxy.channels%"',
+                     "get", "ProcessId"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                for line in result.stdout.strip().splitlines()[1:]:
+                    pid = line.strip()
+                    if pid and pid.isdigit():
+                        pids.append(int(pid))
+            else:
+                result = subprocess.run(
+                    ["ps", "aux"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                for line in result.stdout.splitlines():
+                    if "nanobot.proxy.channels" in line and "grep" not in line:
+                        parts = line.split()
+                        if parts:
+                            try:
+                                pids.append(int(parts[1]))
+                            except (ValueError, IndexError):
+                                pass
+        except Exception:
+            pass
+
+        return pids
+
+    @staticmethod
+    def _kill_process(pid: int) -> None:
+        """Kill a process by PID, cross-platform."""
+        import platform
+        import signal
+        import subprocess
+
+        try:
+            if platform.system() == "Windows":
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    capture_output=True, timeout=5,
+                )
+            else:
+                os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
+
+    @staticmethod
+    def cleanup_orphans() -> None:
+        """Kill orphan proxy processes from a previous gateway instance.
+
+        Safe guard: only cleans up if the old gateway process is already dead.
+        If another gateway is still running, this is a no-op.
+        """
+        old_pid = ProxyManager._load_gateway_pid()
+        if old_pid is not None and ProxyManager._pid_is_alive(old_pid):
+            # Another gateway instance is still running — don't clean up
+            return
+
+        pids = ProxyManager._find_proxy_pids()
+        for pid in pids:
+            ProxyManager._kill_process(pid)
+        if pids:
+            logger.info("Cleaned up {} orphan proxy process(es)", len(pids))
+
     def key_for(self, channel: str, bot: str) -> str:
         return f"{channel}:{bot}"
 

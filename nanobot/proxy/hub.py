@@ -24,6 +24,7 @@ async def _handle_proxy_tcp(
     writer: asyncio.StreamWriter,
     agent_loop: AgentLoop,
     proxy_manager: ProxyManager,
+    concurrency_gate: asyncio.Semaphore | None = None,
 ) -> None:
     """Handle a single proxy TCP connection.
 
@@ -54,7 +55,11 @@ async def _handle_proxy_tcp(
 
             msg_type = data.get("type", "")
 
-            if msg_type == "register":
+            if msg_type == "ping":
+                await writer.write((json.dumps({"type": "pong"}) + "\n").encode())
+                await writer.drain()
+
+            elif msg_type == "register":
                 # Proxy registration
                 channel = data.get("channel", "")
                 bot = data.get("bot", "")
@@ -87,14 +92,30 @@ async def _handle_proxy_tcp(
                 session_key = f"{msg.channel}:{msg.bot}:{msg.sender_id}"
                 logger.info("TCP proxy message for {}: {} (session={})", session_key, msg.content[:50], session_key)
 
+                async def _process_with_gate() -> HubResponse:
+                    if concurrency_gate:
+                        await concurrency_gate.acquire()
+                        try:
+                            return await agent_loop.process_direct(
+                                content=msg.content,
+                                session_key=session_key,
+                                channel=f"proxy:{msg.channel}:{msg.bot}",
+                                chat_id=msg.chat_id,
+                                media=msg.media if msg.media else None,
+                            )
+                        finally:
+                            concurrency_gate.release()
+                    else:
+                        return await agent_loop.process_direct(
+                            content=msg.content,
+                            session_key=session_key,
+                            channel=f"proxy:{msg.channel}:{msg.bot}",
+                            chat_id=msg.chat_id,
+                            media=msg.media if msg.media else None,
+                        )
+
                 try:
-                    response = await agent_loop.process_direct(
-                        content=msg.content,
-                        session_key=session_key,
-                        channel=f"proxy:{msg.channel}:{msg.bot}",
-                        chat_id=msg.chat_id,
-                        media=msg.media if msg.media else None,
-                    )
+                    response = await _process_with_gate()
                     if response is None:
                         resp = HubResponse(success=True, content="")
                     else:
@@ -131,10 +152,16 @@ async def start_tcp_server(
     port: int,
     agent_loop: AgentLoop,
     proxy_manager: ProxyManager,
+    concurrency_gate: asyncio.Semaphore | None = None,
 ) -> asyncio.Server:
     """Start TCP server for proxy connections."""
     server = await asyncio.start_server(
-        partial(_handle_proxy_tcp, agent_loop=agent_loop, proxy_manager=proxy_manager),
+        partial(
+            _handle_proxy_tcp,
+            agent_loop=agent_loop,
+            proxy_manager=proxy_manager,
+            concurrency_gate=concurrency_gate,
+        ),
         host=host,
         port=port,
     )

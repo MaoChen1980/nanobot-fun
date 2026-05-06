@@ -79,30 +79,3 @@ class HubResponse:
         )
 
 
-@dataclass
-class ProxyRegistration:
-    """Proxy registration payload."""
-    channel: str
-    bot: str
-    callback_url: str          # hub calls this to push replies
-    pid: int = 0               # process id for monitoring
-    heartbeat_interval: int = 30
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "channel": self.channel,
-            "bot": self.bot,
-            "callback_url": self.callback_url,
-            "pid": self.pid,
-            "heartbeat_interval": self.heartbeat_interval,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "ProxyRegistration":
-        return cls(
-            channel=d["channel"],
-            bot=d["bot"],
-            callback_url=d["callback_url"],
-            pid=d.get("pid", 0),
-            heartbeat_interval=d.get("heartbeat_interval", 30),
-        )

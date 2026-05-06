@@ -846,6 +846,9 @@ def _run_gateway(
     from nanobot.proxy.manager import ProxyManager
     proxy_tcp_port = port + 1  # TCP server on API port + 1
     proxy_manager = ProxyManager(f"http://127.0.0.1:{port}", proxy_tcp_port=proxy_tcp_port)
+    ProxyManager._set_pid_file(str(config.workspace_path / "gateway.pid"))
+    ProxyManager.cleanup_orphans()
+    ProxyManager._save_gateway_pid()
     _spawn_proxy_processes(config, proxy_manager, port)
     api_runner = None  # set by _run_api_server
 
@@ -930,8 +933,10 @@ def _run_gateway(
             await cron.start()
             await heartbeat.start()
             # Start TCP server for proxy connections
+            concurrency_gate: asyncio.Semaphore | None = getattr(agent, '_concurrency_gate', None)
             tcp_server = await start_tcp_server(
-                config.gateway.host, proxy_tcp_port, agent, proxy_manager
+                config.gateway.host, proxy_tcp_port, agent, proxy_manager,
+                concurrency_gate=concurrency_gate,
             )
             tasks = [
                 agent.run(),
