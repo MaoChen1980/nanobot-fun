@@ -28,6 +28,7 @@ class DiscordProxyChannel(BaseProxyChannel):
         super().__init__(config, hub_tcp_host, hub_tcp_port, channel, bot)
         self._bot_user_id: str | None = None
         self._client: Any = None
+        self._bot_loop: asyncio.AbstractEventLoop | None = None
 
     def on_message(self, message: Any) -> None:
         try:
@@ -48,10 +49,10 @@ class DiscordProxyChannel(BaseProxyChannel):
             msg_data = self.build_message(sender_id, channel_id, content, msg_id)
             response = self.send_to_hub(msg_data)
 
-            if response and response.success and response.content:
+            if response and response.success and response.content and self._bot_loop:
                 asyncio.run_coroutine_threadsafe(
                     message.channel.send(response.content),
-                    self._conn_loop,
+                    self._bot_loop,
                 )
 
         except Exception as e:
@@ -59,25 +60,29 @@ class DiscordProxyChannel(BaseProxyChannel):
 
     def start(self) -> None:
         """Run the Discord bot connection."""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._bot_loop = loop
+
         intents = Intents.none()
         intents.value = self.config.get("intents", 37377)
 
+        _channel = self
+
         class BotClient(discord.Client):
-            def __init__(self, proxy: DiscordProxyChannel, **kwargs):
+            def __init__(self, **kwargs):
                 super().__init__(**kwargs)
-                self._proxy = proxy
                 self.tree = app_commands.CommandTree(self)
 
             async def on_ready(self):
-                self._proxy._bot_user_id = str(self.user.id) if self.user else None
-                logger.info("Discord proxy bot connected as {}", self._proxy._bot_user_id)
+                _channel._bot_user_id = str(self.user.id) if self.user else None
+                logger.info("Discord proxy bot connected as {}", _channel._bot_user_id)
 
             async def on_message(self, message: discord.Message):
-                self._proxy.on_message(message)
+                _channel.on_message(message)
 
-        self._client = BotClient(self, intents=intents)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        self._client = BotClient(intents=intents)
         loop.run_until_complete(self._client.start(self.config.get("token", "")))
 
 

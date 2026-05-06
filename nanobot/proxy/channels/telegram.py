@@ -53,14 +53,15 @@ class TelegramProxyChannel(BaseProxyChannel):
             logger.error("Telegram proxy: token required in config")
             sys.exit(1)
 
-        self._app = Application.builder().token(token).build()
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        self._app = Application.builder().token(token).loop(loop).build()
         self._app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_update)
         )
 
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         loop.run_until_complete(self._app.run_polling())
 
 

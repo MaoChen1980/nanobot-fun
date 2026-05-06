@@ -21,6 +21,7 @@ class WhatsAppProxyChannel(BaseProxyChannel):
     def __init__(self, config: dict, hub_tcp_host: str, hub_tcp_port: int, channel: str, bot: str):
         super().__init__(config, hub_tcp_host, hub_tcp_port, channel, bot)
         self._ws: Any = None
+        self._bridge_loop: asyncio.AbstractEventLoop | None = None
 
     def _on_bridge_message(self, data: dict[str, Any]) -> None:
         try:
@@ -49,11 +50,11 @@ class WhatsAppProxyChannel(BaseProxyChannel):
             logger.error("WhatsApp proxy message handler error: {}", e)
 
     def _send_bridge_text(self, chat_id: str, content: str) -> None:
-        if not self._ws:
+        if not self._ws or not self._bridge_loop:
             return
         try:
             msg = json.dumps({"type": "send", "chat_id": chat_id, "content": content})
-            asyncio.run_coroutine_threadsafe(self._ws.send(msg), self._conn_loop)
+            asyncio.run_coroutine_threadsafe(self._ws.send(msg), self._bridge_loop)
         except Exception as e:
             logger.error("WhatsApp bridge send error: {}", e)
 
@@ -63,6 +64,10 @@ class WhatsAppProxyChannel(BaseProxyChannel):
 
         bridge_url = self.config.get("bridge_url", "ws://localhost:3001")
         bridge_token = self.config.get("bridge_token", "")
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._bridge_loop = loop
 
         async def connect_bridge():
             headers = {}
@@ -79,14 +84,10 @@ class WhatsAppProxyChannel(BaseProxyChannel):
                 except Exception as e:
                     logger.warning("WhatsApp bridge message error: {}", e)
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(connect_bridge())
         except Exception as e:
             logger.error("WhatsApp bridge connection error: {}", e)
-        finally:
-            loop.close()
 
 
 def main() -> None:
