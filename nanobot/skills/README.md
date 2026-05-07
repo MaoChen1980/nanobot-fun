@@ -23,9 +23,14 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 
 | Skill | Description |
 |-------|-------------|
+| `clawhub` | Search and install skills from ClawHub registry |
+| `cron` | Schedule reminders and recurring tasks |
 | `github` | Interact with GitHub using the `gh` CLI |
-| `weather` | Get weather info using wttr.in and Open-Meteo |
+| `intent-alignment` | Intelligent intent detection and requirement clarification |
+| `memory` | Two-layer memory system with Dream-managed knowledge files |
+| `multi-question-answering` | Answer multiple choice questions directly |
+| `my` | Check and set the agent's own runtime state |
+| `skill-manager` | Full lifecycle skill management (create, validate, optimize, maintain) |
 | `summarize` | Summarize URLs, files, and YouTube videos |
 | `tmux` | Remote-control tmux sessions |
-| `clawhub` | Search and install skills from ClawHub registry |
-| `skill-creator` | Create new skills |
+| `weather` | Get weather info using wttr.in and Open-Meteo |

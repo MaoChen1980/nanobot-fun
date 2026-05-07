@@ -110,7 +110,7 @@ class TestDreamRun:
 
         spec = mock_runner.run.call_args[0][0]
         system_prompt = spec.initial_messages[0]["content"]
-        expected = str(BUILTIN_SKILLS_DIR / "skill-creator" / "SKILL.md")
+        expected = str(BUILTIN_SKILLS_DIR / "skill-manager" / "SKILL.md")
         assert expected in system_prompt
 
     async def test_skill_write_tool_accepts_workspace_relative_skill_path(self, dream, store):

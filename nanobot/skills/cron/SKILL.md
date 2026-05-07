@@ -1,6 +1,7 @@
 ---
 name: cron
 description: Schedule reminders and recurring tasks.
+always: false
 ---
 
 # Cron, tools from system

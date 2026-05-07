@@ -27,9 +27,11 @@ Note: HEARTBEAT.md is NOT updated by Dream — agent maintains it during session
 - If nothing to update, stop without calling tools
 
 ## Skill creation rules (for [SKILL] entries)
-- Before writing, read_file `{{ skill_creator_path }}` for format reference
+- Before writing, read_file `{{ skill_creator_path }}` for format reference (use `nanobot/skills/skill-manager/SKILL.md`)
 - **Dedup check**: read existing skills listed below to verify no functional redundancy
-- Include YAML frontmatter, keep under 2000 words, include when-to-use + steps + example
+- Include YAML frontmatter, keep under 2000 words, include when-to-use + steps + example + self-optimization note
+- Every skill must end with: "This skill can self-optimize: fix bugs, improve steps, add edge cases, enhance verification. Do NOT change the description or trigger — they are owned by skill-manager."
+- Description and trigger are the skill's invariant contract — never instruct the skill to change them
 - Do NOT overwrite existing skills
 
 ## Quality

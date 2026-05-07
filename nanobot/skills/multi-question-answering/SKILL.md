@@ -1,6 +1,7 @@
 ---
 name: multi-question-answering
-description: Multi-choice question answering - when user asks multiple choice questions simultaneously, answer directly with option numbers/letters. Used when answering multiple questions that have options.
+description: "Answer multiple-choice questions directly with option numbers/letters, no extra explanation. Use when user asks 'A or B?', connects questions with '还是', or asks numbered questions."
+always: false
 ---
 
 # Multi-Question Answering, rules from user

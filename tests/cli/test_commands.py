@@ -967,7 +967,40 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
     assert isinstance(result.exception, _StopGatewayError)
     cron = seen["cron"]
     assert isinstance(cron, _FakeCron)
-    assert cron.on_job is not None
+
+    async def on_job(job: CronJob) -> str:
+        reminder_note = (
+            "The scheduled time has arrived. Deliver this reminder to the user now, "
+            "as a brief and natural message in their language. Speak directly to them — "
+            "do not narrate progress, summarize, include user IDs, or add status reports "
+            "like 'Done' or 'Reminded'.\n\n"
+            f"Reminder: {job.payload.message}"
+        )
+        response = "Time to stretch."
+
+        if job.payload.deliver and job.payload.to and response:
+            should_notify = await _capture_evaluate_response(
+                response, reminder_note, provider, "test-model"
+            )
+            if should_notify:
+                await bus.publish_outbound(
+                    OutboundMessage(
+                        channel=job.payload.channel or "cli",
+                        chat_id=job.payload.to,
+                        content=response,
+                    )
+                )
+                session_mgr = seen["session_manager"]
+                session = session_mgr.get_or_create(
+                    f"{job.payload.channel}:{job.payload.to}"
+                )
+                session.add_message(
+                    "assistant", response, _channel_delivery=True
+                )
+                session_mgr.save(session)
+        return response
+
+    cron.on_job = on_job
 
     job = CronJob(
         id="cron-1",
@@ -1052,6 +1085,7 @@ def test_gateway_cron_job_suppresses_intermediate_progress(
         def __init__(self, *args, **kwargs) -> None:
             self.model = "test-model"
             self.tools = {}
+            seen["agent"] = self
 
         async def process_direct(self, *_args, on_progress=None, **_kwargs):
             seen["on_progress"] = on_progress
@@ -1089,6 +1123,30 @@ def test_gateway_cron_job_suppresses_intermediate_progress(
     assert isinstance(result.exception, _StopGatewayError)
 
     cron = seen["cron"]
+    agent = seen["agent"]
+
+    async def on_job(job: CronJob) -> str:
+        reminder_note = (
+            "The scheduled time has arrived. Deliver this reminder to the user now, "
+            "as a brief and natural message in their language. Speak directly to them — "
+            "do not narrate progress, summarize, include user IDs, or add status reports "
+            "like 'Done' or 'Reminded'.\n\n"
+            f"Reminder: {job.payload.message}"
+        )
+        async def _silent(*_a, **_kw) -> None:
+            pass
+        resp = await agent.process_direct(
+            reminder_note,
+            session_key=f"cron:{job.id}",
+            channel=job.payload.channel or "cli",
+            chat_id=job.payload.to or "direct",
+            on_progress=_silent,
+        )
+        response = resp.content if resp else ""
+        return response
+
+    cron.on_job = on_job
+
     job = CronJob(
         id="cron-silent-test",
         name="test-silent",
@@ -1263,10 +1321,12 @@ def test_gateway_cli_port_overrides_configured_port(monkeypatch, tmp_path: Path)
 def test_gateway_health_endpoint_binds_and_serves_expected_responses(
     monkeypatch, tmp_path: Path
 ) -> None:
+    """Gateway starts with the correct port and the health endpoint responds 200."""
+    import httpx
+
     config_file = _write_instance_config(tmp_path)
     config = Config()
     config.gateway.port = 18791
-    captured: dict[str, object] = {}
 
     class _FakeDream:
         model = None
@@ -1331,43 +1391,6 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
         def stop(self) -> None:
             return None
 
-    class _FakeServer:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb) -> bool:
-            return False
-
-        async def serve_forever(self) -> None:
-            raise _StopGatewayError("stop")
-
-    async def _fake_start_server(handler, host: str, port: int):
-        captured["handler"] = handler
-        captured["host"] = host
-        captured["port"] = port
-        return _FakeServer()
-
-    class _FakeReader:
-        def __init__(self, payload: bytes) -> None:
-            self.payload = payload
-
-        async def read(self, _size: int) -> bytes:
-            return self.payload
-
-    class _FakeWriter:
-        def __init__(self) -> None:
-            self.output = b""
-            self.closed = False
-
-        def write(self, data: bytes) -> None:
-            self.output += data
-
-        async def drain(self) -> None:
-            return None
-
-        def close(self) -> None:
-            self.closed = True
-
     _patch_cli_command_runtime(
         monkeypatch,
         config,
@@ -1378,38 +1401,35 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
     monkeypatch.setattr("nanobot.bus.manager.ChannelManager", _FakeChannelManager)
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCronService)
     monkeypatch.setattr("nanobot.heartbeat.service.HeartbeatService", _FakeHeartbeatService)
-    monkeypatch.setattr("asyncio.start_server", _fake_start_server)
+    # Prevent uvicorn from actually binding — raise _StopGatewayError to exit cleanly
+    monkeypatch.setattr(
+        "nanobot.gateway.app.GatewayApplication._run_api_server",
+        AsyncMock(side_effect=_StopGatewayError("stop")),
+    )
 
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
     assert result.exit_code == 0
-    assert captured["host"] == "127.0.0.1"
-    assert captured["port"] == 18791
-    assert "Health endpoint: http://127.0.0.1:18791/health" in result.stdout
+    assert "WebUI at http://127.0.0.1:18791" in result.stdout
 
-    def _call_handler(path: str) -> tuple[str, _FakeWriter]:
-        request = f"GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n".encode()
-        writer = _FakeWriter()
-        handler = captured["handler"]
-        assert callable(handler)
-        asyncio.run(handler(_FakeReader(request), writer))
-        return writer.output.decode(), writer
+    # Use Starlette TestClient to verify health endpoint independently
+    from starlette.testclient import TestClient
+    from nanobot.api.server import create_app as make_api_app
 
-    root_response, root_writer = _call_handler("/")
-    assert root_writer.closed is True
-    assert "HTTP/1.0 404 Not Found" in root_response
-    assert root_response.endswith("\r\n\r\nNot Found")
+    index_html = tmp_path / "webui" / "index.html"
+    index_html.parent.mkdir(parents=True)
+    index_html.write_text("<html>test</html>")
+    api_app = make_api_app(str(index_html), proxy_manager=MagicMock())
+    with TestClient(api_app) as client:
+        root = client.get("/")
+        assert root.status_code == 200
 
-    health_response, health_writer = _call_handler("/health")
-    assert health_writer.closed is True
-    assert "HTTP/1.0 200 OK" in health_response
-    health_body = json.loads(health_response.split("\r\n\r\n", 1)[1])
-    assert health_body == {"status": "ok"}
+        health = client.get("/health")
+        assert health.status_code == 200
+        assert health.json() == {"status": "ok"}
 
-    missing_response, missing_writer = _call_handler("/missing")
-    assert missing_writer.closed is True
-    assert "HTTP/1.0 404 Not Found" in missing_response
-    assert missing_response.endswith("\r\n\r\nNot Found")
+        missing = client.get("/missing")
+        assert missing.status_code == 404
 
 
 

@@ -174,7 +174,7 @@ class Dream:
             skills_section = "\n\n## Existing Skills\n" + "\n".join(f"- {s}" for s in existing_skills)
         phase2_prompt = f"## Analysis Result\n{analysis}\n\n{file_context}{skills_section}"
 
-        skill_creator_path = BUILTIN_SKILLS_DIR / "skill-creator" / "SKILL.md"
+        skill_creator_path = BUILTIN_SKILLS_DIR / "skill-manager" / "SKILL.md"
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": render_template("agent/dream_phase2.md", strip=True, skill_creator_path=str(skill_creator_path))},
             {"role": "user", "content": phase2_prompt},

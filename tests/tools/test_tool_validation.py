@@ -206,7 +206,9 @@ async def test_exec_head_tail_truncation(tmp_path) -> None:
         command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script_file))}"
     result = await tool.execute(command=command)
     assert "chars truncated" in result
-    assert result.startswith("A")
+    # On Windows the tool prepends [cwd: ..., shell: cmd]; skip that prefix
+    content = result.split("\n", 1)[1] if result.startswith("[") else result
+    assert content.startswith("A")
     assert "Exit code:" in result
 
 
