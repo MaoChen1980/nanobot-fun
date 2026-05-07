@@ -1,5 +1,7 @@
 """Tool for pausing a turn until the user answers."""
 
+from __future__ import annotations
+
 import json
 from typing import Any
 

@@ -1,5 +1,7 @@
 """Tool call log: query tool execution history for debugging and context."""
 
+from __future__ import annotations
+
 from typing import Any
 
 from nanobot.agent.db import NanobotDB

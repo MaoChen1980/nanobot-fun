@@ -4,7 +4,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pydantic
 from loguru import logger
@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from nanobot.config.schema import Config
 
 # Global variable to store current config path (for multi-instance support)
-_current_config_path: Path | None = None
+_current_config_path: Optional[Path] = None
 
 
 def set_config_path(path: Path) -> None:
@@ -29,7 +29,7 @@ def get_config_path() -> Path:
     return Path.home() / ".nanobot" / "config.json"
 
 
-def load_config(config_path: Path | None = None) -> Config:
+def load_config(config_path: Optional[Path] = None) -> Config:
     """
     Load configuration from file or create default.
 
@@ -63,7 +63,7 @@ def _apply_ssrf_whitelist(config: Config) -> None:
     configure_ssrf_whitelist(config.tools.ssrf_whitelist)
 
 
-def save_config(config: Config, config_path: Path | None = None) -> None:
+def save_config(config: Config, config_path: Optional[Path] = None) -> None:
     """
     Save configuration to file.
 

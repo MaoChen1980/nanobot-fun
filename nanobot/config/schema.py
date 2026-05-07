@@ -1,7 +1,7 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -29,7 +29,7 @@ class ChannelsConfig(Base):
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
     send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
     transcription_provider: str = "groq"  # Voice transcription backend: "groq" or "openai"
-    transcription_language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}$")  # Optional ISO-639-1 hint for audio transcription
+    transcription_language: Optional[str] = Field(default=None, pattern=r"^[a-z]{2,3}$")  # Optional ISO-639-1 hint for audio transcription
 
 
 class DreamConfig(Base):
@@ -38,8 +38,8 @@ class DreamConfig(Base):
     _HOUR_MS = 3_600_000
 
     interval_h: int = Field(default=2, ge=1)  # Every 2 hours by default
-    cron: str | None = Field(default=None, exclude=True)  # Legacy compatibility override
-    model_override: str | None = Field(
+    cron: Optional[str] = Field(default=None, exclude=True)  # Legacy compatibility override
+    model_override: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("modelOverride", "model", "model_override"),
     )  # Optional Dream-specific model override
@@ -75,12 +75,12 @@ class AgentDefaults(Base):
     )
     max_tokens: int = 8192
     context_window_tokens: int = 65_536
-    context_block_limit: int | None = None
+    context_block_limit: Optional[int] = None
     temperature: float = 0.1
     max_tool_iterations: int = 200
     max_tool_result_chars: int = 16_000
     provider_retry_mode: Literal["standard", "persistent"] = "standard"
-    reasoning_effort: str | None = None  # low / medium / high / max / adaptive - enables LLM thinking mode
+    reasoning_effort: Optional[str] = None  # low / medium / high / max / adaptive - enables LLM thinking mode
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     unified_session: bool = False  # Share one session across all channels (single-user multi-device)
     disabled_skills: list[str] = Field(default_factory=list)  # Skill names to exclude from loading (e.g. ["summarize", "skill-creator"])
@@ -109,10 +109,10 @@ class AgentsConfig(Base):
 class ProviderConfig(Base):
     """LLM provider configuration."""
 
-    api_key: str | None = None
-    api_base: str | None = None
-    extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
-    extra_body: dict[str, Any] | None = None  # Extra fields merged into every request body
+    api_key: Optional[str] = None
+    api_base: Optional[str] = None
+    extra_headers: Optional[dict[str, str]] = None  # Custom headers (e.g. APP-Code for AiHubMix)
+    extra_body: Optional[dict[str, Any]] = None  # Extra fields merged into every request body
 
 
 class ProvidersConfig(Base):
@@ -187,10 +187,10 @@ class WebToolsConfig(Base):
     """Web tools configuration."""
 
     enable: bool = True
-    proxy: str | None = (
+    proxy: Optional[str] = (
         None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
     )
-    user_agent: str | None = None  # Custom User-Agent for web requests
+    user_agent: Optional[str] = None  # Custom User-Agent for web requests
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
 
@@ -207,7 +207,7 @@ class ExecToolConfig(Base):
 class MCPServerConfig(Base):
     """MCP server connection configuration (stdio or HTTP)."""
 
-    type: Literal["stdio", "sse", "streamableHttp"] | None = None  # auto-detected if omitted
+    type: Optional[Literal["stdio", "sse", "streamableHttp"]] = None  # auto-detected if omitted
     command: str = ""  # Stdio: command to run (e.g. "npx")
     args: list[str] = Field(default_factory=list)  # Stdio: command arguments
     env: dict[str, str] = Field(default_factory=dict)  # Stdio: extra env vars
@@ -239,7 +239,7 @@ class LogConfig(Base):
 
     enabled: bool = True  # Whether to enable logging
     level: str = "INFO"  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
-    file: str | None = "logs/nanobot.log"  # Log file path relative to data directory
+    file: Optional[str] = "logs/nanobot.log"  # Log file path relative to data directory
     console: bool = True  # Whether to log to console
 
 
@@ -259,8 +259,8 @@ class Config(BaseSettings):
         return Path(self.agents.defaults.workspace).expanduser()
 
     def _match_provider(
-        self, model: str | None = None
-    ) -> tuple["ProviderConfig | None", str | None]:
+        self, model: Optional[str] = None
+    ) -> tuple["Optional[ProviderConfig]", Optional[str]]:
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from nanobot.providers.registry import PROVIDERS, find_by_name
 
@@ -299,7 +299,7 @@ class Config(BaseSettings):
         # provider-specific keywords (for example plain "llama3.2" on Ollama).
         # Prefer providers whose detect_by_base_keyword matches the configured api_base
         # (e.g. Ollama's "11434" in "http://localhost:11434") over plain registry order.
-        local_fallback: tuple[ProviderConfig, str] | None = None
+        local_fallback: Optional[tuple[ProviderConfig, str]] = None
         for spec in PROVIDERS:
             if not spec.is_local:
                 continue
@@ -323,22 +323,22 @@ class Config(BaseSettings):
                 return p, spec.name
         return None, None
 
-    def get_provider(self, model: str | None = None) -> ProviderConfig | None:
+    def get_provider(self, model: Optional[str] = None) -> Optional[ProviderConfig]:
         """Get matched provider config (api_key, api_base, extra_headers). Falls back to first available."""
         p, _ = self._match_provider(model)
         return p
 
-    def get_provider_name(self, model: str | None = None) -> str | None:
+    def get_provider_name(self, model: Optional[str] = None) -> Optional[str]:
         """Get the registry name of the matched provider (e.g. "deepseek", "openrouter")."""
         _, name = self._match_provider(model)
         return name
 
-    def get_api_key(self, model: str | None = None) -> str | None:
+    def get_api_key(self, model: Optional[str] = None) -> Optional[str]:
         """Get API key for the given model. Falls back to first available key."""
         p = self.get_provider(model)
         return p.api_key if p else None
 
-    def get_api_base(self, model: str | None = None) -> str | None:
+    def get_api_base(self, model: Optional[str] = None) -> Optional[str]:
         """Get API base URL for the given model, falling back to the provider default when present."""
         from nanobot.providers.registry import find_by_name
 

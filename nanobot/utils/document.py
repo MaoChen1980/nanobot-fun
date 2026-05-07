@@ -2,7 +2,7 @@
 
 import mimetypes
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -41,7 +41,7 @@ SUPPORTED_EXTENSIONS: set[str] = {
 _MAX_TEXT_LENGTH = 200_000
 
 
-def extract_text(path: Path) -> str | None:
+def extract_text(path: Path) -> Optional[str]:
     """Extract text from a file.
 
     Args:
@@ -284,7 +284,7 @@ def extract_documents(
     return text, image_paths
 
 
-def stringify_text_blocks(content: list[dict[str, Any]]) -> str | None:
+def stringify_text_blocks(content: list[dict[str, Any]]) -> Optional[str]:
     """Join text blocks into a single string. Returns None on malformed input."""
     parts: list[str] = []
     for block in content:

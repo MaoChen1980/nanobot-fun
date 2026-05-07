@@ -1,5 +1,7 @@
 """Message tool for sending messages to users."""
 
+from __future__ import annotations
+
 import os
 from contextvars import ContextVar
 from pathlib import Path

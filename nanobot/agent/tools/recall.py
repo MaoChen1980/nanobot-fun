@@ -1,5 +1,7 @@
 """Recall tool: search and retrieve relevant memories."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
 

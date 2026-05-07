@@ -1,5 +1,7 @@
 """Context variables shared across agent modules."""
 
+from __future__ import annotations
+
 from contextvars import ContextVar
 
 # Stores the current message list during agent loop execution.

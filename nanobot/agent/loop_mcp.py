@@ -47,6 +47,6 @@ async def close_mcp(loop: AgentLoop) -> None:
     for name, stack in loop._mcp_stacks.items():
         try:
             await stack.aclose()
-        except (RuntimeError, BaseExceptionGroup):
+        except RuntimeError:
             logger.debug("MCP server '{}' cleanup error (can be ignored)", name)
     loop._mcp_stacks.clear()

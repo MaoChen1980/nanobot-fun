@@ -1,5 +1,7 @@
 """MCP client: connects to MCP servers and wraps their tools as native nanobot tools."""
 
+from __future__ import annotations
+
 import asyncio
 import os
 import re

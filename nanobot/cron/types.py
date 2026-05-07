@@ -1,7 +1,7 @@
 """Cron types."""
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Optional
 
 
 @dataclass
@@ -9,13 +9,13 @@ class CronSchedule:
     """Schedule definition for a cron job."""
     kind: Literal["at", "every", "cron"]
     # For "at": timestamp in ms
-    at_ms: int | None = None
+    at_ms: Optional[int] = None
     # For "every": interval in ms
-    every_ms: int | None = None
+    every_ms: Optional[int] = None
     # For "cron": cron expression (e.g. "0 9 * * *")
-    expr: str | None = None
+    expr: Optional[str] = None
     # Timezone for cron expressions
-    tz: str | None = None
+    tz: Optional[str] = None
 
 
 @dataclass
@@ -25,10 +25,10 @@ class CronPayload:
     message: str = ""
     # Deliver response to channel
     deliver: bool = False
-    channel: str | None = None  # e.g. "whatsapp"
-    to: str | None = None  # e.g. phone number
+    channel: Optional[str] = None  # e.g. "whatsapp"
+    to: Optional[str] = None  # e.g. phone number
     channel_meta: dict = field(default_factory=dict)  # channel-specific routing (e.g. Slack thread_ts)
-    session_key: str | None = None  # original session key for correct session recording
+    session_key: Optional[str] = None  # original session key for correct session recording
 
 
 @dataclass
@@ -37,16 +37,16 @@ class CronRunRecord:
     run_at_ms: int
     status: Literal["ok", "error", "skipped"]
     duration_ms: int = 0
-    error: str | None = None
+    error: Optional[str] = None
 
 
 @dataclass
 class CronJobState:
     """Runtime state of a job."""
-    next_run_at_ms: int | None = None
-    last_run_at_ms: int | None = None
-    last_status: Literal["ok", "error", "skipped"] | None = None
-    last_error: str | None = None
+    next_run_at_ms: Optional[int] = None
+    last_run_at_ms: Optional[int] = None
+    last_status: Optional[Literal["ok", "error", "skipped"]] = None
+    last_error: Optional[str] = None
     run_history: list[CronRunRecord] = field(default_factory=list)
 
 

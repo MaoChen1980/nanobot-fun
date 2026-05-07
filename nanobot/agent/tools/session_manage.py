@@ -1,5 +1,7 @@
 """Session management tool: let LLM manage its own session messages."""
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters

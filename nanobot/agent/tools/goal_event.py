@@ -4,6 +4,8 @@ LLM calls these to write structured data to the DB instead of writing Markdown f
 Read paths (context assembly) go directly through memory._db - these tools are for writes only.
 """
 
+from __future__ import annotations
+
 import json
 from datetime import datetime, timezone
 from typing import Any

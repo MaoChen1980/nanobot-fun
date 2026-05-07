@@ -7,7 +7,7 @@ import uuid
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Literal
+from typing import Any, Callable, Coroutine, Literal, Optional, Union
 
 from filelock import FileLock
 from loguru import logger
@@ -19,7 +19,7 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
+def _compute_next_run(schedule: CronSchedule, now_ms: int) -> Optional[int]:
     """Compute next run time in ms."""
     if schedule.kind == "at":
         return schedule.at_ms if schedule.at_ms and schedule.at_ms > now_ms else None
@@ -70,15 +70,15 @@ class CronService:
     def __init__(
         self,
         store_path: Path,
-        on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None,
+        on_job: Optional[Callable[[CronJob], Coroutine[Any, Any, Optional[str]]]] = None,
         max_sleep_ms: int = 300_000,  # 5 minutes
     ):
         self.store_path = store_path
         self._action_path = store_path.parent / "action.jsonl"
         self._lock = FileLock(str(self._action_path.parent) + ".lock")
         self.on_job = on_job
-        self._store: CronStore | None = None
-        self._timer_task: asyncio.Task | None = None
+        self._store: Optional[CronStore] = None
+        self._timer_task: Optional[asyncio.Task] = None
         self._running = False
         self._timer_active = False
         self.max_sleep_ms = max_sleep_ms
@@ -269,7 +269,7 @@ class CronService:
             if job.enabled:
                 job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
 
-    def _get_next_wake_ms(self) -> int | None:
+    def _get_next_wake_ms(self) -> Optional[int]:
         """Get the earliest next run time across all jobs."""
         if not self._store:
             return None
@@ -384,11 +384,11 @@ class CronService:
         schedule: CronSchedule,
         message: str,
         deliver: bool = False,
-        channel: str | None = None,
-        to: str | None = None,
+        channel: Optional[str] = None,
+        to: Optional[str] = None,
         delete_after_run: bool = False,
-        channel_meta: dict | None = None,
-        session_key: str | None = None,
+        channel_meta: Optional[dict] = None,
+        session_key: Optional[str] = None,
     ) -> CronJob:
         """Add a new job."""
         _validate_schedule_for_add(schedule)
@@ -463,7 +463,7 @@ class CronService:
 
         return "not_found"
 
-    def enable_job(self, job_id: str, enabled: bool = True) -> CronJob | None:
+    def enable_job(self, job_id: str, enabled: bool = True) -> Optional[CronJob]:
         """Enable or disable a job."""
         store = self._load_store()
         for job in store.jobs:
@@ -486,14 +486,14 @@ class CronService:
         self,
         job_id: str,
         *,
-        name: str | None = None,
-        schedule: CronSchedule | None = None,
-        message: str | None = None,
-        deliver: bool | None = None,
-        channel: str | None = ...,
-        to: str | None = ...,
-        delete_after_run: bool | None = None,
-    ) -> CronJob | Literal["not_found", "protected"]:
+        name: Optional[str] = None,
+        schedule: Optional[CronSchedule] = None,
+        message: Optional[str] = None,
+        deliver: Optional[bool] = None,
+        channel: Optional[str] = ...,
+        to: Optional[str] = ...,
+        delete_after_run: Optional[bool] = None,
+    ) -> Union[CronJob, Literal["not_found", "protected"]]:
         """Update mutable fields of an existing job. System jobs cannot be updated.
 
         For ``channel`` and ``to``, pass an explicit value (including ``None``)
@@ -554,7 +554,7 @@ class CronService:
             if was_running:
                 self._arm_timer()
 
-    def get_job(self, job_id: str) -> CronJob | None:
+    def get_job(self, job_id: str) -> Optional[CronJob]:
         """Get a job by ID."""
         store = self._load_store()
         return next((j for j in store.jobs if j.id == job_id), None)

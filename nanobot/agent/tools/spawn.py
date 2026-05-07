@@ -1,5 +1,7 @@
 """Spawn tool for creating background subagents."""
 
+from __future__ import annotations
+
 from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
