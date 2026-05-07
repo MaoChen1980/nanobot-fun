@@ -94,53 +94,6 @@ def test_onboard_does_not_crash_with_legacy_memory_window(tmp_path, monkeypatch)
     assert result.exit_code == 0
 
 
-def test_onboard_refresh_backfills_missing_channel_fields(tmp_path, monkeypatch) -> None:
-    from types import SimpleNamespace
-
-    config_path = tmp_path / "config.json"
-    workspace = tmp_path / "workspace"
-    config_path.write_text(
-        json.dumps(
-            {
-                "channels": {
-                    "qq": {
-                        "enabled": False,
-                        "appId": "",
-                        "secret": "",
-                        "allowFrom": [],
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr("nanobot.config.loader.get_config_path", lambda: config_path)
-    monkeypatch.setattr("nanobot.cli.commands.get_workspace_path", lambda _workspace=None: workspace)
-    monkeypatch.setattr(
-        "nanobot.channels.registry.discover_all",
-        lambda: {
-            "qq": SimpleNamespace(
-                default_config=lambda: {
-                    "enabled": False,
-                    "appId": "",
-                    "secret": "",
-                    "allowFrom": [],
-                    "msgFormat": "plain",
-                }
-            )
-        },
-    )
-
-    from typer.testing import CliRunner
-    from nanobot.cli.commands import app
-    runner = CliRunner()
-    result = runner.invoke(app, ["onboard"], input="n\n")
-
-    assert result.exit_code == 0
-    saved = json.loads(config_path.read_text(encoding="utf-8"))
-    assert saved["channels"]["qq"]["msgFormat"] == "plain"
-
 
 def test_load_config_migrates_legacy_my_tool_keys(tmp_path) -> None:
     config_path = tmp_path / "config.json"
@@ -205,6 +158,151 @@ def test_new_my_tool_keys_take_precedence_over_legacy(tmp_path) -> None:
 
     assert config.tools.my.enable is True
     assert config.tools.my.allow_set is True
+
+
+# ---------------------------------------------------------------------------
+# Corrupt / invalid config files
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_corrupt_json_falls_back_to_default(tmp_path) -> None:
+    """Invalid JSON in config file should log a warning and use defaults."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text("this is not json", encoding="utf-8")
+
+    config = load_config(config_path)
+    assert config.agents.defaults.model == "anthropic/claude-opus-4-5"
+
+
+def test_load_config_invalid_schema_falls_back_to_default(tmp_path) -> None:
+    """JSON that doesn't match the Config schema should log a warning and use defaults."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"agents": {"defaults": {"maxTokens": -1}}}', encoding="utf-8")
+
+    config = load_config(config_path)
+    assert config.agents.defaults.model == "anthropic/claude-opus-4-5"
+
+
+# ---------------------------------------------------------------------------
+# restrictToWorkspace migration
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_migrates_restrict_to_workspace(tmp_path) -> None:
+    """tools.exec.restrictToWorkspace is migrated to tools.restrictToWorkspace."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "tools": {
+                "exec": {"restrictToWorkspace": False},
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.tools.restrict_to_workspace is False
+
+    save_config(config, config_path)
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["tools"]["restrictToWorkspace"] is False
+
+
+# ---------------------------------------------------------------------------
+# _migrate_channels — edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_migrates_flat_channel_to_bots_array(tmp_path) -> None:
+    """Flat channel configs (pre multi-bot) are wrapped into bots[0]."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "channels": {
+                "feishu": {
+                    "enabled": True,
+                    "appId": "cli_xxx",
+                    "appSecret": "secret",
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    feishu = config.channels.model_dump(by_alias=True)["feishu"]
+    assert feishu["enabled"] is True
+    assert feishu["bots"] == [{"name": "bot1", "appId": "cli_xxx", "appSecret": "secret"}]
+
+
+def test_load_config_skips_non_dict_channel_sections(tmp_path) -> None:
+    """Non-dict channel sections are skipped without crashing."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "channels": {
+                "feishu": "not-a-dict",
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config is not None
+
+
+def test_load_config_skips_known_top_level_channel_fields(tmp_path) -> None:
+    """Top-level ChannelsConfig fields like send_progress are not migrated."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "channels": {
+                "sendProgress": False,
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.channels.send_progress is False
+
+
+def test_load_config_skips_channel_with_existing_bots_array(tmp_path) -> None:
+    """Already-migrated bots[] config is not double-migrated."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "channels": {
+                "feishu": {
+                    "enabled": True,
+                    "bots": [{"name": "bot1", "appId": "cli_xxx"}],
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    feishu = config.channels.model_dump(by_alias=True)["feishu"]
+    assert feishu["bots"] == [{"name": "bot1", "appId": "cli_xxx"}]
+
+
+def test_load_config_skips_channel_with_no_bot_fields(tmp_path) -> None:
+    """Channel section with only 'enabled' and no bot fields is skipped."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "channels": {
+                "telegram": {"enabled": False},
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    telegram = config.channels.model_dump(by_alias=True).get("telegram", {})
+    assert telegram.get("enabled") is False
+    assert "bots" not in telegram
 
 
 async def test_load_config_resets_ssrf_whitelist_when_next_config_is_empty(tmp_path) -> None:

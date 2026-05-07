@@ -12,6 +12,7 @@ import pytest
 
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.subagent import SubagentManager, SubagentStatus
+from nanobot.agent.subagent_prompt import build_subagent_prompt
 from nanobot.agent.tools.search import GlobTool, GrepTool
 from nanobot.bus.queue import MessageBus
 
@@ -325,7 +326,7 @@ async def test_subagent_registers_grep_and_glob(tmp_path: Path) -> None:
     mgr._announce_result = AsyncMock()
 
     status = SubagentStatus(task_id="sub-1", label="label", task_description="search task", started_at=time.monotonic())
-    await mgr._run_subagent("sub-1", "search task", "label", {"channel": "cli", "chat_id": "direct"}, status)
+    await mgr._run_subagent("sub-1", "search task", "label", {"channel": "cli", "chat_id": "direct", "session_key": None}, status)
 
     assert "grep" in captured["tool_names"]
     assert "glob" in captured["tool_names"]
@@ -349,7 +350,7 @@ def test_subagent_prompt_respects_disabled_skills(tmp_path: Path) -> None:
         disabled_skills=["alpha"],
     )
 
-    prompt = mgr._build_subagent_prompt()
+    prompt = build_subagent_prompt(mgr.workspace, mgr.disabled_skills)
 
     assert "alpha" not in prompt
     assert "beta" in prompt

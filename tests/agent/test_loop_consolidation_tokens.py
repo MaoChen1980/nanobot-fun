@@ -3,9 +3,19 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from nanobot.agent.loop import AgentLoop
-import nanobot.agent.memory as memory_module
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse
+
+
+def _make_alternating_messages(n: int) -> list[dict]:
+    """Generate *n* alternating user/assistant messages (u1, a1, u2, a2, …)."""
+    msgs: list[dict] = []
+    for i in range(n):
+        pair_num = i // 2 + 1
+        role = "user" if i % 2 == 0 else "assistant"
+        char = "u" if i % 2 == 0 else "a"
+        msgs.append({"role": role, "content": f"{char}{pair_num}", "timestamp": f"2026-01-01T00:00:{i:02d}"})
+    return msgs
 
 
 def _make_loop(tmp_path, *, estimated_tokens: int, context_window_tokens: int) -> AgentLoop:
@@ -45,13 +55,12 @@ async def test_prompt_above_threshold_triggers_consolidation(tmp_path, monkeypat
     loop = _make_loop(tmp_path, estimated_tokens=1000, context_window_tokens=200)
     loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
     session = loop.sessions.get_or_create("cli:test")
-    session.messages = [
-        {"role": "user", "content": "u1", "timestamp": "2026-01-01T00:00:00"},
-        {"role": "assistant", "content": "a1", "timestamp": "2026-01-01T00:00:01"},
-        {"role": "user", "content": "u2", "timestamp": "2026-01-01T00:00:02"},
-    ]
+    session.messages = _make_alternating_messages(15)
     loop.sessions.save(session)
-    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _message: 500)
+    monkeypatch.setattr(
+        "nanobot.agent.memory_consolidator.estimate_message_tokens",
+        lambda _message: 500,
+    )
 
     await loop.process_direct("hello", session_key="cli:test")
 
@@ -64,17 +73,13 @@ async def test_prompt_above_threshold_archives_until_next_user_boundary(tmp_path
     loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
 
     session = loop.sessions.get_or_create("cli:test")
-    session.messages = [
-        {"role": "user", "content": "u1", "timestamp": "2026-01-01T00:00:00"},
-        {"role": "assistant", "content": "a1", "timestamp": "2026-01-01T00:00:01"},
-        {"role": "user", "content": "u2", "timestamp": "2026-01-01T00:00:02"},
-        {"role": "assistant", "content": "a2", "timestamp": "2026-01-01T00:00:03"},
-        {"role": "user", "content": "u3", "timestamp": "2026-01-01T00:00:04"},
-    ]
+    session.messages = _make_alternating_messages(15)
     loop.sessions.save(session)
 
-    token_map = {"u1": 120, "a1": 120, "u2": 120, "a2": 120, "u3": 120}
-    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda message: token_map[message["content"]])
+    monkeypatch.setattr(
+        "nanobot.agent.memory_consolidator.estimate_message_tokens",
+        lambda _m: 100,
+    )
 
     await loop.consolidator.maybe_consolidate_by_tokens(session)
 
@@ -90,15 +95,7 @@ async def test_consolidation_loops_until_target_met(tmp_path, monkeypatch) -> No
     loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
 
     session = loop.sessions.get_or_create("cli:test")
-    session.messages = [
-        {"role": "user", "content": "u1", "timestamp": "2026-01-01T00:00:00"},
-        {"role": "assistant", "content": "a1", "timestamp": "2026-01-01T00:00:01"},
-        {"role": "user", "content": "u2", "timestamp": "2026-01-01T00:00:02"},
-        {"role": "assistant", "content": "a2", "timestamp": "2026-01-01T00:00:03"},
-        {"role": "user", "content": "u3", "timestamp": "2026-01-01T00:00:04"},
-        {"role": "assistant", "content": "a3", "timestamp": "2026-01-01T00:00:05"},
-        {"role": "user", "content": "u4", "timestamp": "2026-01-01T00:00:06"},
-    ]
+    session.messages = _make_alternating_messages(17)
     loop.sessions.save(session)
 
     call_count = [0]
@@ -111,7 +108,10 @@ async def test_consolidation_loops_until_target_met(tmp_path, monkeypatch) -> No
         return (80, "test")
 
     loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
-    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _m: 100)
+    monkeypatch.setattr(
+        "nanobot.agent.memory_consolidator.estimate_message_tokens",
+        lambda _m: 100,
+    )
 
     await loop.consolidator.maybe_consolidate_by_tokens(session)
 
@@ -126,15 +126,7 @@ async def test_consolidation_continues_below_trigger_until_half_target(tmp_path,
     loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
 
     session = loop.sessions.get_or_create("cli:test")
-    session.messages = [
-        {"role": "user", "content": "u1", "timestamp": "2026-01-01T00:00:00"},
-        {"role": "assistant", "content": "a1", "timestamp": "2026-01-01T00:00:01"},
-        {"role": "user", "content": "u2", "timestamp": "2026-01-01T00:00:02"},
-        {"role": "assistant", "content": "a2", "timestamp": "2026-01-01T00:00:03"},
-        {"role": "user", "content": "u3", "timestamp": "2026-01-01T00:00:04"},
-        {"role": "assistant", "content": "a3", "timestamp": "2026-01-01T00:00:05"},
-        {"role": "user", "content": "u4", "timestamp": "2026-01-01T00:00:06"},
-    ]
+    session.messages = _make_alternating_messages(17)
     loop.sessions.save(session)
 
     call_count = [0]
@@ -148,7 +140,10 @@ async def test_consolidation_continues_below_trigger_until_half_target(tmp_path,
         return (80, "test")
 
     loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
-    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _m: 100)
+    monkeypatch.setattr(
+        "nanobot.agent.memory_consolidator.estimate_message_tokens",
+        lambda _m: 100,
+    )
 
     await loop.consolidator.maybe_consolidate_by_tokens(session)
 
@@ -162,11 +157,7 @@ async def test_consolidation_persists_summary_for_next_prepare_session(tmp_path,
     loop.consolidator.archive = AsyncMock(return_value="User discussed project status.")  # type: ignore[method-assign]
 
     session = loop.sessions.get_or_create("cli:test")
-    session.messages = [
-        {"role": "user", "content": "u1", "timestamp": "2026-01-01T00:00:00"},
-        {"role": "assistant", "content": "a1", "timestamp": "2026-01-01T00:00:01"},
-        {"role": "user", "content": "u2", "timestamp": "2026-01-01T00:00:02"},
-    ]
+    session.messages = _make_alternating_messages(15)
     loop.sessions.save(session)
 
     call_count = [0]
@@ -178,7 +169,10 @@ async def test_consolidation_persists_summary_for_next_prepare_session(tmp_path,
         return (80, "test")
 
     loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
-    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _m: 150)
+    monkeypatch.setattr(
+        "nanobot.agent.memory_consolidator.estimate_message_tokens",
+        lambda _m: 150,
+    )
 
     await loop.consolidator.maybe_consolidate_by_tokens(session)
 
@@ -231,13 +225,8 @@ async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) ->
     loop._schedule_background = lambda coro: coro.close()  # type: ignore[method-assign]
 
     session = loop.sessions.get_or_create("cli:test")
-    session.messages = [
-        {"role": "user", "content": "u1", "timestamp": "2026-01-01T00:00:00"},
-        {"role": "assistant", "content": "a1", "timestamp": "2026-01-01T00:00:01"},
-        {"role": "user", "content": "u2", "timestamp": "2026-01-01T00:00:02"},
-    ]
+    session.messages = _make_alternating_messages(15)
     loop.sessions.save(session)
-    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _m: 500)
 
     call_count = [0]
     def mock_estimate(_session, *, session_summary=None):

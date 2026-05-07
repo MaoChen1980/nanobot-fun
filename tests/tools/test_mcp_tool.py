@@ -184,7 +184,7 @@ def test_wrapper_normalizes_nullable_property_anyof() -> None:
 def test_normalize_windows_stdio_command_is_noop_off_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "posix", raising=False)
+    monkeypatch.setattr(mcp_mod.mcp.os, "name", "posix", raising=False)
 
     command, args, env = _normalize_windows_stdio_command(
         "npx",
@@ -200,9 +200,9 @@ def test_normalize_windows_stdio_command_is_noop_off_windows(
 def test_normalize_windows_stdio_command_wraps_npx_on_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
+    monkeypatch.setattr(mcp_mod.mcp.os, "name", "nt", raising=False)
     monkeypatch.setattr(
-        mcp_mod.shutil,
+        mcp_mod.mcp.shutil,
         "which",
         lambda command, path=None: r"C:\Program Files\nodejs\npx.cmd",
     )
@@ -222,14 +222,14 @@ def test_normalize_windows_stdio_command_wraps_npx_on_windows(
 def test_normalize_windows_stdio_command_wraps_resolved_cmd_launcher(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
+    monkeypatch.setattr(mcp_mod.mcp.os, "name", "nt", raising=False)
 
     def _fake_which(command: str, path: str | None = None) -> str:
         assert command == "custom-launcher"
         assert path == r"C:\Tools"
         return r"C:\Tools\custom-launcher.cmd"
 
-    monkeypatch.setattr(mcp_mod.shutil, "which", _fake_which)
+    monkeypatch.setattr(mcp_mod.mcp.shutil, "which", _fake_which)
     monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
 
     command, args, _env = _normalize_windows_stdio_command(
@@ -245,7 +245,7 @@ def test_normalize_windows_stdio_command_wraps_resolved_cmd_launcher(
 def test_normalize_windows_stdio_command_keeps_real_executables_unchanged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
+    monkeypatch.setattr(mcp_mod.mcp.os, "name", "nt", raising=False)
 
     command, args, env = _normalize_windows_stdio_command(
         "python.exe",
@@ -261,7 +261,7 @@ def test_normalize_windows_stdio_command_keeps_real_executables_unchanged(
 def test_normalize_windows_stdio_command_skips_existing_shells(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
+    monkeypatch.setattr(mcp_mod.mcp.os, "name", "nt", raising=False)
 
     command, args, env = _normalize_windows_stdio_command(
         "cmd.exe",
@@ -436,7 +436,7 @@ async def test_connect_mcp_servers_enabled_tools_warns_on_unknown_entries(
     def _warning(message: str, *args: object) -> None:
         warnings.append(message.format(*args))
 
-    monkeypatch.setattr("nanobot.agent.tools.mcp.logger.warning", _warning)
+    monkeypatch.setattr("nanobot.agent.tools.mcp.mcp.logger.warning", _warning)
 
     stacks = await connect_mcp_servers(
         {"test": MCPServerConfig(command="fake", enabled_tools=["unknown"])},
@@ -467,7 +467,7 @@ async def test_connect_mcp_servers_logs_stdio_pollution_hint(
         yield  # pragma: no cover
 
     monkeypatch.setattr(sys.modules["mcp.client.stdio"], "stdio_client", _broken_stdio_client)
-    monkeypatch.setattr("nanobot.agent.tools.mcp.logger.error", _error)
+    monkeypatch.setattr("nanobot.agent.tools.mcp.mcp.logger.error", _error)
 
     registry = ToolRegistry()
     stacks = await connect_mcp_servers({"gh": MCPServerConfig(command="github-mcp")}, registry)
@@ -534,9 +534,9 @@ async def test_connect_mcp_servers_wraps_windows_stdio_launchers(
         captured["env"] = params.env
         yield object(), object()
 
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
+    monkeypatch.setattr(mcp_mod.mcp.os, "name", "nt", raising=False)
     monkeypatch.setattr(
-        mcp_mod.shutil,
+        mcp_mod.mcp.shutil,
         "which",
         lambda command, path=None: r"C:\Program Files\nodejs\npx.cmd",
     )

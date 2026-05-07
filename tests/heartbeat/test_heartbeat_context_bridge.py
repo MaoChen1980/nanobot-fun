@@ -117,4 +117,5 @@ class TestHeartbeatContextBridge:
         assert len(history) == 2
         assert history[0]["role"] == "assistant"
         assert "sandstorm" in history[0]["content"]
-        assert history[1] == {"role": "user", "content": "Sure"}
+        assert history[1]["role"] == "user"
+        assert history[1]["content"] == "Sure"

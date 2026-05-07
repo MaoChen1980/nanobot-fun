@@ -10,6 +10,7 @@ import pytest
 from nanobot.security.network import (
     configure_ssrf_whitelist,
     contains_internal_url,
+    validate_resolved_url,
     validate_url_target,
 )
 
@@ -154,5 +155,74 @@ async def test_whitelist_invalid_cidr_ignored():
         with patch("nanobot.security.network._resolve_hostname", _fake_resolve_async("ts.local", ["100.100.1.1"])):
             ok, _ = await validate_url_target("http://ts.local/api")
             assert ok
+    finally:
+        configure_ssrf_whitelist([])
+
+
+# ---------------------------------------------------------------------------
+# validate_resolved_url — post-redirect validation
+# ---------------------------------------------------------------------------
+
+async def test_validate_resolved_url_parse_error_returns_ok():
+    """If URL parsing fails, return (True, '')."""
+    ok, err = await validate_resolved_url("://invalid-url")
+    assert ok
+    assert err == ""
+
+
+async def test_validate_resolved_url_no_hostname_returns_ok():
+    ok, err = await validate_resolved_url("http://")
+    assert ok
+    assert err == ""
+
+
+async def test_validate_resolved_url_blocks_private_ip():
+    """Direct private IP in hostname is blocked."""
+    ok, err = await validate_resolved_url("http://127.0.0.1/secret")
+    assert not ok
+    assert "private" in err.lower()
+
+
+async def test_validate_resolved_url_allows_public_ip():
+    ok, err = await validate_resolved_url("http://93.184.216.34/page")
+    assert ok
+
+
+async def test_validate_resolved_url_domain_resolves_to_private():
+    """Domain that resolves to private IP is blocked."""
+    with patch("nanobot.security.network._resolve_hostname", _fake_resolve_async("internal.local", ["10.0.0.5"])):
+        ok, err = await validate_resolved_url("http://internal.local/page")
+    assert not ok
+    assert "private" in err.lower()
+
+
+async def test_validate_resolved_url_domain_resolves_to_public():
+    """Domain that resolves to public IP is allowed."""
+    with patch("nanobot.security.network._resolve_hostname", _fake_resolve_async("example.com", ["93.184.216.34"])):
+        ok, err = await validate_resolved_url("http://example.com/page")
+    assert ok
+
+
+async def test_validate_resolved_url_dns_failure_returns_ok():
+    """If DNS resolution fails, allow by default."""
+    with patch("nanobot.security.network._resolve_hostname", side_effect=socket.gaierror("no such host")):
+        ok, err = await validate_resolved_url("http://unknown.example/path")
+    assert ok
+
+
+async def test_validate_resolved_url_ipv6_private_blocked():
+    async def _resolver(hostname: str):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::1", 0, 0, 0))]
+    with patch("nanobot.security.network._resolve_hostname", _resolver):
+        ok, err = await validate_resolved_url("http://evil.com/")
+        assert not ok
+
+
+async def test_validate_resolved_url_whitelist_cgnat():
+    """Whitelisted CGNAT bypasses private check for IP literal."""
+    configure_ssrf_whitelist(["100.64.0.0/10"])
+    try:
+        ok, err = await validate_resolved_url("http://100.100.1.1/api")
+        assert ok
     finally:
         configure_ssrf_whitelist([])

@@ -18,6 +18,12 @@ class TestAbbreviatePathShort:
     def test_empty_string(self):
         assert abbreviate_path("") == ""
 
+    def test_single_part_longer_than_max_len(self):
+        """A single segment (no /) longer than max_len is truncated."""
+        result = abbreviate_path("very_long_filename_without_path.py", max_len=20)
+        assert len(result) == 20
+        assert result.endswith("…")
+
 
 class TestAbbreviatePathHome:
     def test_home_replacement(self):
@@ -30,6 +36,11 @@ class TestAbbreviatePathHome:
         home = os.path.expanduser("~")
         result = abbreviate_path(f"{home}/a.py")
         assert result == "~/a.py"
+
+    def test_home_exact_path(self):
+        """Path that is exactly the home directory returns ~."""
+        home = os.path.expanduser("~")
+        assert abbreviate_path(home) == "~"
 
 
 class TestAbbreviatePathLong:
@@ -103,3 +114,32 @@ class TestAbbreviatePathURLs:
         result = abbreviate_path(url, max_len=20)
         assert "a.co" in result
         assert "/\u2026/" in result
+
+    def test_url_no_basename_truncates(self):
+        """URL ending with only / on path has no basename, truncates."""
+        url = "https://exampleeeeeeeeeee.com/"
+        result = abbreviate_path(url, max_len=29)
+        assert len(result) == 29
+        assert result.endswith("\u2026")
+
+    def test_url_very_long_basename_negative_budget(self):
+        """Budget < 0 truncates basename to fit."""
+        url = "https://x.co/this_is_a_very_very_long_filename_that_exceeds_budget.txt"
+        result = abbreviate_path(url, max_len=30)
+        assert "x.co" in result
+        assert "/\u2026/" in result
+
+
+class TestAbbreviatePathEdgeCases:
+    def test_no_parent_fits_budget(self):
+        """When even the nearest parent doesn't fit, show only \u2026/basename."""
+        result = abbreviate_path("/a/very_long_basename_that_is_long.txt", max_len=30)
+        assert result.startswith("\u2026/")
+        assert "very_long_basename_that_is_long.txt" in result
+        assert "a/" not in result[len("\u2026/"):]
+
+    def test_path_with_only_root_and_long_filename_still_abbreviates(self):
+        """Very long basename with short parent still gets abbreviated properly."""
+        result = abbreviate_path("/a/" + "x" * 60, max_len=40)
+        assert result.startswith("\u2026/")
+        assert "x" in result

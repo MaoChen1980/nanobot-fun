@@ -19,6 +19,7 @@ class FakePromptDetails:
 
 
 class _FakeSpec:
+    name = ""
     supports_prompt_caching = False
     model_id_prefix = None
     strip_model_prefix = False
@@ -30,7 +31,7 @@ def _provider():
     from unittest.mock import MagicMock
     p = OpenAICompatProvider.__new__(OpenAICompatProvider)
     p.client = MagicMock()
-    p.spec = _FakeSpec()
+    p._spec = _FakeSpec()
     return p
 
 

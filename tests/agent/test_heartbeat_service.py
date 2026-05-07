@@ -70,13 +70,13 @@ async def test_tick_publishes_active_goals_to_main_session() -> None:
 
     assert len(loop.bus.published) == 1
     msg = loop.bus.published[0]
-    assert msg.sender_id == "heartbeat"
+    assert msg.sender_id == "boss"
     assert msg.chat_id == "direct"
     assert "Test goal" in msg.content
     assert "g1" in msg.content
     assert "Another task" in msg.content
     assert "g2" in msg.content
-    assert "write_goal" in msg.content
+    assert "## Active Tasks" in msg.content
     assert msg.session_key_override == "cli:direct"
 
 

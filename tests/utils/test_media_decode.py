@@ -73,3 +73,72 @@ def test_legacy_symbols_reexported_from_api_server() -> None:
     assert server._save_base64_data_url is save_base64_data_url
     assert server._FileSizeExceeded is FileSizeExceeded
     assert server.MAX_FILE_SIZE == MAX_FILE_SIZE
+
+
+# ---------------------------------------------------------------------------
+# detect_image_mime
+# ---------------------------------------------------------------------------
+
+
+def test_detect_image_mime_jpeg():
+    from nanobot.utils.media_decode import detect_image_mime
+    assert detect_image_mime(b"\xff\xd8\xff\xe0") == "image/jpeg"
+
+
+def test_detect_image_mime_gif87():
+    from nanobot.utils.media_decode import detect_image_mime
+    assert detect_image_mime(b"GIF87a\x00\x00") == "image/gif"
+
+
+def test_detect_image_mime_gif89():
+    from nanobot.utils.media_decode import detect_image_mime
+    assert detect_image_mime(b"GIF89a\x00\x00") == "image/gif"
+
+
+def test_detect_image_mime_webp():
+    from nanobot.utils.media_decode import detect_image_mime
+    assert detect_image_mime(b"RIFF\x00\x00\x00\x00WEBP") == "image/webp"
+
+
+def test_detect_image_mime_unknown():
+    from nanobot.utils.media_decode import detect_image_mime
+    assert detect_image_mime(b"\x00\x01\x02\x03") is None
+
+
+def test_detect_image_mime_empty():
+    from nanobot.utils.media_decode import detect_image_mime
+    assert detect_image_mime(b"") is None
+
+
+# ---------------------------------------------------------------------------
+# build_image_content_blocks
+# ---------------------------------------------------------------------------
+
+
+def test_build_image_content_blocks():
+    from nanobot.utils.media_decode import build_image_content_blocks
+    result = build_image_content_blocks(b"raw", "image/png", "/tmp/test.png", "test image")
+    assert result[0]["type"] == "image_url"
+    assert "data:image/png;base64," in result[0]["image_url"]["url"]
+    assert result[0]["_meta"]["path"] == "/tmp/test.png"
+    assert result[1] == {"type": "text", "text": "test image"}
+
+
+# ---------------------------------------------------------------------------
+# image_placeholder_text
+# ---------------------------------------------------------------------------
+
+
+def test_image_placeholder_text_with_path():
+    from nanobot.utils.media_decode import image_placeholder_text
+    assert image_placeholder_text("/tmp/test.png") == "[image: /tmp/test.png]"
+
+
+def test_image_placeholder_text_none():
+    from nanobot.utils.media_decode import image_placeholder_text
+    assert image_placeholder_text(None) == "[image]"
+
+
+def test_image_placeholder_text_custom_empty():
+    from nanobot.utils.media_decode import image_placeholder_text
+    assert image_placeholder_text(None, empty="[photo]") == "[photo]"

@@ -419,7 +419,8 @@ def gateway(
 
         logging.basicConfig(level=logging.DEBUG)
     cfg = _load_runtime_config(config, workspace)
-    _run_gateway(cfg, port=port, open_browser_url=f"http://{cfg.gateway.host}:{port or cfg.gateway.port}")
+    browser_host = "127.0.0.1" if cfg.gateway.host in {"0.0.0.0", "::"} else cfg.gateway.host
+    _run_gateway(cfg, port=port, open_browser_url=f"http://{browser_host}:{port or cfg.gateway.port}")
 
 
 def _run_gateway(

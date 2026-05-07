@@ -138,6 +138,7 @@ def maybe_persist_tool_result(
     if isinstance(content, str):
         text_payload = content
     elif isinstance(content, list):
+        from nanobot.utils.document import stringify_text_blocks
         text_payload = stringify_text_blocks(content)
         if text_payload is None:
             return content

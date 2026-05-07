@@ -11,11 +11,11 @@ import pytest
 from nanobot.agent.tools.web import WebFetchTool
 
 
-def _fake_resolve_private(hostname, port, family=0, type_=0):
+def _fake_resolve_private(hostname, port=None, family=0, type=0, proto=0, flags=0):
     return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("169.254.169.254", 0))]
 
 
-def _fake_resolve_public(hostname, port, family=0, type_=0):
+def _fake_resolve_public(hostname, port=None, family=0, type=0, proto=0, flags=0):
     return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
 
 
@@ -32,7 +32,7 @@ async def test_web_fetch_blocks_private_ip():
 @pytest.mark.asyncio
 async def test_web_fetch_blocks_localhost():
     tool = WebFetchTool()
-    def _resolve_localhost(hostname, port, family=0, type_=0):
+    def _resolve_localhost(hostname, port=None, family=0, type=0, proto=0, flags=0):
         return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 0))]
     with patch("nanobot.security.network.socket.getaddrinfo", _resolve_localhost):
         result = await tool.execute(url="http://localhost/admin")

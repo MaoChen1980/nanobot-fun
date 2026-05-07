@@ -58,7 +58,8 @@ class GatewayApplication:
     # ------------------------------------------------------------------
 
     async def _async_run(self) -> None:
-        url = f"http://{self.config.gateway.host}:{self.port}"
+        display_host = "127.0.0.1" if self.config.gateway.host in {"0.0.0.0", "::"} else self.config.gateway.host
+        url = f"http://{display_host}:{self.port}"
         console.print(
             f"{__logo__} Starting nanobot gateway version {__version__} "
             f"on port {self.port}..."

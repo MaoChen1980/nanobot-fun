@@ -67,6 +67,41 @@ def test_format_restart_completed_message_with_elapsed(monkeypatch):
     assert format_restart_completed_message("100.0") == "Restart completed in 2.0s."
 
 
+def test_format_restart_completed_message_invalid_timestamp():
+    """ValueError from float() is caught gracefully."""
+    assert format_restart_completed_message("not-a-float") == "Restart completed."
+
+
+def test_set_restart_notice_json_encode_error_clears_metadata(monkeypatch):
+    """json.dumps failure (even with default=str) clears the env var."""
+    class Unserializable:
+        def __str__(self):
+            raise ValueError("bang")
+
+    monkeypatch.setenv("NANOBOT_RESTART_NOTIFY_METADATA", '{"old": "data"}')
+    set_restart_notice_to_env(
+        channel="cli", chat_id="direct", metadata={"bad": Unserializable()}
+    )
+    assert "NANOBOT_RESTART_NOTIFY_METADATA" not in os.environ
+
+
+def test_consume_restart_notice_invalid_json_metadata(monkeypatch):
+    """Invalid JSON metadata produces empty dict, not a crash."""
+    monkeypatch.delenv("NANOBOT_RESTART_NOTIFY_CHANNEL", raising=False)
+    monkeypatch.delenv("NANOBOT_RESTART_NOTIFY_CHAT_ID", raising=False)
+    monkeypatch.delenv("NANOBOT_RESTART_NOTIFY_METADATA", raising=False)
+    monkeypatch.delenv("NANOBOT_RESTART_STARTED_AT", raising=False)
+
+    monkeypatch.setenv("NANOBOT_RESTART_NOTIFY_CHANNEL", "cli")
+    monkeypatch.setenv("NANOBOT_RESTART_NOTIFY_CHAT_ID", "direct")
+    monkeypatch.setenv("NANOBOT_RESTART_NOTIFY_METADATA", "not-valid-json{{{")
+    monkeypatch.setenv("NANOBOT_RESTART_STARTED_AT", "100.0")
+
+    notice = consume_restart_notice_from_env()
+    assert notice is not None
+    assert notice.metadata == {}
+
+
 def test_should_show_cli_restart_notice():
     notice = RestartNotice(channel="cli", chat_id="direct", started_at_raw="100")
     assert should_show_cli_restart_notice(notice, "cli:direct") is True

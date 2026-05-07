@@ -504,7 +504,7 @@ def test_exec_guard_allows_media_path_outside_workspace(tmp_path, monkeypatch) -
     media_file = media_dir / "photo.jpg"
     media_file.write_text("ok", encoding="utf-8")
 
-    monkeypatch.setattr("nanobot.agent.tools.shell.get_media_dir", lambda: media_dir)
+    monkeypatch.setattr("nanobot.agent.tools.shell.shell.get_media_dir", lambda: media_dir)
 
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command(f'cat "{media_file}"', str(tmp_path / "workspace"))
@@ -512,8 +512,6 @@ def test_exec_guard_allows_media_path_outside_workspace(tmp_path, monkeypatch) -
 
 
 def test_exec_guard_blocks_windows_drive_root_outside_workspace(monkeypatch) -> None:
-    import nanobot.agent.tools.shell as shell_mod
-
     class FakeWindowsPath:
         def __init__(self, raw: str) -> None:
             self.raw = raw.rstrip("\\") + ("\\" if raw.endswith("\\") else "")
@@ -543,9 +541,9 @@ def test_exec_guard_blocks_windows_drive_root_outside_workspace(monkeypatch) -> 
         def __eq__(self, other: object) -> bool:
             return isinstance(other, FakeWindowsPath) and self.raw.lower() == other.raw.lower()
 
-    monkeypatch.setattr(shell_mod, "Path", FakeWindowsPath)
+    monkeypatch.setattr("nanobot.agent.tools.shell_validators.Path", FakeWindowsPath)
 
-    tool = ExecTool(restrict_to_workspace=True)
+    tool = ExecTool(restrict_to_workspace=True, working_dir="E:\\workspace")
     error = tool._guard_command("dir E:\\", "E:\\workspace")
     assert error == "Error: Command blocked by safety guard (path outside working dir)"
 

@@ -61,3 +61,24 @@ async def test_no_tool_call_fallback() -> None:
     provider = DummyProvider([LLMResponse(content="I think you should notify", tool_calls=[])])
     result = await evaluate_response("some response", "some task", provider, "m")
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_tool_calls_blocked_by_finish_reason() -> None:
+    """Tool calls with a non-executable finish_reason (e.g. content_filter)
+    are ignored and default to notify."""
+    provider = DummyProvider([
+        LLMResponse(
+            content="",
+            tool_calls=[
+                ToolCallRequest(
+                    id="eval_1",
+                    name="evaluate_notification",
+                    arguments={"should_notify": False},
+                )
+            ],
+            finish_reason="content_filter",
+        )
+    ])
+    result = await evaluate_response("some response", "some task", provider, "m")
+    assert result is True

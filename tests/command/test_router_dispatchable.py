@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from unittest.mock import AsyncMock
+
 from nanobot.command.builtin import register_builtin_commands
 from nanobot.command.router import CommandContext, CommandRouter
 
@@ -139,5 +141,64 @@ class TestMidTurnCommandDispatchedDirectly:
             msg=fake_msg, session=None,
             key="test:chat1", raw="hello world", loop=fake_loop,
         )
+        result = await router.dispatch(ctx)
+        assert result is None
+
+
+class TestCommandRouterPriority:
+    """Tests for priority command registration and dispatch."""
+
+    def test_priority_registration_and_lookup(self):
+        router = CommandRouter()
+        async def handler(ctx):  # noqa: E306
+            return None
+        router.priority("/test", handler)
+        assert router.is_priority("/test") is True
+        assert router.is_priority("  /TEST  ") is True
+        assert router.is_priority("/other") is False
+
+    @pytest.mark.asyncio
+    async def test_dispatch_priority_no_match_returns_none(self):
+        router = CommandRouter()
+        ctx = CommandContext(msg=MagicMock(), session=None, key="k", raw="/unknown")
+        result = await router.dispatch_priority(ctx)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_dispatch_priority_with_match(self):
+        router = CommandRouter()
+        captured = []
+        async def handler(ctx):  # noqa: E306
+            captured.append(ctx.raw)
+            return MagicMock(content="handled")
+
+        router.priority("/mycmd", handler)
+        ctx = CommandContext(msg=MagicMock(), session=None, key="k", raw="/mycmd")
+        result = await router.dispatch_priority(ctx)
+        assert result is not None
+        assert result.content == "handled"
+        assert captured == ["/mycmd"]
+
+
+class TestCommandRouterInterceptors:
+    """Tests for command interceptor registration and dispatch."""
+
+    @pytest.mark.asyncio
+    async def test_interceptor_catches_command(self):
+        router = CommandRouter()
+        router.intercept(AsyncMock(return_value=MagicMock(content="intercepted")))
+
+        ctx = CommandContext(msg=MagicMock(), session=None, key="k", raw="some text")
+        result = await router.dispatch(ctx)
+        assert result is not None
+        assert result.content == "intercepted"
+
+    @pytest.mark.asyncio
+    async def test_interceptors_exhausted_returns_none(self):
+        router = CommandRouter()
+        router.intercept(AsyncMock(return_value=None))
+        router.intercept(AsyncMock(return_value=None))
+
+        ctx = CommandContext(msg=MagicMock(), session=None, key="k", raw="irrelevant")
         result = await router.dispatch(ctx)
         assert result is None

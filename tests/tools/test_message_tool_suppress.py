@@ -46,7 +46,8 @@ class TestMessageToolSuppressLogic:
         result = await loop._process_message(msg)
 
         assert len(sent) == 1
-        assert result is None  # suppressed
+        assert result is not None
+        assert result.content == "Done"
 
     @pytest.mark.asyncio
     async def test_not_suppress_when_sent_to_different_target(self, tmp_path: Path) -> None:
@@ -121,7 +122,8 @@ class TestMessageToolSuppressLogic:
 
         assert len(sent) == 1
         assert sent[0].content == "Tool reply"
-        assert result is None
+        assert result is not None
+        assert "couldn't produce a final answer" in result.content
 
     async def test_progress_hides_internal_reasoning(self, tmp_path: Path) -> None:
         loop = _make_loop(tmp_path)

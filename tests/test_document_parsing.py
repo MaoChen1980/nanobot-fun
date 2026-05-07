@@ -1,11 +1,14 @@
 """Tests for document text extraction utilities."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 from nanobot.utils.document import (
     SUPPORTED_EXTENSIONS,
     _is_text_extension,
+    extract_documents,
     extract_text,
+    stringify_text_blocks,
 )
 
 
@@ -314,3 +317,189 @@ class TestIsTextExtension:
         assert _is_text_extension(".txt") is True
         assert _is_text_extension(".TXT") is False
         assert _is_text_extension(".pdf") is False
+
+
+# ---------------------------------------------------------------------------
+# extract_text — string path input
+# ---------------------------------------------------------------------------
+
+class TestExtractTextStringPath:
+    def test_string_path_works(self, tmp_path):
+        txt_file = tmp_path / "test.txt"
+        txt_file.write_text("hello", encoding="utf-8")
+        result = extract_text(str(txt_file))
+        assert result == "hello"
+
+
+# ---------------------------------------------------------------------------
+# extract_text — extraction error / missing import paths
+# ---------------------------------------------------------------------------
+
+class TestExtractTextErrors:
+    def test_pdf_import_error(self, tmp_path):
+        from nanobot.utils.document import _extract_pdf
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_text("dummy")
+        with patch("builtins.__import__", side_effect=lambda name, *a, **kw: (_ for _ in ()).throw(ImportError("no pypdf")) if name == "pypdf" else __import__(name, *a, **kw)):  # noqa: E731
+            result = _extract_pdf(pdf_file)
+        assert result == "[error: pypdf not installed]"
+
+    def test_docx_extract_error(self, tmp_path):
+        from nanobot.utils.document import _extract_docx
+        docx_file = tmp_path / "test.docx"
+        docx_file.write_text("dummy")
+        result = _extract_docx(docx_file)
+        assert "error" in result
+
+    def test_xlsx_extract_error(self, tmp_path):
+        from nanobot.utils.document import _extract_xlsx
+        xlsx_file = tmp_path / "test.xlsx"
+        xlsx_file.write_text("dummy")
+        result = _extract_xlsx(xlsx_file)
+        assert "error" in result
+
+    def test_pptx_extract_error(self, tmp_path):
+        from nanobot.utils.document import _extract_pptx
+        pptx_file = tmp_path / "test.pptx"
+        pptx_file.write_text("dummy")
+        result = _extract_pptx(pptx_file)
+        assert "error" in result
+
+    def test_extract_text_unsupported_extension(self, tmp_path):
+        f = tmp_path / "test.unsupported"
+        f.write_text("content")
+        result = extract_text(f)
+        assert result is None
+
+    def test_text_file_unicode_decode_fallback(self, tmp_path):
+        from nanobot.utils.document import _extract_text_file
+        f = tmp_path / "test.txt"
+        f.write_bytes("hello\xffworld".encode("latin-1"))
+        result = _extract_text_file(f)
+        assert "hello" in result
+        assert "world" in result
+
+    def test_docx_import_error(self, tmp_path):
+        from nanobot.utils.document import _extract_docx
+        docx_file = tmp_path / "test.docx"
+        docx_file.write_text("dummy")
+        with patch("builtins.__import__", side_effect=lambda name, *a, **kw: (_ for _ in ()).throw(ImportError("no docx")) if name == "docx" else __import__(name, *a, **kw)):  # noqa: E731
+            result = _extract_docx(docx_file)
+        assert result == "[error: python-docx not installed]"
+
+    def test_xlsx_import_error(self, tmp_path):
+        from nanobot.utils.document import _extract_xlsx
+        xlsx_file = tmp_path / "test.xlsx"
+        xlsx_file.write_text("dummy")
+        with patch("builtins.__import__", side_effect=lambda name, *a, **kw: (_ for _ in ()).throw(ImportError("no openpyxl")) if name == "openpyxl" else __import__(name, *a, **kw)):  # noqa: E731
+            result = _extract_xlsx(xlsx_file)
+        assert result == "[error: openpyxl not installed]"
+
+    def test_pptx_import_error(self, tmp_path):
+        from nanobot.utils.document import _extract_pptx
+        pptx_file = tmp_path / "test.pptx"
+        pptx_file.write_text("dummy")
+        with patch("builtins.__import__", side_effect=lambda name, *a, **kw: (_ for _ in ()).throw(ImportError("no pptx")) if name == "pptx" else __import__(name, *a, **kw)):  # noqa: E731
+            result = _extract_pptx(pptx_file)
+        assert result == "[error: python-pptx not installed]"
+
+    def test_text_file_read_exception(self, tmp_path):
+        from nanobot.utils.document import _extract_text_file
+        f = tmp_path / "test.txt"
+        f.write_text("content", encoding="utf-8")
+        with patch("pathlib.Path.read_text", side_effect=PermissionError("denied")):
+            result = _extract_text_file(f)
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# extract_documents
+# ---------------------------------------------------------------------------
+
+class TestExtractDocuments:
+    def test_empty_media_paths_returns_text_unchanged(self):
+        text, images = extract_documents("original", [])
+        assert text == "original"
+        assert images == []
+
+    def test_non_existent_file_skipped(self, tmp_path):
+        text, images = extract_documents("base", [str(tmp_path / "nope.txt")])
+        assert text == "base"
+        assert images == []
+
+    def test_skips_oversized_file(self, tmp_path):
+        large = tmp_path / "large.txt"
+        large.write_text("x" * 100)
+        text, images = extract_documents("base", [str(large)], max_file_size=10)
+        assert text == "base"
+        assert images == []
+
+    def test_image_path_returns_in_images(self, tmp_path):
+        img = tmp_path / "photo.png"
+        img.write_bytes(
+            b"\x89PNG\r\n\x1a\n"
+            b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x02\x00\x00\x00\x90wS\xde"
+            b"\x00\x00\x00\x0cIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01"
+            b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        text, images = extract_documents("base", [str(img)])
+        assert text == "base"
+        assert images == [str(img)]
+
+    def test_document_text_appended(self, tmp_path):
+        doc = tmp_path / "notes.txt"
+        doc.write_text("extra content", encoding="utf-8")
+        text, images = extract_documents("base", [str(doc)])
+        assert "base" in text
+        assert "extra content" in text
+        assert "[File: notes.txt]" in text
+        assert images == []
+
+    def test_oserror_on_stat_skipped(self, tmp_path):
+        doc = tmp_path / "broken.txt"
+        doc.write_text("content", encoding="utf-8")
+        with patch("pathlib.Path.stat", side_effect=OSError("denied")), \
+             patch("pathlib.Path.is_file", return_value=True):
+            text, images = extract_documents("base", [str(doc)])
+        assert text == "base"
+        assert images == []
+
+    def test_extract_error_skipped(self, tmp_path):
+        doc = tmp_path / "bad.txt"
+        doc.write_text("", encoding="utf-8")
+        with patch("nanobot.utils.document.extract_text", return_value="[error: failed]"):
+            text, images = extract_documents("base", [str(doc)])
+        assert text == "base"
+        assert images == []
+
+
+# ---------------------------------------------------------------------------
+# stringify_text_blocks
+# ---------------------------------------------------------------------------
+
+class TestStringifyTextBlocks:
+    def test_valid_text_blocks(self):
+        blocks = [
+            {"type": "text", "text": "hello"},
+            {"type": "text", "text": "world"},
+        ]
+        assert stringify_text_blocks(blocks) == "hello\nworld"
+
+    def test_non_dict_block_returns_none(self):
+        assert stringify_text_blocks([42]) is None
+
+    def test_non_text_type_returns_none(self):
+        blocks = [{"type": "image", "text": "data"}]
+        assert stringify_text_blocks(blocks) is None
+
+    def test_None_text_returns_none(self):
+        blocks = [{"type": "text", "text": None}]
+        assert stringify_text_blocks(blocks) is None
+
+    def test_int_text_returns_none(self):
+        blocks = [{"type": "text", "text": 42}]
+        assert stringify_text_blocks(blocks) is None
+
+    def test_empty_list(self):
+        assert stringify_text_blocks([]) == ""

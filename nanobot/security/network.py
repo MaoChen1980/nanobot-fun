@@ -47,8 +47,9 @@ def _is_private(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
 async def _resolve_hostname(hostname: str) -> list:
     """Async DNS resolution with 10s timeout."""
     try:
+        loop = asyncio.get_running_loop()
         infos = await asyncio.wait_for(
-            asyncio.getaddrinfo(
+            loop.getaddrinfo(
                 hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
             ),
             timeout=10.0,

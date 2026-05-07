@@ -8,6 +8,7 @@ from nanobot.config.loader import (
     resolve_config_env_vars,
     save_config,
 )
+from nanobot.config.schema import ChannelsConfig
 
 
 class TestResolveEnvVars:
@@ -79,7 +80,7 @@ class TestResolveConfig:
         save_config(raw, config_path)
 
         saved = json.loads(config_path.read_text(encoding="utf-8"))
-        assert saved["channels"]["telegram"]["token"] == "${MY_TOKEN}"
+        assert saved["channels"]["telegram"]["bots"][0]["token"] == "${MY_TOKEN}"
 
     def test_preserves_excluded_fields_when_no_env_refs(self, tmp_path):
         """Regression: fields with ``exclude=True`` (e.g. DreamConfig.cron)
@@ -127,3 +128,15 @@ class TestResolveConfig:
         assert resolved.agents.defaults.dream.describe_schedule() == (
             "cron 5 11 * * * (legacy)"
         )
+
+    def test_resolves_env_vars_in_extras_fields(self, monkeypatch):
+        """BaseModel extras (e.g. ChannelsConfig channel configs) with env
+        var references are resolved and a new copy is returned."""
+        monkeypatch.setenv("BOT_TOKEN", "bot-secret-123")
+        cfg = ChannelsConfig()
+        # extras dict holds channel configs (extra="allow" on ChannelsConfig)
+        cfg.__pydantic_extra__["my_channel"] = {"token": "${BOT_TOKEN}"}
+
+        result = _resolve_in_place(cfg)
+        assert result is not cfg
+        assert result.__pydantic_extra__["my_channel"]["token"] == "bot-secret-123"
