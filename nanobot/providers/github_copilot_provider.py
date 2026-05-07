@@ -5,10 +5,13 @@ from __future__ import annotations
 import time
 import webbrowser
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import httpx
-from oauth_cli_kit.models import OAuthToken
-from oauth_cli_kit.storage import FileTokenStorage
+
+if TYPE_CHECKING:
+    from oauth_cli_kit.models import OAuthToken
+    from oauth_cli_kit.storage import FileTokenStorage
 
 from nanobot.providers.openai_compat_provider import OpenAICompatProvider
 
@@ -29,6 +32,8 @@ _LONG_LIVED_TOKEN_SECONDS = 315360000
 
 
 def _storage() -> FileTokenStorage:
+    from oauth_cli_kit.storage import FileTokenStorage
+
     return FileTokenStorage(
         token_filename=TOKEN_FILENAME,
         app_name=TOKEN_APP_NAME,
@@ -145,6 +150,8 @@ def login_github_copilot(
         account_id = user_payload.get("login") or str(user_payload.get("id") or "") or None
 
     expires_ms = int((time.time() + token_expires_in) * 1000)
+    from oauth_cli_kit.models import OAuthToken
+
     token = OAuthToken(
         access=str(access_token),
         refresh="",

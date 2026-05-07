@@ -10,7 +10,6 @@ from typing import Any
 
 import httpx
 from loguru import logger
-from oauth_cli_kit import get_token as get_codex_token
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.providers.openai_responses import (
@@ -43,6 +42,7 @@ class OpenAICodexProvider(LLMProvider):
         model = model or self.default_model
         system_prompt, input_items = convert_messages(messages)
 
+        from oauth_cli_kit import get_token as get_codex_token
         token = await asyncio.to_thread(get_codex_token)
         headers = _build_headers(token.account_id, token.access)
 
