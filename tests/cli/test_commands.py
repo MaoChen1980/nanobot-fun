@@ -1287,7 +1287,7 @@ def test_migrate_cron_store_skips_when_workspace_file_exists(tmp_path: Path) -> 
 def test_gateway_uses_configured_port_when_cli_flag_is_missing(monkeypatch, tmp_path: Path) -> None:
     config_file = _write_instance_config(tmp_path)
     config = Config()
-    config.gateway.port = 18791
+    config.gateway.port = 18999
 
     _patch_cli_command_runtime(
         monkeypatch,
@@ -1298,13 +1298,13 @@ def test_gateway_uses_configured_port_when_cli_flag_is_missing(monkeypatch, tmp_
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
     assert isinstance(result.exception, _StopGatewayError)
-    assert "port 18791" in result.stdout
+    assert "port 18999" in result.stdout
 
 
 def test_gateway_cli_port_overrides_configured_port(monkeypatch, tmp_path: Path) -> None:
     config_file = _write_instance_config(tmp_path)
     config = Config()
-    config.gateway.port = 18791
+    config.gateway.port = 18999
 
     _patch_cli_command_runtime(
         monkeypatch,
@@ -1326,7 +1326,7 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
 
     config_file = _write_instance_config(tmp_path)
     config = Config()
-    config.gateway.port = 18791
+    config.gateway.port = 18999
 
     class _FakeDream:
         model = None
@@ -1410,7 +1410,7 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
     assert result.exit_code == 0
-    assert "WebUI at http://127.0.0.1:18791" in result.stdout
+    assert "WebUI at http://127.0.0.1:18999" in result.stdout
 
     # Use Starlette TestClient to verify health endpoint independently
     from starlette.testclient import TestClient

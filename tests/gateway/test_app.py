@@ -9,6 +9,7 @@ import pytest
 
 from nanobot.agent.tools.message import MessageTool
 from nanobot.config.schema import Config
+from nanobot.cron.types import CronJob, CronPayload
 from nanobot.gateway.app import GatewayApplication
 
 
@@ -748,3 +749,187 @@ class TestAsyncRun:
             asyncio.run(app._async_run())
 
         shutdown.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# on_cron_job — the handler wired inside _wire_callbacks (lines 239-320)
+# ---------------------------------------------------------------------------
+
+
+class TestOnCronJob:
+    """Tests for the on_cron_job closure defined inside _wire_callbacks."""
+
+    async def test_dream_job_success(self, config: Config) -> None:
+        app = _make_mocked_app(config)
+        app.agent.dream.run = AsyncMock()
+        app._wire_callbacks()
+        job = CronJob(id="dream", name="dream")
+
+        result = await app.cron.on_job(job)
+
+        assert result is None
+        app.agent.dream.run.assert_awaited_once()
+
+    async def test_dream_job_exception(self, config: Config) -> None:
+        app = _make_mocked_app(config)
+        app.agent.dream.run = AsyncMock(side_effect=ValueError("boom"))
+        app._wire_callbacks()
+        with patch("nanobot.gateway.app.logger.exception") as log_exc:
+            job = CronJob(id="dream", name="dream")
+            result = await app.cron.on_job(job)
+
+        assert result is None
+        log_exc.assert_called_once_with("Dream cron job failed")
+
+    async def test_reminder_without_delivery(self, config: Config) -> None:
+        app = _make_mocked_app(config)
+        app.agent.process_direct = AsyncMock(return_value=MagicMock(content="Hello!"))
+        app._wire_callbacks()
+        job = CronJob(
+            id="r1", name="reminder",
+            payload=CronPayload(message="Remind me", deliver=False),
+        )
+
+        result = await app.cron.on_job(job)
+
+        assert result == "Hello!"
+        app.agent.process_direct.assert_awaited_once()
+        app.bus.publish_outbound.assert_not_called()
+
+    async def test_reminder_with_delivery_and_already_sent(self, config: Config) -> None:
+        """When _sent_in_turn is True, returns early without evaluate_response."""
+        app = _make_mocked_app(config)
+        app.agent.process_direct = AsyncMock(return_value=MagicMock(content="Hello!"))
+        app.agent.tools["message"]._sent_in_turn = True
+
+        with patch("nanobot.utils.evaluator.evaluate_response") as mock_eval:
+            app._wire_callbacks()
+            job = CronJob(
+                id="r1", name="reminder",
+                payload=CronPayload(
+                    message="Test", deliver=True,
+                    channel="cli", to="user1",
+                ),
+            )
+            result = await app.cron.on_job(job)
+
+        assert result == "Hello!"
+        mock_eval.assert_not_called()
+
+    async def test_reminder_delivery_evaluate_notifies(self, config: Config) -> None:
+        """evaluate_response returns True -> message is delivered."""
+        app = _make_mocked_app(config)
+        app.agent.process_direct = AsyncMock(return_value=MagicMock(content="Important!"))
+        app.agent.tools["message"]._sent_in_turn = False
+
+        app._wire_callbacks()
+        with patch(
+            "nanobot.utils.evaluator.evaluate_response",
+            AsyncMock(return_value=True),
+        ):
+            job = CronJob(
+                id="r1", name="reminder",
+                payload=CronPayload(
+                    message="Test", deliver=True,
+                    channel="cli", to="user1",
+                ),
+            )
+            result = await app.cron.on_job(job)
+
+        assert result == "Important!"
+        app.bus.publish_outbound.assert_awaited_once()
+
+    async def test_reminder_delivery_evaluate_skips(self, config: Config) -> None:
+        """evaluate_response returns False -> message is NOT delivered."""
+        app = _make_mocked_app(config)
+        app.agent.process_direct = AsyncMock(return_value=MagicMock(content="Routine"))
+        app.agent.tools["message"]._sent_in_turn = False
+
+        app._wire_callbacks()
+        with patch(
+            "nanobot.utils.evaluator.evaluate_response",
+            AsyncMock(return_value=False),
+        ):
+            job = CronJob(
+                id="r1", name="reminder",
+                payload=CronPayload(
+                    message="Test", deliver=True,
+                    channel="cli", to="user1",
+                ),
+            )
+            result = await app.cron.on_job(job)
+
+        assert result == "Routine"
+        app.bus.publish_outbound.assert_not_called()
+
+    async def test_cron_context_set_and_reset(self, config: Config) -> None:
+        """set_cron_context / reset_cron_context are called when cron tool exists."""
+        from nanobot.agent.tools.cron import CronTool
+
+        app = _make_mocked_app(config)
+        app.agent.process_direct = AsyncMock(return_value=MagicMock(content="Hi"))
+        cron_tool = MagicMock(spec=CronTool)
+        cron_tool.set_cron_context.return_value = "ctx-token"
+        app.agent.tools["cron"] = cron_tool
+        app._wire_callbacks()
+        job = CronJob(
+            id="r1", name="reminder",
+            payload=CronPayload(message="Test", deliver=False),
+        )
+
+        result = await app.cron.on_job(job)
+
+        assert result == "Hi"
+        cron_tool.set_cron_context.assert_called_once_with(True)
+        cron_tool.reset_cron_context.assert_called_once_with("ctx-token")
+
+    async def test_no_message_tool_still_processes(self, config: Config) -> None:
+        """Reminder works even when agent has no 'message' tool."""
+        app = _make_mocked_app(config)
+        app.agent.process_direct = AsyncMock(return_value=MagicMock(content="Hi"))
+        app.agent.tools = {}
+        app._wire_callbacks()
+        job = CronJob(
+            id="r1", name="reminder",
+            payload=CronPayload(message="Test", deliver=False),
+        )
+
+        result = await app.cron.on_job(job)
+
+        assert result == "Hi"
+
+
+# ---------------------------------------------------------------------------
+# _spawn_proxy_processes — underscore-prefixed skip (line 515)
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnProxyUnderscore:
+    """Channel names starting with _ are skipped in _spawn_proxy_processes."""
+
+    def test_skips_underscore_prefixed_channel(self, config: Config) -> None:
+        app = _make_mocked_app(config)
+        ch_type = type(app.config.channels)
+        app.config.channels.__pydantic_extra__ = {
+            "_internal": {
+                "enabled": True, "bots": [{"name": "bot1", "token": "x"}],
+            },
+            "visible_ch": {
+                "enabled": True, "bots": [{"name": "bot2", "token": "y"}],
+            },
+        }
+
+        with (
+            patch.object(ch_type, "model_fields", {}),
+            patch("nanobot.gateway.app.console.print"),
+        ):
+            app._spawn_proxy_processes()
+
+        app.proxy_manager.spawn.assert_called_once_with(
+            "visible_ch", "bot2",
+            {
+                "enabled": True,
+                "bots": [{"name": "bot2", "token": "y"}],
+                "name": "bot2", "token": "y",
+            },
+        )
