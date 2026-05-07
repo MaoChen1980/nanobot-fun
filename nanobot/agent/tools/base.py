@@ -1,4 +1,4 @@
-"""Base class for agent tools."""
+"""Base class for agent tools and JSON Schema validation helpers."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from typing import Any, TypeVar
 
 _ToolT = TypeVar("_ToolT", bound="Tool")
 
-# Matches :meth:`Tool._cast_value` / :meth:`Schema.validate_json_schema_value` behavior
 _JSON_TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "string": str,
     "integer": int,
@@ -21,12 +20,7 @@ _JSON_TYPE_MAP: dict[str, type | tuple[type, ...]] = {
 
 
 class Schema(ABC):
-    """Abstract base for JSON Schema fragments describing tool parameters.
-
-    Concrete types live in :mod:`nanobot.agent.tools.schema`; all implement
-    :meth:`to_json_schema` and :meth:`validate_value`. Class methods
-    :meth:`validate_json_schema_value` and :meth:`fragment` are the shared validation and normalization entry points.
-    """
+    """Abstract base for JSON Schema fragments describing tool parameters."""
 
     @staticmethod
     def resolve_json_schema_type(t: Any) -> str | None:
@@ -41,10 +35,7 @@ class Schema(ABC):
 
     @staticmethod
     def validate_json_schema_value(val: Any, schema: dict[str, Any], path: str = "") -> list[str]:
-        """Validate ``val`` against a JSON Schema fragment; returns error messages (empty means valid).
-
-        Used by :class:`Tool` and each concrete Schema's :meth:`validate_value`.
-        """
+        """Validate ``val`` against a JSON Schema fragment; returns error messages (empty means valid)."""
         raw_type = schema.get("type")
         nullable = (isinstance(raw_type, list) and "null" in raw_type) or schema.get("nullable", False)
         t = Schema.resolve_json_schema_type(raw_type)
@@ -97,8 +88,7 @@ class Schema(ABC):
 
     @staticmethod
     def fragment(value: Any) -> dict[str, Any]:
-        """Normalize a Schema instance or an existing JSON Schema dict to a fragment dict."""
-        # Try to_json_schema first: Schema instances must be distinguished from dicts that are already JSON Schema
+        """Normalize a Schema instance or raw dict to a JSON Schema fragment."""
         to_js = getattr(value, "to_json_schema", None)
         if callable(to_js):
             return to_js()
@@ -108,70 +98,44 @@ class Schema(ABC):
 
     @abstractmethod
     def to_json_schema(self) -> dict[str, Any]:
-        """Return a fragment dict compatible with :meth:`validate_json_schema_value`."""
         ...
 
     def validate_value(self, value: Any, path: str = "") -> list[str]:
-        """Validate a single value; returns error messages (empty means pass). Subclasses may override for extra rules."""
         return Schema.validate_json_schema_value(value, self.to_json_schema(), path)
 
 
 class Tool(ABC):
-    """Agent capability: read files, run commands, etc."""
+    """Agent capability: read files, run commands, etc.
 
-    _TYPE_MAP = {
-        "string": str,
-        "integer": int,
-        "number": (int, float),
-        "boolean": bool,
-        "array": list,
-        "object": dict,
-    }
+    Subclasses set :attr:`name`, :attr:`description`, :attr:`read_only`,
+    and :attr:`exclusive` as class attributes.  The :attr:`parameters` schema
+    is attached via the :func:`tool_parameters` decorator.
+    """
+
+    name: str = ""
+    description: str = ""
+    read_only: bool = False
+    exclusive: bool = False
+
+    _tool_parameters_schema: dict[str, Any] = {"type": "object", "properties": {}}
+    """Cached JSON Schema (set by :func:`tool_parameters`)."""
+
+    @property
+    def concurrency_safe(self) -> bool:
+        return self.read_only and not self.exclusive
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        """JSON Schema for tool parameters (cached, read-only)."""
+        return self._tool_parameters_schema
+
+    _TYPE_MAP = _JSON_TYPE_MAP
     _BOOL_TRUE = frozenset(("true", "1", "yes"))
     _BOOL_FALSE = frozenset(("false", "0", "no"))
 
     @staticmethod
     def _resolve_type(t: Any) -> str | None:
-        """Pick first non-null type from JSON Schema unions like ``['string','null']``."""
         return Schema.resolve_json_schema_type(t)
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Tool name used in function calls."""
-        ...
-
-    @property
-    @abstractmethod
-    def description(self) -> str:
-        """Description of what the tool does."""
-        ...
-
-    @property
-    @abstractmethod
-    def parameters(self) -> dict[str, Any]:
-        """JSON Schema for tool parameters."""
-        ...
-
-    @property
-    def read_only(self) -> bool:
-        """Whether this tool is side-effect free and safe to parallelize."""
-        return False
-
-    @property
-    def concurrency_safe(self) -> bool:
-        """Whether this tool can run alongside other concurrency-safe tools."""
-        return self.read_only and not self.exclusive
-
-    @property
-    def exclusive(self) -> bool:
-        """Whether this tool should run alone even if concurrency is enabled."""
-        return False
-
-    @abstractmethod
-    async def execute(self, **kwargs: Any) -> Any:
-        """Run the tool; returns a string or list of content blocks."""
-        ...
 
     def _cast_object(self, obj: Any, schema: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(obj, dict):
@@ -180,15 +144,13 @@ class Tool(ABC):
         return {k: self._cast_value(v, props[k]) if k in props else v for k, v in obj.items()}
 
     def cast_params(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Apply safe schema-driven casts before validation."""
-        schema = self.parameters or {}
+        schema = self.parameters
         if schema.get("type", "object") != "object":
             return params
         return self._cast_object(params, schema)
 
     def _cast_value(self, val: Any, schema: dict[str, Any]) -> Any:
         t = self._resolve_type(schema.get("type"))
-
         if t == "boolean" and isinstance(val, bool):
             return val
         if t == "integer" and isinstance(val, int) and not isinstance(val, bool):
@@ -197,16 +159,13 @@ class Tool(ABC):
             expected = self._TYPE_MAP[t]
             if isinstance(val, expected):
                 return val
-
         if isinstance(val, str) and t in ("integer", "number"):
             try:
                 return int(val) if t == "integer" else float(val)
             except ValueError:
                 return val
-
         if t == "string":
             return val if val is None else str(val)
-
         if t == "boolean" and isinstance(val, str):
             low = val.lower()
             if low in self._BOOL_TRUE:
@@ -214,23 +173,17 @@ class Tool(ABC):
             if low in self._BOOL_FALSE:
                 return False
             return val
-
         if t == "array" and isinstance(val, list):
             items = schema.get("items")
             return [self._cast_value(x, items) for x in val] if items else val
-
         if t == "object" and isinstance(val, dict):
             return self._cast_object(val, schema)
-
         return val
 
     def validate_params(self, params: dict[str, Any]) -> list[str]:
-        """Validate against JSON schema; empty list means valid."""
         if not isinstance(params, dict):
             return [f"parameters must be an object, got {type(params).__name__}"]
-        schema = self.parameters or {}
-        if schema.get("type", "object") != "object":
-            raise ValueError(f"Schema must be object type, got {schema.get('type')!r}")
+        schema = self.parameters
         return Schema.validate_json_schema_value(params, {**schema, "type": "object"}, "")
 
     def to_schema(self) -> dict[str, Any]:
@@ -244,38 +197,43 @@ class Tool(ABC):
             },
         }
 
+    @abstractmethod
+    async def execute(self, **kwargs: Any) -> Any:
+        ...
 
-def tool_parameters(schema: dict[str, Any]) -> Callable[[type[_ToolT]], type[_ToolT]]:
-    """Class decorator: attach JSON Schema and inject a concrete ``parameters`` property.
 
-    Use on ``Tool`` subclasses instead of writing ``@property def parameters``. The
-    schema is stored on the class and returned as a fresh copy on each access.
+def tool_parameters(
+    schema: dict[str, Any] | None = None,
+    *,
+    properties: dict[str, Any] | None = None,
+    required: list[str] | None = None,
+    description: str = "",
+) -> Callable[[type[_ToolT]], type[_ToolT]]:
+    """Class decorator that attaches a JSON Schema to a :class:`Tool`.
 
-    Example::
+    New style (recommended)::
 
-        @tool_parameters({
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-            "required": ["path"],
-        })
-        class ReadFileTool(Tool):
-            ...
+        @tool_parameters(properties={
+            "path": p("string", "The file path"),
+        }, required=["path"])
+        class MyTool(Tool): ...
+
+    Legacy style (full schema dict)::
+
+        @tool_parameters({"type": "object", "properties": {...}, "required": ["path"]})
+        class MyTool(Tool): ...
     """
+    if schema is None and properties is not None:
+        schema = {"type": "object", "properties": dict(properties)}
+        if required:
+            schema["required"] = list(required)
+        if description:
+            schema["description"] = description
+    elif schema is None:
+        schema = {"type": "object", "properties": {}}
 
     def decorator(cls: type[_ToolT]) -> type[_ToolT]:
-        frozen = deepcopy(schema)
-
-        @property
-        def parameters(self: Any) -> dict[str, Any]:
-            return deepcopy(frozen)
-
-        cls._tool_parameters_schema = deepcopy(frozen)
-        cls.parameters = parameters  # type: ignore[assignment]
-
-        abstract = getattr(cls, "__abstractmethods__", None)
-        if abstract is not None and "parameters" in abstract:
-            cls.__abstractmethods__ = frozenset(abstract - {"parameters"})  # type: ignore[misc]
-
+        cls._tool_parameters_schema = deepcopy(schema)  # type: ignore[assignment]
         return cls
 
     return decorator

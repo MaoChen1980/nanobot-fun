@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p
 
 STRUCTURED_BUTTON_CHANNELS = frozenset({"telegram", "websocket"})
 
@@ -20,36 +20,22 @@ class AskUserInterrupt(BaseException):
         super().__init__(question)
 
 
-@tool_parameters(
-    tool_parameters_schema(
-        question=StringSchema(
-            "The question to ask before continuing. Use this only when the task needs the user's answer."
-        ),
-        options=ArraySchema(
-            StringSchema("A possible answer label"),
-            description="Optional choices. The user may still reply with free text.",
-        ),
-        required=["question"],
-    )
-)
+@tool_parameters(properties={
+    "question": p("string", "The question to ask before continuing. Use this only when the task needs the user's answer."),
+    "options": p("array", "Optional choices. The user may still reply with free text.", items=p("string", "A possible answer label")),
+}, required=["question"])
 class AskUserTool(Tool):
     """Ask the user a blocking question."""
 
-    @property
-    def name(self) -> str:
-        return "ask_user"
+    name = "ask_user"
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "Pause and ask the user a question when their answer is required to continue. "
             "Use options for likely answers; the user's reply, typed or selected, is returned as the tool result. "
             "For non-blocking notifications or buttons, use the message tool instead."
         )
 
-    @property
-    def exclusive(self) -> bool:
-        return True
+    exclusive = True
 
     async def execute(self, question: str, options: list[str] | None = None, **_: Any) -> Any:
         raise AskUserInterrupt(question=question, options=options)

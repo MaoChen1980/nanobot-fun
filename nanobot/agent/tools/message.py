@@ -8,23 +8,23 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from nanobot.bus.events import OutboundMessage
 from nanobot.config.paths import get_workspace_path
 
 
 @tool_parameters(
     tool_parameters_schema(
-        content=StringSchema("The message content to send"),
-        channel=StringSchema("Optional: target channel (telegram, discord, etc.)"),
-        chat_id=StringSchema("Optional: target chat/user ID"),
-        media=ArraySchema(
-            StringSchema(""),
-            description="Optional: list of file paths to attach (images, video, audio, documents)",
+        content=p("string", "The message content to send"),
+        channel=p("string", "Optional: target channel (telegram, discord, etc.)"),
+        chat_id=p("string", "Optional: target chat/user ID"),
+        media=p("array",
+            "Optional: list of file paths to attach (images, video, audio, documents)",
+            items=p("string", ""),
         ),
-        buttons=ArraySchema(
-            ArraySchema(StringSchema("Button label")),
-            description="Optional: inline keyboard buttons as list of rows, each row is list of button labels.",
+        buttons=p("array",
+            "Optional: inline keyboard buttons as list of rows, each row is list of button labels.",
+            items=p("array", "", items=p("string", "Button label")),
         ),
         required=["content"],
     )
@@ -95,13 +95,9 @@ class MessageTool(Tool):
     def _sent_in_turn(self, value: bool) -> None:
         self._sent_in_turn_var.set(value)
 
-    @property
-    def name(self) -> str:
-        return "message"
+    name = "message"
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "Send a message to the user, optionally with file attachments. "
             "This is the ONLY way to deliver files (images, documents, audio, video) to the user. "
             "Use the 'media' parameter with file paths to attach files. "

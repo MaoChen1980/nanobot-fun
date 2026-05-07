@@ -7,7 +7,7 @@ from typing import Any
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 
 
 def _row_to_session_dict(row: tuple, cols: list[str]) -> dict:
@@ -16,9 +16,9 @@ def _row_to_session_dict(row: tuple, cols: list[str]) -> dict:
 
 @tool_parameters(
     tool_parameters_schema(
-        start=StringSchema("Start date (YYYY-MM-DD or YYYY-MM-DD HH:MM), inclusive"),
-        end=StringSchema("End date (YYYY-MM-DD or YYYY-MM-DD HH:MM), inclusive"),
-        keyword=StringSchema("Optional keyword to filter memories"),
+        start=p("string", "Start date (YYYY-MM-DD or YYYY-MM-DD HH:MM), inclusive"),
+        end=p("string", "End date (YYYY-MM-DD or YYYY-MM-DD HH:MM), inclusive"),
+        keyword=p("string", "Optional keyword to filter memories"),
     )
 )
 class RecallTool(Tool):
@@ -27,13 +27,9 @@ class RecallTool(Tool):
     def __init__(self, store: MemoryStore):
         self._store = store
 
-    @property
-    def name(self) -> str:
-        return "recall"
+    name = "recall"
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "MANDATORY before answering questions about past events: use this to search memories.\n\n"
             "You tend to forget: past decisions, user preferences, what was agreed, what was tried.\n\n"
             "Use when:\n"
@@ -55,9 +51,7 @@ class RecallTool(Tool):
             "Without this tool, you work with no memory of the user or past sessions."
         )
 
-    @property
-    def read_only(self) -> bool:
-        return True
+    read_only = True
 
     def _parse_date(self, date_str: str | None) -> datetime | None:
         """Parse date string to datetime. Supports ISO 8601 and human formats."""

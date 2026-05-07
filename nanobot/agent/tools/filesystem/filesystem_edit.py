@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import BooleanSchema, IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from .filesystem_base import _FsTool, _normalize_quotes, _preserve_quote_style, _reindent_like_match
 from nanobot.agent.tools import file_state
 
@@ -184,18 +184,14 @@ def _find_match(content: str, old_text: str) -> tuple[str | None, int]:
 
 @tool_parameters(
     tool_parameters_schema(
-        path=StringSchema("The file path to edit"),
-        old_text=StringSchema("The text to find and replace"),
-        new_text=StringSchema("The text to replace with"),
-        replace_all=BooleanSchema(description="Replace all occurrences (default false)"),
-        first_line=IntegerSchema(
-            None,
-            description="Line number to start replacing from (1-indexed). When set with last_line, replaces that line range with new_text directly — no fuzzy matching needed.",
+        path=p("string", "The file path to edit"),
+        old_text=p("string", "The text to find and replace"),
+        new_text=p("string", "The text to replace with"),
+        replace_all=p("boolean", "Replace all occurrences (default false)"),
+        first_line=p("integer", "Line number to start replacing from (1-indexed). When set with last_line, replaces that line range with new_text directly — no fuzzy matching needed.",
             minimum=1,
         ),
-        last_line=IntegerSchema(
-            None,
-            description="Line number to end replacing at (1-indexed, inclusive). Must be >= first_line.",
+        last_line=p("integer", "Line number to end replacing at (1-indexed, inclusive). Must be >= first_line.",
             minimum=1,
         ),
         required=["path", "new_text"],
@@ -207,13 +203,9 @@ class EditFileTool(_FsTool):
     _MAX_EDIT_FILE_SIZE = 1024 * 1024 * 1024  # 1 GiB
     _MARKDOWN_EXTS = frozenset({".md", ".mdx", ".markdown"})
 
-    @property
-    def name(self) -> str:
-        return "edit_file"
+    name = "edit_file"
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "Edit a file. Two modes:\n"
             "1. Text-matching (default): replace old_text with new_text. "
             "Tolerates minor whitespace/indentation differences and curly/straight quote mismatches. "

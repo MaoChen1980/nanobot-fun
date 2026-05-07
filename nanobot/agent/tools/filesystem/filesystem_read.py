@@ -6,25 +6,21 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from .filesystem_base import _FsTool, _is_blocked_device, _parse_page_range
 from nanobot.agent.tools import file_state
 from nanobot.utils.media_decode import build_image_content_blocks, detect_image_mime
 
 @tool_parameters(
     tool_parameters_schema(
-        path=StringSchema("The file path to read"),
-        offset=IntegerSchema(
-            1,
-            description="Line number to start reading from (1-indexed, default 1)",
+        path=p("string", "The file path to read"),
+        offset=p("integer", "Line number to start reading from (1-indexed, default 1)",
             minimum=1,
         ),
-        limit=IntegerSchema(
-            2000,
-            description="Maximum number of lines to read (default 2000)",
+        limit=p("integer", "Maximum number of lines to read (default 2000)",
             minimum=1,
         ),
-        pages=StringSchema("Page range for PDF files, e.g. '1-5' (default: all, max 20 pages)"),
+        pages=p("string", "Page range for PDF files, e.g. '1-5' (default: all, max 20 pages)"),
         required=["path"],
     )
 )
@@ -35,13 +31,9 @@ class ReadFileTool(_FsTool):
     _DEFAULT_LIMIT = 2000
     _MAX_PDF_PAGES = 20
 
-    @property
-    def name(self) -> str:
-        return "read_file"
+    name = "read_file"
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "Read a file (text, image, or document). "
             "Text output format: LINE_NUM|CONTENT. "
             "Images return visual content for analysis. "
@@ -50,9 +42,7 @@ class ReadFileTool(_FsTool):
             "Reads exceeding ~128K chars are truncated."
         )
 
-    @property
-    def read_only(self) -> bool:
-        return True
+    read_only = True
 
     async def execute(self, path: str | None = None, offset: int = 1, limit: int | None = None, pages: str | None = None, **kwargs: Any) -> Any:
         try:

@@ -49,7 +49,7 @@ The Runtime Context block is injected just before my user message each turn. It 
 | Search past conversations | `recall(keyword/date)` | Database + MEMORY.md |
 | Manage context budget | `session_manage` (exclude/compress/list) | Session file |
 | Scratchpad notes | `my(set key=value)` | In-memory — lost on restart |
-| Persistent files | `write_file` / `edit_file` | Filesystem |
+| Persistent files | `write_file` / `edit_file` / `delete_file` / `move_file` | Filesystem |
 | Schedule tasks | `cron` (one-shot/recurring) | Cron service |
 | Delegate work | `spawn` (runs in background) | Isolated subagent |
 

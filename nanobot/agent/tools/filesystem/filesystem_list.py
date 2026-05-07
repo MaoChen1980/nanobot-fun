@@ -4,16 +4,14 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import BooleanSchema, IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from .filesystem_base import _FsTool
 
 @tool_parameters(
     tool_parameters_schema(
-        path=StringSchema("The directory path to list"),
-        recursive=BooleanSchema(description="Recursively list all files (default false)"),
-        max_entries=IntegerSchema(
-            200,
-            description="Maximum entries to return (default 200)",
+        path=p("string", "The directory path to list"),
+        recursive=p("boolean", "Recursively list all files (default false)"),
+        max_entries=p("integer", "Maximum entries to return (default 200)",
             minimum=1,
         ),
         required=["path"],
@@ -29,21 +27,15 @@ class ListDirTool(_FsTool):
         ".ruff_cache", ".coverage", "htmlcov",
     }
 
-    @property
-    def name(self) -> str:
-        return "list_dir"
+    name = "list_dir"
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "List the contents of a directory. "
             "Set recursive=true to explore nested structure. "
             "Common noise directories (.git, node_modules, __pycache__, etc.) are auto-ignored."
         )
 
-    @property
-    def read_only(self) -> bool:
-        return True
+    read_only = True
 
     async def execute(
         self, path: str | None = None, recursive: bool = False,

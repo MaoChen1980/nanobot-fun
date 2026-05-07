@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from nanobot.agent.context_vars import _current_messages_for_subagent
 
 if TYPE_CHECKING:
@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
 @tool_parameters(
     tool_parameters_schema(
-        task=StringSchema("The task for the subagent to complete"),
-        label=StringSchema("Optional short label for the task (for display)"),
+        task=p("string", "The task for the subagent to complete"),
+        label=p("string", "Optional short label for the task (for display)"),
         required=["task"],
     )
 )
@@ -36,9 +36,7 @@ class SpawnTool(Tool):
         self._origin_chat_id.set(chat_id)
         self._session_key.set(effective_key or f"{channel}:{chat_id}")
 
-    @property
-    def name(self) -> str:
-        return "spawn"
+    name = "spawn"
 
     @property
     def description(self) -> str:

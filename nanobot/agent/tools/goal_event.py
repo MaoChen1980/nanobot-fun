@@ -11,55 +11,39 @@ from datetime import datetime, timezone
 from typing import Any
 
 from nanobot.agent.memory import MemoryStore
-from nanobot.agent.tools.base import Schema, Tool
-from nanobot.agent.tools.schema import (
-    ArraySchema,
-    NumberSchema,
-    ObjectSchema,
-    StringSchema,
-)
+from nanobot.agent.tools.base import Schema, Tool, tool_parameters
+from nanobot.agent.tools.schema import p
 
 
-class WriteGoalSchema(Schema):
-    params = ObjectSchema(
-        properties={
-            "id": StringSchema(description="Goal ID, e.g. 'g10'. Use 'g{N}' pattern."),
-            "title": StringSchema(description="Short goal title"),
-            "action": StringSchema(
-                description="'upsert' to create or update, 'delete' to remove",
-                enum=["upsert", "delete"],
-            ),
-            "status": StringSchema(
-                description="Goal status (only for upsert)",
-                enum=["in_progress", "completed", "paused", "archived"],
-            ),
-            "project": StringSchema(description="Project name this goal belongs to"),
-            "bot": StringSchema(description="Bot name this goal belongs to"),
-            "description": StringSchema(description="Goal description"),
-            "subtasks": ArraySchema(
-                items=ObjectSchema(
-                    properties={
-                        "id": StringSchema(description="Subtask ID"),
-                        "title": StringSchema(description="Subtask title"),
-                        "status": StringSchema(description="Status: todo/done"),
-                    }
-                ),
-                description="Subtasks list",
-            ),
-            "scopes": ArraySchema(
-                items=StringSchema(""),
-                description="Functional scopes this goal belongs to (e.g. ['memory', 'agent/loop'])",
-            ),
-            "notes": ArraySchema(items=StringSchema(""), description="Additional notes"),
-            "blockers": ArraySchema(items=StringSchema(""), description="Blocking issues"),
+@tool_parameters(properties={
+    "id": p("string", "Goal ID, e.g. 'g10'. Use 'g{N}' pattern."),
+    "title": p("string", "Short goal title"),
+    "action": p("string",
+        "Action: 'upsert' to create/update, 'delete' to remove",
+        enum=["upsert", "delete"],
+    ),
+    "status": p("string",
+        "Goal status (only for upsert)",
+        enum=["in_progress", "completed", "paused", "archived"],
+    ),
+    "project": p("string", "Project name this goal belongs to"),
+    "bot": p("string", "Bot name this goal belongs to"),
+    "description": p("string", "Goal description"),
+    "subtasks": p("array", "Subtasks list", items={
+        "type": "object",
+        "properties": {
+            "id": p("string", "Subtask ID"),
+            "title": p("string", "Subtask title"),
+            "status": p("string", "Status: todo/done"),
         },
-        required=["id", "title", "action"],
-    )
-
-    def validate_value(self, val: Any) -> list[str]:
-        return self.validate_json_schema_value(val, self.params)
-
-
+    }),
+    "scopes": p("array",
+        "Functional scopes this goal belongs to (e.g. ['memory', 'agent/loop'])",
+        items=p("string", ""),
+    ),
+    "notes": p("array", "Additional notes", items=p("string", "")),
+    "blockers": p("array", "Blocking issues", items=p("string", "")),
+}, required=["id", "title", "action"])
 class WriteGoal(Tool):
     """Create or update a goal in structured DB.
 
@@ -68,11 +52,6 @@ class WriteGoal(Tool):
 
     name = "write_goal"
     description = "Create or update a goal. Goals are stored in DB, not files."
-    param_schema = WriteGoalSchema
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return self.param_schema.params.to_json_schema()
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -136,34 +115,21 @@ class WriteGoal(Tool):
         return None
 
 
-class ListGoalsSchema(Schema):
-    params = ObjectSchema(
-        properties={
-            "status": StringSchema(
-                description="Filter by status",
-                enum=["in_progress", "completed", "paused", "archived"],
-            ),
-            "project": StringSchema(description="Filter by project"),
-            "scope": StringSchema(description="Filter by scope (e.g. 'memory', 'agent/loop')"),
-            "bot": StringSchema(description="Filter by bot name"),
-            "limit": NumberSchema(description="Max results (integer)", minimum=1, maximum=100),
-        },
-    )
-
-    def validate_value(self, val: Any) -> list[str]:
-        return self.validate_json_schema_value(val, self.params)
-
-
+@tool_parameters(properties={
+    "status": p("string",
+        "Filter by status",
+        enum=["in_progress", "completed", "paused", "archived"],
+    ),
+    "project": p("string", "Filter by project"),
+    "scope": p("string", "Filter by scope (e.g. 'memory', 'agent/loop')"),
+    "bot": p("string", "Filter by bot name"),
+    "limit": p("number", "Max results (integer)", minimum=1, maximum=100),
+})
 class ListGoals(Tool):
     """List goals from structured DB."""
 
     name = "list_goals"
     description = "List goals from DB. Filter by status/project/scope."
-    param_schema = ListGoalsSchema
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return self.param_schema.params.to_json_schema()
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -190,25 +156,24 @@ class ListGoals(Tool):
         return "\n".join(lines)
 
 
-class WriteEventSchema(Schema):
-    params = ObjectSchema(
-        properties={
-            "content": StringSchema(description="Event description"),
-            "action": StringSchema(
-                description="Event type",
-                enum=["log", "milestone", "decision", "blocker"],
-            ),
-            "goal_id": StringSchema(description="Associated goal ID"),
-            "tags": ArraySchema(items=StringSchema(""), description="Tags for filtering"),
-            "timestamp": StringSchema(description="ISO timestamp (auto-generated if not provided)"),
-        },
-        required=["content", "action"],
-    )
-
-    def validate_value(self, val: Any) -> list[str]:
-        return self.validate_json_schema_value(val, self.params)
+_WRITE_EVENT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "content": p("string", "Event description"),
+        "action": p("string", "Event type", enum=["log", "milestone", "decision", "blocker"]),
+        "goal_id": p("string", "Associated goal ID"),
+        "tags": p("array", "Tags for filtering", items=p("string", "")),
+        "timestamp": p("string", "ISO timestamp (auto-generated if not provided)"),
+    },
+    "required": ["content", "action"],
+}
 
 
+def _validate_write_event(val: Any) -> list[str]:
+    return Schema.validate_json_schema_value(val, _WRITE_EVENT_SCHEMA, "")
+
+
+@tool_parameters(schema=_WRITE_EVENT_SCHEMA)
 class WriteEvent(Tool):
     """Log a progress event to structured DB.
 
@@ -217,11 +182,6 @@ class WriteEvent(Tool):
 
     name = "write_event"
     description = "Log an event (progress/milestone/decision/blocker) to DB."
-    param_schema = WriteEventSchema
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return self.param_schema.params.to_json_schema()
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -254,32 +214,29 @@ class WriteEvent(Tool):
         return f"Event logged (id={event_id}): [{action}] {content}"
 
 
-class ListEventsSchema(Schema):
-    params = ObjectSchema(
-        properties={
-            "goal_id": StringSchema(description="Filter by goal"),
-            "event_type": StringSchema(
-                description="Event type",
-                enum=["progress", "milestone", "decision", "blocker"],
-            ),
-            "limit": NumberSchema(description="Max results (integer)", minimum=1, maximum=100),
-        },
-    )
-
-    def validate_value(self, val: Any) -> list[str]:
-        return self.validate_json_schema_value(val, self.params)
+_LIST_EVENTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "goal_id": p("string", "Filter by goal"),
+        "event_type": p("string",
+            "Event type",
+            enum=["progress", "milestone", "decision", "blocker"],
+        ),
+        "limit": p("number", "Max results (integer)", minimum=1, maximum=100),
+    },
+}
 
 
+def _validate_list_events(val: Any) -> list[str]:
+    return Schema.validate_json_schema_value(val, _LIST_EVENTS_SCHEMA, "")
+
+
+@tool_parameters(schema=_LIST_EVENTS_SCHEMA)
 class ListEvents(Tool):
     """List recent events from DB."""
 
     name = "list_events"
     description = "List recent events from DB. Filter by goal/type."
-    param_schema = ListEventsSchema
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return self.param_schema.params.to_json_schema()
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -307,27 +264,27 @@ class ListEvents(Tool):
         return "\n".join(lines)
 
 
-class DeclareAssumptionSchema(Schema):
-    params = ObjectSchema(
-        properties={
-            "goal_id": StringSchema(description="Goal ID to declare assumption for"),
-            "claim": StringSchema(description="The hypothesis/assumption claim (what you expect to be true)"),
-            "expected": StringSchema(description="Expected value or state after verification"),
-            "files_read": ArraySchema(
-                items=StringSchema(""),
-                description="List of file paths read to inform this assumption",
-            ),
-            "verification_method": StringSchema(
-                description="How to verify: 'read_file', 'grep', 'exec', etc.",
-            ),
-        },
-        required=["goal_id", "claim", "expected", "files_read", "verification_method"],
-    )
-
-    def validate_value(self, val: Any) -> list[str]:
-        return self.validate_json_schema_value(val, self.params)
+_DECLARE_ASSUMPTION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "goal_id": p("string", "Goal ID to declare assumption for"),
+        "claim": p("string", "The hypothesis/assumption claim (what you expect to be true)"),
+        "expected": p("string", "Expected value or state after verification"),
+        "files_read": p("array",
+            "List of file paths read to inform this assumption",
+            items=p("string", ""),
+        ),
+        "verification_method": p("string", "How to verify: 'read_file', 'grep', 'exec', etc."),
+    },
+    "required": ["goal_id", "claim", "expected", "files_read", "verification_method"],
+}
 
 
+def _validate_declare_assumption(val: Any) -> list[str]:
+    return Schema.validate_json_schema_value(val, _DECLARE_ASSUMPTION_SCHEMA, "")
+
+
+@tool_parameters(schema=_DECLARE_ASSUMPTION_SCHEMA)
 class DeclareAssumption(Tool):
     """Declare a hypothesis assumption for goal subtask_0.
 
@@ -337,11 +294,6 @@ class DeclareAssumption(Tool):
 
     name = "declare_assumption"
     description = "Declare hypothesis assumption for subtask_0. Must be called before proceeding past subtask_0."
-    param_schema = DeclareAssumptionSchema
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return self.param_schema.params.to_json_schema()
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -411,19 +363,21 @@ class DeclareAssumption(Tool):
         )
 
 
-class VerifyAssumptionSchema(Schema):
-    params = ObjectSchema(
-        properties={
-            "goal_id": StringSchema(description="Goal ID to verify"),
-            "actual": StringSchema(description="Actual observed value/state"),
-        },
-        required=["goal_id", "actual"],
-    )
-
-    def validate_value(self, val: Any) -> list[str]:
-        return self.validate_json_schema_value(val, self.params)
+_VERIFY_ASSUMPTION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "goal_id": p("string", "Goal ID to verify"),
+        "actual": p("string", "Actual observed value/state"),
+    },
+    "required": ["goal_id", "actual"],
+}
 
 
+def _validate_verify_assumption(val: Any) -> list[str]:
+    return Schema.validate_json_schema_value(val, _VERIFY_ASSUMPTION_SCHEMA, "")
+
+
+@tool_parameters(schema=_VERIFY_ASSUMPTION_SCHEMA)
 class VerifyAssumption(Tool):
     """Verify a hypothesis assumption by comparing expected vs actual.
 
@@ -433,11 +387,6 @@ class VerifyAssumption(Tool):
 
     name = "verify_assumption"
     description = "Verify hypothesis assumption - system compares expected vs actual to determine verdict."
-    param_schema = VerifyAssumptionSchema
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return self.param_schema.params.to_json_schema()
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -497,30 +446,30 @@ class VerifyAssumption(Tool):
         )
 
 
-class DeclareCheckpointSchema(Schema):
-    params = ObjectSchema(
-        properties={
-            "goal_id": StringSchema(description="Goal ID"),
-            "subtask_id": StringSchema(description="Subtask ID being completed"),
-            "summary": StringSchema(description="Summary of what was accomplished"),
-            "artifacts": ArraySchema(
-                items=ObjectSchema(
-                    properties={
-                        "type": StringSchema(description="Artifact type"),
-                        "path": StringSchema(description="File path or reference"),
-                        "description": StringSchema(description="Description"),
-                    }
-                ),
-                description="List of artifacts produced",
-            ),
-        },
-        required=["goal_id", "subtask_id", "summary"],
-    )
-
-    def validate_value(self, val: Any) -> list[str]:
-        return self.validate_json_schema_value(val, self.params)
+_DECLARE_CHECKPOINT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "goal_id": p("string", "Goal ID"),
+        "subtask_id": p("string", "Subtask ID being completed"),
+        "summary": p("string", "Summary of what was accomplished"),
+        "artifacts": p("array", "List of artifacts produced", items={
+            "type": "object",
+            "properties": {
+                "type": p("string", "Artifact type"),
+                "path": p("string", "File path or reference"),
+                "description": p("string", "Description"),
+            },
+        }),
+    },
+    "required": ["goal_id", "subtask_id", "summary"],
+}
 
 
+def _validate_declare_checkpoint(val: Any) -> list[str]:
+    return Schema.validate_json_schema_value(val, _DECLARE_CHECKPOINT_SCHEMA, "")
+
+
+@tool_parameters(schema=_DECLARE_CHECKPOINT_SCHEMA)
 class DeclareCheckpoint(Tool):
     """Declare a subtask checkpoint - marks subtask as done with summary and artifacts.
 
@@ -529,11 +478,6 @@ class DeclareCheckpoint(Tool):
 
     name = "declare_checkpoint"
     description = "Declare a subtask checkpoint - marks subtask as done with summary and artifacts."
-    param_schema = DeclareCheckpointSchema
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return self.param_schema.params.to_json_schema()
 
     def __init__(self, memory: MemoryStore):
         super().__init__()

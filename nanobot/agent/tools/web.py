@@ -14,7 +14,7 @@ import httpx
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from nanobot.utils.media_decode import build_image_content_blocks
 
 if TYPE_CHECKING:
@@ -87,8 +87,8 @@ def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
 
 @tool_parameters(
     tool_parameters_schema(
-        query=StringSchema("Search query"),
-        count=IntegerSchema(1, description="Results (1-10)", minimum=1, maximum=10),
+        query=p("string", "Search query"),
+        count=p("integer", "Results (1-10)", minimum=1, maximum=10),
         required=["query"],
     )
 )
@@ -130,9 +130,7 @@ class WebSearchTool(WebToolBase, Tool):
             return "kagi" if api_key else "duckduckgo"
         return provider
 
-    @property
-    def read_only(self) -> bool:
-        return True
+    read_only = True
 
     @property
     def exclusive(self) -> bool:
@@ -293,13 +291,13 @@ class WebSearchTool(WebToolBase, Tool):
 
 @tool_parameters(
     tool_parameters_schema(
-        url=StringSchema("URL to fetch"),
+        url=p("string", "URL to fetch"),
         extractMode={
             "type": "string",
             "enum": ["markdown", "text"],
             "default": "markdown",
         },
-        maxChars=IntegerSchema(0, minimum=100),
+        maxChars=p("integer", "", minimum=100),
         required=["url"],
     )
 )
@@ -320,9 +318,7 @@ class WebFetchTool(WebToolBase, Tool):
         self.config = config if config is not None else WebFetchConfig()
         self.max_chars = max_chars
 
-    @property
-    def read_only(self) -> bool:
-        return True
+    read_only = True
 
     async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> Any:
         # Strip whitespace, markdown backticks, and quotes that LLM-generated URLs often carry

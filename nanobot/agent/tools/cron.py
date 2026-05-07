@@ -7,41 +7,35 @@ from datetime import datetime
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import (
-    BooleanSchema,
-    IntegerSchema,
-    StringSchema,
-    tool_parameters_schema,
-)
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from nanobot.cron.service import CronService
 from nanobot.cron.types import CronJob, CronJobState, CronSchedule
 
 _CRON_PARAMETERS = tool_parameters_schema(
-    action=StringSchema("Action to perform", enum=["add", "list", "remove"]),
-    name=StringSchema(
+    action=p("string", "Action to perform", enum=["add", "list", "remove"]),
+    name=p("string",
         "Optional short human-readable label for the job "
         "(e.g., 'weather-monitor', 'daily-standup'). Defaults to first 30 chars of message."
     ),
-    message=StringSchema(
+    message=p("string",
         "REQUIRED when action='add'. Instruction for the agent to execute when the job triggers "
         "(e.g., 'Send a reminder to WeChat: xxx' or 'Check system status and report'). "
         "Not used for action='list' or action='remove'."
     ),
-    every_seconds=IntegerSchema(0, description="Interval in seconds (for recurring tasks)"),
-    cron_expr=StringSchema("Cron expression like '0 9 * * *' (for scheduled tasks)"),
-    tz=StringSchema(
+    every_seconds=p("integer", "Interval in seconds (for recurring tasks)"),
+    cron_expr=p("string", "Cron expression like '0 9 * * *' (for scheduled tasks)"),
+    tz=p("string",
         "Optional IANA timezone for cron expressions (e.g. 'America/Vancouver'). "
         "When omitted with cron_expr, the tool's default timezone applies."
     ),
-    at=StringSchema(
+    at=p("string",
         "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00'). "
         "Naive values use the tool's default timezone."
     ),
-    deliver=BooleanSchema(
-        description="Whether to deliver the execution result to the user channel (default true)",
+    deliver=p("boolean", "Whether to deliver the execution result to the user channel (default true)",
         default=True,
     ),
-    job_id=StringSchema("REQUIRED when action='remove'. Job ID to remove (obtain via action='list')."),
+    job_id=p("string", "REQUIRED when action='remove'. Job ID to remove (obtain via action='list')."),
     required=["action"],
     description=(
         "Action-specific parameters: add requires a non-empty message plus one schedule "
@@ -105,9 +99,7 @@ class CronTool(Tool):
         dt = datetime.fromtimestamp(ms / 1000, tz=ZoneInfo(tz_name))
         return f"{dt.isoformat()} ({tz_name})"
 
-    @property
-    def name(self) -> str:
-        return "cron"
+    name = "cron"
 
     @property
     def description(self) -> str:

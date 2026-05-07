@@ -5,19 +5,19 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from .filesystem_base import _FsTool
 from nanobot.agent.tools import file_state
 
 @tool_parameters(
     tool_parameters_schema(
-        path=StringSchema("The file path to write to"),
-        content=StringSchema("The content to write"),
-        then_exec=StringSchema(
+        path=p("string", "The file path to write to"),
+        content=p("string", "The content to write"),
+        then_exec=p("string",
             "If set to a shell command string, executes it automatically after writing "
             "and returns the command output. Useful for script-then-run workflows."
         ),
-        then_check=StringSchema(
+        then_check=p("string",
             "If set, type-checks the file after writing before executing then_exec. "
             "Values: 'auto' (detect language from extension), 'pyright' (Python), "
             "'tsc' (TypeScript/JavaScript). Returns pass/fail + errors. "
@@ -29,13 +29,9 @@ from nanobot.agent.tools import file_state
 class WriteFileTool(_FsTool):
     """Write content to a file. Overwrites if it exists; creates parent dirs as needed."""
 
-    @property
-    def name(self) -> str:
-        return "write_file"
+    name = "write_file"
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "Write content to a file. Overwrites if the file already exists; "
             "creates parent directories as needed. "
             "For partial edits, prefer edit_file instead.\n\n"

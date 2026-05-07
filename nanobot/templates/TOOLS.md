@@ -18,6 +18,10 @@ write_file(path="tools/temp.py", content="...", then_check="auto", then_exec="py
 ```
 Manual: `npx --prefix tools pyright <file> --outputjson` (check stdout JSON `generalDiagnostics`). `tsc --noEmit --allowJs --checkJs` for .js.
 
+## delete_file / move_file
+
+Safer alternatives to `exec rm` / `exec mv` — workspace-guarded, single-file only, path resolved against workspace. Use these instead of shell commands for file deletion and moves. `move_file` auto-creates parent directories.
+
 ## edit_file — Line Mode
 
 Use `first_line` + `last_line` when you know line numbers from a prior `read_file`. Faster than text matching, no read_file needed first.

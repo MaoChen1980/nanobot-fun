@@ -3,15 +3,7 @@ import subprocess
 import sys
 from typing import Any
 
-from nanobot.agent.tools import (
-    ArraySchema,
-    IntegerSchema,
-    ObjectSchema,
-    Schema,
-    StringSchema,
-    tool_parameters,
-    tool_parameters_schema,
-)
+from nanobot.agent.tools import Schema, p, tool_parameters, tool_parameters_schema
 from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
@@ -53,13 +45,10 @@ class SampleTool(Tool):
         return "ok"
 
 
-@tool_parameters(
-    tool_parameters_schema(
-        query=StringSchema(min_length=2),
-        count=IntegerSchema(2, minimum=1, maximum=10),
-        required=["query", "count"],
-    )
-)
+@tool_parameters(properties={
+    "query": p("string", "", minLength=2),
+    "count": p("integer", "", minimum=1, maximum=10),
+}, required=["query", "count"])
 class DecoratedSampleTool(Tool):
     @property
     def name(self) -> str:
@@ -74,17 +63,15 @@ class DecoratedSampleTool(Tool):
 
 
 def test_schema_validate_value_matches_tool_validate_params() -> None:
-    """ObjectSchema.validate_value 与 validate_json_schema_value、Tool.validate_params 一致。"""
-    root = tool_parameters_schema(
-        query=StringSchema(min_length=2),
-        count=IntegerSchema(2, minimum=1, maximum=10),
-        required=["query", "count"],
-    )
-    obj = ObjectSchema(
-        query=StringSchema(min_length=2),
-        count=IntegerSchema(2, minimum=1, maximum=10),
-        required=["query", "count"],
-    )
+    """validate_json_schema_value and Tool.validate_params agree."""
+    root = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "minLength": 2},
+            "count": {"type": "integer", "minimum": 1, "maximum": 10},
+        },
+        "required": ["query", "count"],
+    }
     params = {"query": "h", "count": 2}
 
     class _Mini(Tool):
@@ -105,38 +92,37 @@ def test_schema_validate_value_matches_tool_validate_params() -> None:
 
     expected = _Mini().validate_params(params)
     assert Schema.validate_json_schema_value(params, root, "") == expected
-    assert obj.validate_value(params, "") == expected
-    assert IntegerSchema(0, minimum=1).validate_value(0, "n") == ["n must be >= 1"]
+    assert Schema.validate_json_schema_value(params, root, "") == expected
+    assert Schema.validate_json_schema_value(0, {"type": "integer", "minimum": 1}, "n") == ["n must be >= 1"]
 
 
 def test_schema_classes_equivalent_to_sample_tool_parameters() -> None:
-    """Schema 类生成的 JSON Schema 应与手写 dict 一致，便于校验行为一致。"""
-    built = tool_parameters_schema(
-        query=StringSchema(min_length=2),
-        count=IntegerSchema(2, minimum=1, maximum=10),
-        mode=StringSchema("", enum=["fast", "full"]),
-        meta=ObjectSchema(
-            tag=StringSchema(""),
-            flags=ArraySchema(StringSchema("")),
-            required=["tag"],
-        ),
-        required=["query", "count"],
-    )
+    """Schema fragments match hand-written dict equivalents."""
+    built: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "minLength": 2},
+            "count": {"type": "integer", "minimum": 1, "maximum": 10},
+            "mode": {"type": "string", "enum": ["fast", "full"]},
+            "meta": {
+                "type": "object",
+                "properties": {
+                    "tag": {"type": "string"},
+                    "flags": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["tag"],
+            },
+        },
+        "required": ["query", "count"],
+    }
     assert built == SampleTool().parameters
 
 
-def test_tool_parameters_returns_fresh_copy_per_access() -> None:
+def test_tool_parameters_returns_cached_copy_per_access() -> None:
     tool = DecoratedSampleTool()
-
     first = tool.parameters
     second = tool.parameters
-
     assert first == second
-    assert first is not second
-    assert first["properties"] is not second["properties"]
-
-    first["properties"]["query"]["minLength"] = 99
-    assert tool.parameters["properties"]["query"]["minLength"] == 2
 
 
 async def test_registry_executes_decorated_tool_end_to_end() -> None:
@@ -198,109 +184,45 @@ async def test_registry_returns_validation_error() -> None:
     assert "Invalid parameters" in result
 
 
-def test_exec_extract_absolute_paths_keeps_full_windows_path() -> None:
-    cmd = r"type C:\user\workspace\txt"
-    paths = ExecTool._extract_absolute_paths(cmd)
-    assert paths == [r"C:\user\workspace\txt"]
+# --- ExecTool enhancement tests ---
 
 
-def test_exec_extract_absolute_paths_captures_windows_drive_root_path() -> None:
-    """Windows drive root paths like `E:\\` must be extracted for workspace guarding."""
-    # Note: raw strings cannot end with a single backslash.
-    cmd = "dir E:\\"
-    paths = ExecTool._extract_absolute_paths(cmd)
-    assert paths == ["E:\\"]
+async def test_exec_always_returns_exit_code() -> None:
+    """Exit code should appear in output even on success (exit 0)."""
+    tool = ExecTool()
+    result = await tool.execute(command="echo hello")
+    assert "Exit code: 0" in result
+    assert "hello" in result
 
 
-def test_exec_extract_absolute_paths_ignores_relative_posix_segments() -> None:
-    cmd = ".venv/bin/python script.py"
-    paths = ExecTool._extract_absolute_paths(cmd)
-    assert "/bin/python" not in paths
+async def test_exec_head_tail_truncation(tmp_path) -> None:
+    """Long output should preserve both head and tail."""
+    tool = ExecTool()
+    script_file = tmp_path / "gen_output.py"
+    script_file.write_text("print('A' * 6000 + chr(10) + 'B' * 6000)", encoding="utf-8")
+    if sys.platform == "win32":
+        command = subprocess.list2cmdline([sys.executable, str(script_file)])
+    else:
+        command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script_file))}"
+    result = await tool.execute(command=command)
+    assert "chars truncated" in result
+    assert result.startswith("A")
+    assert "Exit code:" in result
 
 
-def test_exec_extract_absolute_paths_captures_posix_absolute_paths() -> None:
-    cmd = "cat /tmp/data.txt > /tmp/out.txt"
-    paths = ExecTool._extract_absolute_paths(cmd)
-    assert "/tmp/data.txt" in paths
-    assert "/tmp/out.txt" in paths
+async def test_exec_timeout_parameter() -> None:
+    """LLM-supplied timeout should override the constructor default."""
+    tool = ExecTool(timeout=60)
+    result = await tool.execute(command="sleep 10", timeout=1)
+    assert "timed out" in result
+    assert "1 seconds" in result
 
 
-def test_exec_extract_absolute_paths_captures_home_paths() -> None:
-    cmd = "cat ~/.nanobot/config.json > ~/out.txt"
-    paths = ExecTool._extract_absolute_paths(cmd)
-    assert "~/.nanobot/config.json" in paths
-    assert "~/out.txt" in paths
-
-
-def test_exec_extract_absolute_paths_captures_quoted_paths() -> None:
-    cmd = 'cat "/tmp/data.txt" "~/.nanobot/config.json"'
-    paths = ExecTool._extract_absolute_paths(cmd)
-    assert "/tmp/data.txt" in paths
-    assert "~/.nanobot/config.json" in paths
-
-
-def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
-    tool = ExecTool(restrict_to_workspace=True, working_dir=str(tmp_path))
-    error = tool._guard_command("cat C:\\Users\\savyc\\.nanobot\\config.json", str(tmp_path))
-    assert error == "Error: Command blocked by safety guard (path outside working dir)"
-
-
-def test_exec_guard_blocks_quoted_home_path_outside_workspace(tmp_path) -> None:
-    tool = ExecTool(restrict_to_workspace=True, working_dir=str(tmp_path))
-    error = tool._guard_command('cat "C:\\Users\\savyc\\.nanobot\\config.json"', str(tmp_path))
-    assert error == "Error: Command blocked by safety guard (path outside working dir)"
-
-
-def test_exec_guard_allows_media_path_outside_workspace(tmp_path, monkeypatch) -> None:
-    media_dir = tmp_path / "media"
-    media_dir.mkdir()
-    media_file = media_dir / "photo.jpg"
-    media_file.write_text("ok", encoding="utf-8")
-
-    monkeypatch.setattr("nanobot.agent.tools.shell.get_media_dir", lambda: media_dir)
-
-    tool = ExecTool(restrict_to_workspace=True)
-    error = tool._guard_command(f'cat "{media_file}"', str(tmp_path / "workspace"))
-    assert error is None
-
-
-def test_exec_guard_blocks_windows_drive_root_outside_workspace(monkeypatch) -> None:
-    import nanobot.agent.tools.shell as shell_mod
-
-    class FakeWindowsPath:
-        def __init__(self, raw: str) -> None:
-            self.raw = raw.rstrip("\\") + ("\\" if raw.endswith("\\") else "")
-
-        def resolve(self) -> "FakeWindowsPath":
-            return self
-
-        def expanduser(self) -> "FakeWindowsPath":
-            return self
-
-        def is_absolute(self) -> bool:
-            return len(self.raw) >= 3 and self.raw[1:3] == ":\\"
-
-        @property
-        def parents(self) -> list["FakeWindowsPath"]:
-            if not self.is_absolute():
-                return []
-            trimmed = self.raw.rstrip("\\")
-            if len(trimmed) <= 2:
-                return []
-            idx = trimmed.rfind("\\")
-            if idx <= 2:
-                return [FakeWindowsPath(trimmed[:2] + "\\")]
-            parent = FakeWindowsPath(trimmed[:idx])
-            return [parent, *parent.parents]
-
-        def __eq__(self, other: object) -> bool:
-            return isinstance(other, FakeWindowsPath) and self.raw.lower() == other.raw.lower()
-
-    monkeypatch.setattr(shell_mod, "Path", FakeWindowsPath)
-
-    tool = ExecTool(restrict_to_workspace=True)
-    error = tool._guard_command("dir E:\\", "E:\\workspace")
-    assert error == "Error: Command blocked by safety guard (path outside working dir)"
+async def test_exec_timeout_capped_at_max() -> None:
+    """Timeout values above _MAX_TIMEOUT should be clamped."""
+    tool = ExecTool()
+    result = await tool.execute(command="echo ok", timeout=9999)
+    assert "Exit code: 0" in result
 
 
 # --- cast_params tests ---
@@ -439,14 +361,12 @@ def test_cast_params_bool_string_false() -> None:
 
 
 def test_cast_params_bool_string_invalid() -> None:
-    """Invalid boolean strings should not be cast."""
     tool = CastTestTool(
         {
             "type": "object",
             "properties": {"flag": {"type": "boolean"}},
         }
     )
-    # Invalid strings should be preserved (validation will catch them)
     result = tool.cast_params({"flag": "random"})
     assert result["flag"] == "random"
     result = tool.cast_params({"flag": "maybe"})
@@ -454,7 +374,6 @@ def test_cast_params_bool_string_invalid() -> None:
 
 
 def test_cast_params_invalid_string_to_int() -> None:
-    """Invalid strings should not be cast to integer."""
     tool = CastTestTool(
         {
             "type": "object",
@@ -462,13 +381,12 @@ def test_cast_params_invalid_string_to_int() -> None:
         }
     )
     result = tool.cast_params({"count": "abc"})
-    assert result["count"] == "abc"  # Original value preserved
+    assert result["count"] == "abc"
     result = tool.cast_params({"count": "12.5.7"})
     assert result["count"] == "12.5.7"
 
 
 def test_cast_params_invalid_string_to_number() -> None:
-    """Invalid strings should not be cast to number."""
     tool = CastTestTool(
         {
             "type": "object",
@@ -480,7 +398,6 @@ def test_cast_params_invalid_string_to_number() -> None:
 
 
 def test_validate_params_bool_not_accepted_as_number() -> None:
-    """Booleans should not pass number validation."""
     tool = CastTestTool(
         {
             "type": "object",
@@ -492,7 +409,6 @@ def test_validate_params_bool_not_accepted_as_number() -> None:
 
 
 def test_cast_params_none_values() -> None:
-    """Test None handling for different types."""
     tool = CastTestTool(
         {
             "type": "object",
@@ -512,7 +428,6 @@ def test_cast_params_none_values() -> None:
             "config": None,
         }
     )
-    # None should be preserved for all types
     assert result["name"] is None
     assert result["count"] is None
     assert result["items"] is None
@@ -520,98 +435,141 @@ def test_cast_params_none_values() -> None:
 
 
 def test_cast_params_single_value_not_auto_wrapped_to_array() -> None:
-    """Single values should NOT be automatically wrapped into arrays."""
     tool = CastTestTool(
         {
             "type": "object",
             "properties": {"items": {"type": "array"}},
         }
     )
-    # Non-array values should be preserved (validation will catch them)
     result = tool.cast_params({"items": 5})
-    assert result["items"] == 5  # Not wrapped to [5]
+    assert result["items"] == 5
     result = tool.cast_params({"items": "text"})
-    assert result["items"] == "text"  # Not wrapped to ["text"]
+    assert result["items"] == "text"
 
 
-# --- ExecTool enhancement tests ---
+def test_exec_extract_absolute_paths_keeps_full_windows_path() -> None:
+    cmd = r"type C:\user\workspace\txt"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert paths == [r"C:\user\workspace\txt"]
 
 
-async def test_exec_always_returns_exit_code() -> None:
-    """Exit code should appear in output even on success (exit 0)."""
-    tool = ExecTool()
-    result = await tool.execute(command="echo hello")
-    assert "Exit code: 0" in result
-    assert "hello" in result
+def test_exec_extract_absolute_paths_captures_windows_drive_root_path() -> None:
+    cmd = "dir E:\\"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert paths == ["E:\\"]
 
 
-async def test_exec_head_tail_truncation(tmp_path) -> None:
-    """Long output should preserve both head and tail."""
-    tool = ExecTool()
-    # Generate output that exceeds _MAX_OUTPUT (10_000 chars).
-    # Use a temp script file so the output-generating logic lives in a file
-    # (Windows cmd.exe has finicky rules for quoting `-c` payloads with
-    # embedded newlines). ExecTool runs via create_subprocess_shell, so we
-    # must quote *both* the interpreter path and the script path — tmp_path
-    # on some CI runners and on many local Windows installs contains spaces
-    # (e.g. C:\Users\John Doe\AppData\...) which would otherwise break the
-    # shell's argv split.
-    script_file = tmp_path / "gen_output.py"
-    script_file.write_text("print('A' * 6000 + chr(10) + 'B' * 6000)", encoding="utf-8")
-    if sys.platform == "win32":
-        command = subprocess.list2cmdline([sys.executable, str(script_file)])
-    else:
-        command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script_file))}"
-    result = await tool.execute(command=command)
-    assert "chars truncated" in result
-    # Head portion should start with As
-    assert result.startswith("A")
-    # Tail portion should end with the exit code which comes after Bs
-    assert "Exit code:" in result
+def test_exec_extract_absolute_paths_ignores_relative_posix_segments() -> None:
+    cmd = ".venv/bin/python script.py"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "/bin/python" not in paths
 
 
-async def test_exec_timeout_parameter() -> None:
-    """LLM-supplied timeout should override the constructor default."""
-    tool = ExecTool(timeout=60)
-    # A very short timeout should cause the command to be killed
-    result = await tool.execute(command="sleep 10", timeout=1)
-    assert "timed out" in result
-    assert "1 seconds" in result
+def test_exec_extract_absolute_paths_captures_posix_absolute_paths() -> None:
+    cmd = "cat /tmp/data.txt > /tmp/out.txt"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "/tmp/data.txt" in paths
+    assert "/tmp/out.txt" in paths
 
 
-async def test_exec_timeout_capped_at_max() -> None:
-    """Timeout values above _MAX_TIMEOUT should be clamped."""
-    tool = ExecTool()
-    # Should not raise — just clamp to 600
-    result = await tool.execute(command="echo ok", timeout=9999)
-    assert "Exit code: 0" in result
+def test_exec_extract_absolute_paths_captures_home_paths() -> None:
+    cmd = "cat ~/.nanobot/config.json > ~/out.txt"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "~/.nanobot/config.json" in paths
+    assert "~/out.txt" in paths
+
+
+def test_exec_extract_absolute_paths_captures_quoted_paths() -> None:
+    cmd = 'cat "/tmp/data.txt" "~/.nanobot/config.json"'
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "/tmp/data.txt" in paths
+    assert "~/.nanobot/config.json" in paths
+
+
+def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
+    tool = ExecTool(restrict_to_workspace=True, working_dir=str(tmp_path))
+    error = tool._guard_command("cat C:\\Users\\savyc\\.nanobot\\config.json", str(tmp_path))
+    assert error == "Error: Command blocked by safety guard (path outside working dir)"
+
+
+def test_exec_guard_blocks_quoted_home_path_outside_workspace(tmp_path) -> None:
+    tool = ExecTool(restrict_to_workspace=True, working_dir=str(tmp_path))
+    error = tool._guard_command('cat "C:\\Users\\savyc\\.nanobot\\config.json"', str(tmp_path))
+    assert error == "Error: Command blocked by safety guard (path outside working dir)"
+
+
+def test_exec_guard_allows_media_path_outside_workspace(tmp_path, monkeypatch) -> None:
+    media_dir = tmp_path / "media"
+    media_dir.mkdir()
+    media_file = media_dir / "photo.jpg"
+    media_file.write_text("ok", encoding="utf-8")
+
+    monkeypatch.setattr("nanobot.agent.tools.shell.get_media_dir", lambda: media_dir)
+
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command(f'cat "{media_file}"', str(tmp_path / "workspace"))
+    assert error is None
+
+
+def test_exec_guard_blocks_windows_drive_root_outside_workspace(monkeypatch) -> None:
+    import nanobot.agent.tools.shell as shell_mod
+
+    class FakeWindowsPath:
+        def __init__(self, raw: str) -> None:
+            self.raw = raw.rstrip("\\") + ("\\" if raw.endswith("\\") else "")
+
+        def resolve(self) -> "FakeWindowsPath":
+            return self
+
+        def expanduser(self) -> "FakeWindowsPath":
+            return self
+
+        def is_absolute(self) -> bool:
+            return len(self.raw) >= 3 and self.raw[1:3] == ":\\"
+
+        @property
+        def parents(self) -> list["FakeWindowsPath"]:
+            if not self.is_absolute():
+                return []
+            trimmed = self.raw.rstrip("\\")
+            if len(trimmed) <= 2:
+                return []
+            idx = trimmed.rfind("\\")
+            if idx <= 2:
+                return [FakeWindowsPath(trimmed[:2] + "\\")]
+            parent = FakeWindowsPath(trimmed[:idx])
+            return [parent, *parent.parents]
+
+        def __eq__(self, other: object) -> bool:
+            return isinstance(other, FakeWindowsPath) and self.raw.lower() == other.raw.lower()
+
+    monkeypatch.setattr(shell_mod, "Path", FakeWindowsPath)
+
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command("dir E:\\", "E:\\workspace")
+    assert error == "Error: Command blocked by safety guard (path outside working dir)"
 
 
 # --- _resolve_type and nullable param tests ---
 
 
 def test_resolve_type_simple_string() -> None:
-    """Simple string type passes through unchanged."""
     assert Tool._resolve_type("string") == "string"
 
 
 def test_resolve_type_union_with_null() -> None:
-    """Union type ['string', 'null'] resolves to 'string'."""
     assert Tool._resolve_type(["string", "null"]) == "string"
 
 
 def test_resolve_type_only_null() -> None:
-    """Union type ['null'] resolves to None (no non-null type)."""
     assert Tool._resolve_type(["null"]) is None
 
 
 def test_resolve_type_none_input() -> None:
-    """None input passes through as None."""
     assert Tool._resolve_type(None) is None
 
 
 def test_validate_nullable_param_accepts_string() -> None:
-    """Nullable string param should accept a string value."""
     tool = CastTestTool(
         {
             "type": "object",
@@ -623,7 +581,6 @@ def test_validate_nullable_param_accepts_string() -> None:
 
 
 def test_validate_nullable_param_accepts_none() -> None:
-    """Nullable string param should accept None."""
     tool = CastTestTool(
         {
             "type": "object",
@@ -635,7 +592,6 @@ def test_validate_nullable_param_accepts_none() -> None:
 
 
 def test_validate_nullable_flag_accepts_none() -> None:
-    """OpenAI-normalized nullable params should still accept None locally."""
     tool = CastTestTool(
         {
             "type": "object",
@@ -647,7 +603,6 @@ def test_validate_nullable_flag_accepts_none() -> None:
 
 
 def test_cast_nullable_param_no_crash() -> None:
-    """cast_params should not crash on nullable type (the original bug)."""
     tool = CastTestTool(
         {
             "type": "object",

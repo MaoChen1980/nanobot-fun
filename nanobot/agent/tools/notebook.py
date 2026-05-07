@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from nanobot.agent.tools.base import tool_parameters
-from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from nanobot.agent.tools.filesystem.filesystem import _FsTool
 
 
@@ -39,14 +39,14 @@ def _make_empty_notebook() -> dict:
 
 @tool_parameters(
     tool_parameters_schema(
-        path=StringSchema("Path to the .ipynb notebook file"),
-        cell_index=IntegerSchema(0, description="0-based index of the cell to edit", minimum=0),
-        new_source=StringSchema("New source content for the cell"),
-        cell_type=StringSchema(
+        path=p("string", "Path to the .ipynb notebook file"),
+        cell_index=p("integer", "0-based index of the cell to edit", minimum=0),
+        new_source=p("string", "New source content for the cell"),
+        cell_type=p("string",
             "Cell type: 'code' or 'markdown' (default: code)",
             enum=["code", "markdown"],
         ),
-        edit_mode=StringSchema(
+        edit_mode=p("string",
             "Mode: 'replace' (default), 'insert' (after target), or 'delete'",
             enum=["replace", "insert", "delete"],
         ),
@@ -59,13 +59,9 @@ class NotebookEditTool(_FsTool):
     _VALID_CELL_TYPES = frozenset({"code", "markdown"})
     _VALID_EDIT_MODES = frozenset({"replace", "insert", "delete"})
 
-    @property
-    def name(self) -> str:
-        return "notebook_edit"
+    name = "notebook_edit"
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "Edit a Jupyter notebook (.ipynb) cell. "
             "Modes: replace (default) replaces cell content, "
             "insert adds a new cell after the target index, "

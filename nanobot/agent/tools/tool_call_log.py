@@ -6,16 +6,16 @@ from typing import Any
 
 from nanobot.agent.db import NanobotDB
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 
 
 @tool_parameters(
     tool_parameters_schema(
-        session_key=StringSchema("Filter by session key (session identifier)"),
-        tool_name=StringSchema("Filter by tool name (e.g. 'exec', 'read_file', 'grep')"),
-        success=IntegerSchema(description="Filter by success (1=success, 0=failed)"),
-        min_result_size=IntegerSchema("Filter to results larger than N characters"),
-        limit=IntegerSchema(20, description="Maximum number of records to return (default 20, max 100)"),
+        session_key=p("string", "Filter by session key (session identifier)"),
+        tool_name=p("string", "Filter by tool name (e.g. 'exec', 'read_file', 'grep')"),
+        success=p("integer", "Filter by success (1=success, 0=failed)"),
+        min_result_size=p("integer", "Filter to results larger than N characters"),
+        limit=p("integer", "Maximum number of records to return (default 20, max 100)"),
     )
 )
 class ToolCallLogTool(Tool):
@@ -24,13 +24,9 @@ class ToolCallLogTool(Tool):
     def __init__(self, db: NanobotDB):
         self._db = db
 
-    @property
-    def name(self) -> str:
-        return "tool_call_log"
+    name = "tool_call_log"
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "Query tool call execution log.\n\n"
             "Use when:\n"
             "- Debugging a tool that failed\n"
@@ -46,9 +42,7 @@ class ToolCallLogTool(Tool):
             "Returns: list of tool calls with tool_name, params, result, success, duration_ms, timestamp."
         )
 
-    @property
-    def read_only(self) -> bool:
-        return True
+    read_only = True
 
     async def execute(
         self,

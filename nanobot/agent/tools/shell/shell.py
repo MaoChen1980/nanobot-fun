@@ -14,7 +14,7 @@ from loguru import logger
 
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.sandbox import wrap_command
-from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import p, tool_parameters_schema
 from nanobot.agent.tools.shell_validators import validate_command
 from nanobot.config.paths import get_media_dir
 
@@ -37,18 +37,16 @@ _EXES_WITH_SCRIPT_FLAGS: set[str] = {
 
 @tool_parameters(
     tool_parameters_schema(
-        command=StringSchema("The shell command to execute"),
-        working_dir=StringSchema("Optional working directory for the command"),
-        timeout=IntegerSchema(
-            60,
-            description=(
+        command=p("string", "The shell command to execute"),
+        working_dir=p("string", "Optional working directory for the command"),
+        timeout=p("integer", (
                 "Timeout in seconds. Increase for long-running commands "
                 "like compilation or installation (default 60, max 600)."
             ),
             minimum=1,
             maximum=600,
         ),
-        capture_file=StringSchema(
+        capture_file=p("string",
             "If set, write command output to this file path as it runs. "
             "The LLM can read this file mid-execution to see partial progress. "
             "Useful for long commands like npm install or compilation."
@@ -97,16 +95,12 @@ class ExecTool(Tool):
         self.path_append = path_append
         self.allowed_env_keys = allowed_env_keys or []
 
-    @property
-    def name(self) -> str:
-        return "exec"
+    name = "exec"
 
     _MAX_TIMEOUT = 600
     _MAX_OUTPUT = 10_000
 
-    @property
-    def description(self) -> str:
-        return (
+    description = (
             "Execute a shell command and return its output. "
             "Prefer read_file/write_file/edit_file over cat/echo/sed, "
             "and grep/glob over shell find/grep. "
@@ -114,9 +108,7 @@ class ExecTool(Tool):
             "Output is truncated at 10 000 chars; timeout defaults to 60s."
         )
 
-    @property
-    def exclusive(self) -> bool:
-        return True
+    exclusive = True
 
     async def execute(
         self, command: str, working_dir: str | None = None,
