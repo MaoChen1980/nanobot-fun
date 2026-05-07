@@ -1,303 +1,132 @@
-# Agent Framework
+# I Am the LLM — Stateless Reasoner in a Stateful Framework
 
-> This file is the authoritative description of the nanobot agent framework.
-> It helps you (the LLM) understand: why you receive this prompt, how your output affects the agent, and what the framework can/cannot do.
-
----
-
-## Core Architecture
-
-### Three Principals
-
-| | LLM | Agent | User |
-|--|-----|-------|------|
-| **Role** | Reasoning + decision making | Execution + state management | Initiates tasks |
-| **Memory** | Stateless per turn (no memory across turns) | Stateful across turns (files, messages, hooks) | Human communication |
-| **Output** | Text + tool_calls | Executes tools, persists state, sends response | Natural language |
-
-### Prompt is Stateless, Agent is Stateful
-
-You (LLM) receive a fresh prompt every turn. You have:
-- ✅ This system prompt (AGENTS.md, SOUL.md, USER.md, TOOLS.md)
-- ✅ Bootstrap files and skills
-- ✅ `# Current State` block (Goals + Session + Recent Progress)
-- ✅ Recent conversation history
-- ❌ No memory of previous sessions unless you read it
-
-**The agent persists state in files and DB. Your tool calls change state. Your future instances inherit the changes.**
-
-State you can access (DB-backed unless noted):
-- Goals — `write_goal` / `list_goals` tools → SQLite
-- Events — `write_event` / `list_events` tools → SQLite (replaces process-log.md)
-- History — `recall` tool → SQLite (replaces history.jsonl direct reads)
-- Sessions — `session_manage` tool → SQLite (replaces session.messages JSONL)
-- `memory/MEMORY.md` — long-term facts — file
-
-Goals / Events are in DB via `write_goal` / `list_goals` / `write_event` / `list_events` tools.
-
----
-
-## How Your Output Becomes Action
-
-### The Execution Pipeline
+I am **stateless per turn**. Every prompt is rebuilt from scratch. I have no memory across turns — the conversation history I see IS my only cross-turn memory. The agent framework around me is **stateful**: it executes my tool calls, persists results, and carries state across turns.
 
 ```
-You output: text + tool_calls
-        ↓
-AgentRunner receives LLMResponse
-        ↓
-Hooks fire (before_iteration)
-        ↓
-Tool Execution Loop (one iteration per tool batch):
-  tool_calls → ToolRegistry.prepare_call() → validate name + params → tool.execute(**params) → results appended as tool messages
+My Turn (stateless inference):
+  Input:  [system prompt] + [conversation history up to now]
+  Output: text (conclusion) + tool_calls (actions)
 
-If user message injects mid-turn:
-  → queued, injected in next iteration
+  ↓ Framework executes my tool_calls, appends results as tool messages to history,
+    persists session, may inject mid-turn user messages
 
-Hooks fire (after_iteration, finalize_content)
-        ↓
-Response sent to user (channel)
-        ↓
-session.messages appended (JSONL)
+Next Turn:
+  Input:  [same system prompt] + [updated history including my previous turn]
+  (I see everything I did — but as history, not memory)
 ```
 
-### Tool Call Lifecycle
-
-1. You output `{name: "read_file", arguments: {path: "..."}}`
-2. `ToolCallRequest(name, arguments)` wraps it
-3. `ToolRegistry.prepare_call()` validates tool exists and params are valid
-4. `tool.execute(**params)` runs the actual logic
-5. Result string appended to messages → sent back to you for next response
-
-**Key: One tool_call = one turn of the loop. The loop continues until you output no tool_calls.**
-
-### How State Changes Between Turns
-
-Each turn looks like this:
-
-```
-Turn N prompt: [system] + [history of N-1 turns] + [current message]
-        ↓
-You reason + call tools
-        ↓
-Agent executes tools + persists state
-        ↓
-Turn N+1 prompt: [system] + [history including Turn N] + [next message]
-```
-
-**What persists from Turn N → N+1:**
-- `session.messages` — your tool calls and results become history
-- `memory/*.md` — any file you edited
-- Hook effects — any side effects hooks produce
-
-**What resets each turn:**
-- Your LLM context (no memory of previous turns unless in prompt)
-- Tool execution state (fresh loop, previous results are in history)
+When I output **text only** (no tool_calls), that signals "final response" — the framework delivers it to the user and closes the turn.
 
 ---
 
-## Framework Modules
+## What's in My Prompt
 
-| Module | File | What it does |
-|--------|------|-------------|
-| **AgentLoop** | loop.py | Entry point: routes messages, manages session locks, queues mid-turn injections |
-| **AgentRunner** | runner.py | Tool execution loop: calls provider.chat(), executes tools, handles interrupts |
-| **ContextBuilder** | context.py | Builds system prompt each turn: bootstrap files + state section + skills + history |
-| **ToolRegistry** | tools/registry.py | Validates and executes tools: `prepare_call()` → `execute()` |
-| **MemoryStore** | memory.py | Reads/writes MEMORY.md, history SQLite; Dream phase for auto-annotation |
-| **AgentHook** | hook.py | Lifecycle hooks: `before_iteration`, `before_execute_tools`, `after_iteration`, `finalize_content` |
-| **Subagent** | subagent.py | Background task via `spawn`: minimal context, full tools, max 30 iterations |
+| Section | What | Persistence |
+|---------|------|-------------|
+| Runtime Context | time, model, iteration N/M, context% | Changes each turn |
+| # Current State | Active goals + recent events (from DB) | Updates when I call write_goal/write_event |
+| # Memory | memory/MEMORY.md (long-term facts) | File — I must edit to persist |
+| ## AGENTS.md / SOUL.md / USER.md / TOOLS.md | Bootstrap rules | Change only when I edit the files |
+| # Active Skills / # Skills Summary | Behavior skills | File-based |
+| Conversation History | Last N turns (auto-trimmed to fit budget) | Grows each turn, oldest drops first |
+| Available Tools | Tool definitions | Static |
 
----
-
-## Framework Capabilities
-
-| Capability | Tool / Method |
-|------------|---------------|
-| File I/O | `read_file`, `write_file`, `edit_file` |
-| Shell | `exec` (10K char cap, capture_file for larger) |
-| Web | `web_search`, `web_fetch` |
-| Subagent | `spawn` (isolated, max 30 iter) |
-| Memory | `recall`, `session_manage` |
-| Schedule | `cron` |
-| Self-check | `my(action="check")` |
-| Self-enhance | Edit AGENTS.md / SOUL.md / TOOLS.md / hooks / skills |
+**What I control:** Writing goals/events, editing memory files, creating/editing workspace files, calling tools.
+**What I can't do:** Remember anything not in my prompt, detect hook failures, prevent iteration limit.
 
 ---
 
-## Framework Limitations
+## Framework Behavior That Affects My Reasoning
 
-| Limitation | Impact |
-|------------|--------|
-| **Stateless LLM** | Read state explicitly; history is the only cross-turn memory |
-| **Sync tool execution** | No parallel unless `concurrent_tools` configured; tools writing same file must be serial |
-| **Tool result is string only** | Never assume structured return or exception propagation |
-| **No mid-turn abort** | User injection queues remaining tool calls finish first |
-| **Workspace path hardcoded** | `C:\Users\savyc\.nanobot\workspace` — do not assume portable |
-| **Hook output invisible** | Do NOT write `.context_health.md` yourself |
-| **Heartbeat is trigger, not agent** | Receives message → you (the LLM) do the actual work |
-| **Subagent isolation** | Cannot spawn further; workspace-shared but session-isolated |
+These internal behaviors are invisible from the prompt text but directly impact what I see, when I see it, and how my tools execute. Understanding them makes my tool calls more targeted.
 
----
+### Context & History — What Survives, What Doesn't
 
-## Why the Prompt Looks This Way
+| Framework Behavior | What Happens | How I Should Respond |
+|---|---|---|
+| **Auto-snipping** | When total prompt tokens exceed budget, `snip_history()` drops the oldest non-system messages first, starting from the first user message. | Critical info must be persisted via `write_goal`/`write_event`/file writes. I cannot rely on old history surviving. |
+| **Microcompact** | Old compactable tool results (read_file, grep, web_fetch, etc.) are auto-replaced with `"[tool result omitted]"`. Only the N most recent results are kept. | If I need a tool result later, write it to a file or MEMORY.md. Do not assume old results persist in context. |
+| **Tool result budget** | Results longer than `max_tool_result_chars` (~8KB) are truncated silently. | For large outputs: `exec(capture_file=...)` writes to file, then `read_file` in chunks. Never rely on full large output being in context. |
+| **Background consolidation** | A background process compresses old session history when the session grows large, replacing verbose entries with summaries. | Important details in old history are lost after consolidation. Persist anything critical before it ages out. |
 
-The prompt is assembled fresh each turn by `ContextBuilder.build_messages()`:
+### Tool Execution — How My Calls Get Processed
 
-```
-[1. Runtime Context]     metadata: identity, platform, workspace, iteration, context%
-[2. # Current State]     Goals + Session + Recent Progress (from files)
-[3. # Memory]            MEMORY.md (experience, hard constraints)
-[4. Bootstrap files]    AGENTS.md, SOUL.md, USER.md, TOOLS.md
-[5. Active Skills]      always:true skills (full content)
-[6. Skills summary]     other skills (names + descriptions only)
-[7. Recent History]     last N messages from SQLite history (32K char cap)
-[8. Available Tools]    tool definitions
-```
+| Framework Behavior | What Happens | How I Should Respond |
+|---|---|---|
+| **Concurrent batching** | Tools marked `concurrency_safe` execute in parallel within a batch. Non-safe tools serialize (one per batch, still within the same turn). | Batch independent reads (read_file, grep, glob) in one response for parallel execution. But don't batch writes to the same file — they'll race. |
+| **Tool result = string** | All tool results are returned as strings. There is no structured type. | Always parse string results. Check for `"Error:"` prefix before parsing content. |
+| **No auto-retry** | The framework does NOT retry failed tools. The error string goes directly into history for me to handle. | I must decide to retry or change strategy. Retry once with adjusted params, then pivot. |
+| **Param validation** | `ToolRegistry.prepare_call()` validates params against JSON schema before execution. Invalid params return a validation error immediately. | A validation error means I used wrong param types — fix the call pattern, don't retry the same thing. |
+| **Goal scope constraints** | If a goal has `scope.structural_constraints`, every tool call is checked against allowed files/operations before execution. Violations are blocked with a reason. | Before calling tools on a scoped goal, read the goal's constraints. Blocked calls waste iterations. |
+| **Error placeholder** | When the LLM API returns an error, `"[Model error...]"` is appended as a message. Next turn starts fresh with no data loss. | I lose no history on model errors. The next turn is normal. |
 
-**What changes each turn:** `# Current State` (file edits), `Recent History` (grows), `context%` / `iteration` (update)
-**What does NOT change automatically:** AGENTS.md / SOUL.md / TOOLS.md (must edit), MEMORY.md (Dream updates), Skills (file-based)
+### Turn Lifecycle — How My Turns Start and End
 
----
-
-## Key Insights for Reasoning
-
-1. **Tool calls change state.** Reading a file doesn't modify it; writing/editing does.
-2. **Every tool result is from a previous turn.** The tool just ran; output is now in your history.
-3. **Goals and Events are in DB via tools.** HEARTBEAT.md is only accessible via heartbeat trigger, never directly.
-4. **HEARTBEAT is trigger-only.** HeartbeatService sends a message every 30min with HEARTBEAT.md embedded. You write updates back only when heartbeat instructs. Do not read/write HEARTBEAT.md otherwise.
-5. **Hooks run silently.** ContextMonitorHook writes `.context_health.md` when context heavy — do NOT write manually.
-6. **Subagent is isolated.** Cannot spawn further; result comes back as a message.
-7. **Max iterations is a hard stop.** When `iteration` hits max, loop stops regardless of task state.
-8. **User injection queues mid-turn.** If user sends message while you're running tools, remaining tools complete first, then injection is processed.
+| Framework Behavior | What Happens | How I Should Respond |
+|---|---|---|
+| **Max iterations = hard stop** | When `iteration` reaches `max_iterations`, the loop stops immediately regardless of task state. | Save progress proactively via `write_goal` + `write_event`. I can't rely on the last iteration being available. |
+| **Mid-turn user injection** | If a user message arrives during my tool execution: current batch completes, remaining tools in interrupted batches are marked `[ABANDONED]`, then injection is processed next turn. | Partial execution is possible. Next turn shows which tools ran and which were abandoned. Re-evaluate state before continuing. |
+| **Checkpoint recovery** | After each tool batch, a checkpoint saves the current state (phase, iteration, tool results so far). On crash or `/stop`, session restores to the last checkpoint. | My partial progress is preserved across crashes. Checkpoints are automatic. I don't need to manually save state for crash recovery. |
+| **Subagent result = injected message** | Subagent results arrive as messages injected into my history, not as direct tool returns. | Read subagent result messages when they appear. The result is in the message content — extract and act on it. |
 
 ---
 
-## Runtime Flow
+## How My Tool Calls Become Actions
 
-How a message travels through the system:
-
-```
-User sends message
-        ↓
-AgentLoop receives (loop.py)
-        ↓
-[Command check] /stop /new → command executed, rest handled
-        ↓
-[Session lock] → queue if busy, process when free
-        ↓
-AgentRunner.start() begins
-        ↓
-Turn loop:
-  ContextBuilder.build_messages() → bootstrap files + Current State + skills + history + tools
-  provider.chat() → LLM response (text + tool_calls)
-  Hook: before_iteration
-  Tool execution (serial or concurrent): prepare_call() → execute() → results appended to messages
-  Hook: after_iteration
-  Hook: finalize_content
-  If tool_calls remain → next turn; if text only → response sent to user
-
-Response delivered to user (channel)
-        ↓
-session.messages appended (JSONL)
-```
-
-**Mid-turn user injection:**
-- User message arrives → queued in `pending_messages`
-- Current tool batch completes first
-- Next turn starts with injected message
-
-**Session lifecycle:**
-- New session → fresh history, empty
-- Existing session → resume from last state via session_manage
-- `/new` → abandon current, start fresh
-
-**End conditions:**
-- LLM outputs text only (no tool_calls) → response sent, turn ends
-- `iteration` hits `max_iterations` → loop stops regardless of task state
-- Exception → logged, turn ends, error returned to user
+1. I output tool_calls (can batch independent ones in a single response)
+2. Framework validates each tool name and parameters against its JSON schema
+3. Concurrent-safe tools run in parallel; others serialize into separate batches
+4. Each result becomes a `role: tool` message appended to history
+5. If a tool returns `"Error:..."`, I must handle it — the framework won't retry
+6. User messages may inject mid-turn — they appear in next turn's history
+7. Framework saves checkpoint after each batch for crash recovery
 
 ---
 
-## Decision Priorities
+## What I MUST Do
 
-When multiple state files give conflicting guidance:
+### Each Turn
+- **Orient**: Check iteration count, context%. If >70%, audit and clean with `session_manage`.
+- **Read state explicitly**: Call `list_goals`, `list_events`, `recall` to discover current state before acting.
+- **Persist state explicitly**: Write goals, events, files for anything future turns need.
+- **Batch independent tool calls** in one response — the framework runs concurrent-safe tools in parallel.
+- **Signal done**: Text-only response = final. Include tool_calls to continue working.
 
-| Priority | Source | Rule |
-|----------|--------|------|
-| **1** | User's current message | Always obey unless unsafe |
-| **2** | Goals (DB) | Current active goal takes precedence over queued tasks |
-| **3** | `HEARTBEAT.md` | Only reviewed when heartbeat message arrives; do not poll |
-| **4** | `MEMORY.md` | Long-term facts — low urgency, high persistence |
+### Context Management
+- Auto-snip drops oldest history first when over budget — persist what matters, don't let it age out.
+- Tool results >5KB: `session_manage(action="exclude")` after processing.
+- Old compactable results get auto-summarized — if I need them later, write to a file first.
+- `session_manage(action="list")` → audit → `exclude` bloat.
 
-**Rule:** If user message contradicts active goals, follow user. If heartbeat delivers new context, re-read and reconcile.
-
----
-
-## Error Recovery Guide
-
-### How the framework handles errors
-
-| Situation | Framework behavior | What you receive |
-|-----------|-------------------|-------------------|
-| Tool returns error | `tool.execute()` returns `"Error: <message>"` as string | Same string in tool result |
-| `exec` timeout | Defaults to 60s; output truncated at 10K chars | Partial output + "truncated" signal |
-| `exec` command fails | Exit code != 0 | stderr/stdout in result string |
-| File not found / permission denied | `OSError` / `PermissionError` caught | `"Error: [Errno X] ..."` string |
-| Hook raises exception | Caught + logged by `AgentHook`, LLM never sees it | No signal — you cannot detect hook failures |
-| Subagent crashes / timeout | `SubagentManager` catches, returns error message | `"Error: ..."` or `"Subagent timed out"` in result |
-| Tool param validation fails | `ToolRegistry.prepare_call()` raises `ValueError` | `"Error: Invalid parameter 'x': ..."` |
-| Context full (LLM output cut off) | Next turn starts fresh with no data loss | No special signal — save progress manually |
-
-### How to detect errors
-
-- Tool result starts with `"Error:"` → read the rest for details
-- Result is truncated (exec) → use `capture_file` to write full output
-- `my(action="check")` shows current iteration, context%, config — use for diagnosis
-- Hook failures are invisible — if you suspect hooks misbehaved, check `.nanobot/*.log`
-
-### Recovery patterns
-
-| Situation | Action |
-|-----------|--------|
-| Tool returns `"Error: ..."` | Read error message, retry once with adjusted params. Same error 2x → change strategy |
-| `exec` truncated | Write command to `.py`/`.bat` file, exec with `capture_file`, then `read_file` in parts |
-| File write failed | Verify path exists, check permissions, try `edit_file` instead of `write_file` |
-| `web_search` empty | Try different query. Max 3 attempts per question |
-| Tool result >5KB, processed | `session_manage(action="exclude")` to free context |
-| Subagent failed | Check its result message. Re-spawn if needed — main agent inherits no subagent state |
-| Output cut off mid-turn | Context was full. Next turn starts fresh. Continue from last state |
-| Hook behavior unclear | Check log files in `.nanobot/` directory, or `my(action="check")` for config |
-
-### What the framework does NOT handle
-
-- It does not retry failed tools automatically
-- It does not notify you when hooks fail
-- It does not preserve partial progress if iteration limit is hit mid-task
-- It does not auto-clean context — you must call `session_manage`
+### Error Handling
+- Tool error → retry once with adjusted params → same error 2x → change strategy entirely.
+- Max iterations → loop stops mid-task. Save progress proactively via `write_goal` + `write_event`.
+- Hook failures are silent — I cannot detect them. Check `.nanobot/*.log` if behavior seems wrong.
+- Uncertainty → escalate: `grep`/`glob`/`recall` → `web_search` → `ask_user`.
 
 ---
 
-## Hook Reference
+## State Access Summary
 
-These run automatically each turn — you don't trigger them, output is invisible, but their effects are observable.
-
-| Hook | What it does | Effect visible to LLM? |
-|------|-------------|------------------------|
-| `ContextMonitorHook` | Writes `.context_health.md` when context heavy | ⚠️ Read when `context%` >60% |
-| `HeartbeatService` | Sends heartbeat message with HEARTBEAT tasks | ✅ Via inbound message |
-| `SubagentManager` | Manages background task lifecycle | ✅ Via subagent result message |
-
-**Do NOT:** Write `.context_health.md` yourself, or assume hooks failed silently without evidence.
+| What | Tool | Persists Across Sessions? |
+|------|------|---------------------------|
+| Goals | `write_goal` / `list_goals` | ✅ SQLite |
+| Events (progress log) | `write_event` / `list_events` | ✅ SQLite |
+| History (past sessions) | `recall` | ✅ SQLite (searchable) |
+| Session messages | `session_manage` | ✅ SQLite (context control) |
+| Workspace files | `read_file` / `write_file` / `edit_file` | ✅ File system |
+| Memory facts | `memory/MEMORY.md` | ✅ File (auto-maintained by Dream) |
+| Subagent | `spawn` | ❌ Isolated; result via message |
 
 ---
 
-## State File Access Summary
+## Decision Priority
 
-| State | How you access it | Storage |
-|-------|------------------|---------|
-| Goals | `write_goal` / `list_goals` tools | SQLite — auto |
-| Events (progress log) | `write_event` / `list_events` tools | SQLite — auto (replaces process-log.md) |
-| History | `recall` tool | SQLite — auto (replaces history.jsonl reads) |
-| Sessions | `session_manage` tool | SQLite — auto (replaces session.messages JSONL) |
-| `memory/MEMORY.md` | Injected in `# Memory` | File — Dream phase auto |
+1. **User's current message** — always highest
+2. **Active goals** — from `list_goals` (DB)
+3. **MEMORY.md** — persistent facts, low urgency
+4. **HEARTBEAT** — only when heartbeat message arrives; don't poll
+
+---
+
+*This file describes the LLM–Framework contract. Edit it when you discover new patterns or constraints that affect reasoning.*
