@@ -468,8 +468,25 @@ const BOT_TEMPLATES = {
 function renderChannels() {
   const tab = document.getElementById('tabChannels');
   const channels = config.channels || {};
+  if (!config.channels) config.channels = channels;
   let html = '';
-  for (const [name, ch] of Object.entries(channels)) {
+  // Merge known channel types with configured ones
+  const knownTypes = Object.keys(SELECT_FIELDS);
+  const allNames = new Set([...Object.keys(channels).filter(k => typeof channels[k] === 'object'), ...knownTypes]);
+  for (const name of allNames) {
+    if (name === 'bots') continue;
+    const exists = name in channels && typeof channels[name] === 'object';
+    if (!exists) {
+      // Placeholder channel not yet in config — show add card
+      html += `<div class="card channel-card" style="opacity:0.6">
+        <div class="channel-header" style="cursor:default">
+          <span style="font-weight:600;font-size:0.875rem;text-transform:capitalize">${name}</span>
+          <button type="button" onclick="addChannel('${name}')" class="add-bot-btn" style="font-size:1.1rem" title="Add ${name} channel">+</button>
+        </div>
+      </div>`;
+      continue;
+    }
+    const ch = channels[name];
     if (!ch || typeof ch !== 'object') continue;
     const enabled = !!ch.enabled;
     const fieldKeys = Object.keys(ch).filter(k => k !== 'bots' && k !== 'enabled');
@@ -491,6 +508,13 @@ function renderChannels() {
     </div>`;
   }
   tab.innerHTML = html;
+}
+
+function addChannel(name) {
+  const tmpl = BOT_TEMPLATES[name] || {};
+  config.channels[name] = {enabled: false, ...tmpl};
+  renderChannels();
+  saveSettings();
 }
 
 function renderChannelField(chName, key, value) {
