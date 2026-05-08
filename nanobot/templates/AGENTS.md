@@ -42,26 +42,14 @@ Every message in my prompt has a timestamp. Together with the **Iteration** coun
 | `**Current Message Time: ...**` (Runtime Context, line 1) | When the user/system message that triggered *this* LLM call was sent |
 | `Current Time: ...` (Runtime Context, line 2) | When my prompt was assembled — always ≥ the message time |
 | `Iteration: N/200` (Runtime Context) | Which LLM call I'm on within this turn — resets each time a new user message arrives |
-| `[Message Time: ...]` on each history message | When that specific user message, tool result, or assistant reply was recorded |
 
 **How turns work:**
 
-One user message can trigger multiple LLM calls (iterations). Each iteration is a fresh prompt. The flow looks like:
-
-```
-User: "check weather in Tokyo"                         ← Message Time: T1
-                                                         Iteration 1 starts
-Assistant: [tool call: weather city=tokyo]              ← Message Time: T2, Iteration 1
-Tool result: {temp: 22, condition: cloudy}             ← Message Time: T3, Iteration 1
-Assistant: "Tokyo is 22°C and cloudy"                   ← Message Time: T4, Iteration 1
-                                                         Turn ends. Next user message starts.
-```
-
-Within one turn, timestamps let me see the sequence: tool call → tool result → my reply. The tiny gaps between T2→T3→T4 are just framework processing time.
+One user message can trigger multiple LLM calls (iterations). Each iteration is a fresh prompt.
 
 **What timestamps tell me across turns:**
 
-- **Time gap between user messages**: If `[Message Time: T1]` is hours or days before `[Message Time: T5]`, the conversation has been idle — I should reorient rather than blindly continue.
+- **Time gap between user messages**: Compare `**Current Message Time**` across turns. If hours or days apart, the conversation has been idle — I should reorient rather than blindly continue.
 - **Tool timing relative to user follow-up**: If a user sends a follow-up message *before* a tool result from an earlier request arrives, the tool result with the earlier timestamp tells me it was from the prior intent, not the new one.
 - **Scheduled/cron delivery**: A message with a timestamp far in the future from the previous conversation means it's a cron job firing — I should treat it as a fresh task, not a continuation.
 - **Mid-turn interruption**: If a user injects a new message while I'm still processing, the new message's `**Current Message Time**` is between earlier tool results and my pending reply — I need to handle the interruption.

@@ -65,26 +65,30 @@ class TestSessionGetHistory:
         assert len(history) == 1
         assert history[0]["role"] == "user"
 
-    def test_annotates_timestamps(self):
+    def test_timestamp_stored_as_property(self):
         s = Session(key="ch:u")
         ts = "2026-01-01T00:00:00Z"
         s.add_message("user", "hi", timestamp=ts)
         history = s.get_history(max_messages=10, include_timestamps=True)
-        assert "[Message Time: 2026-01-01T00:00:00Z]" in history[0]["content"]
+        assert history[0]["content"] == "hi"
+        assert history[0]["timestamp"] == ts
 
-    def test_includes_timestamp_annotation_for_normal_assistant(self):
+    def test_timestamp_property_for_assistant(self):
         s = Session(key="ch:u")
         ts = "2026-01-01T00:00:00Z"
         s.add_message("assistant", "reply", timestamp=ts)
         history = s.get_history(max_messages=10, include_timestamps=True)
-        assert "[Message Time:" in history[0]["content"]
+        assert history[0]["content"] == "reply"
+        assert history[0]["timestamp"] == ts
 
-    def test_includes_channel_delivery_timestamp(self):
+    def test_timestamp_property_channel_delivery(self):
         s = Session(key="ch:u")
         ts = "2026-01-01T00:00:00Z"
         s.add_message("assistant", "delivery", timestamp=ts, _channel_delivery=True)
         history = s.get_history(max_messages=10, include_timestamps=True)
-        assert "[Message Time:" in history[0]["content"]
+        assert history[0]["content"] == "delivery"
+        assert history[0]["timestamp"] == ts
+        assert history[0].get("_channel_delivery")
 
     def test_media_breadcrumbs(self):
         s = Session(key="ch:u")

@@ -41,27 +41,10 @@ class Session:
         """Expose turn timestamps to the model for relative-date reasoning.
 
         When *timezone* is provided, the stored timestamp (typically UTC) is
-        converted so that ``[Message Time]`` is consistent with the
-        ``Current Time`` shown in the runtime context.
+        converted so that it is consistent with the ``Current Time`` shown in
+        the runtime context.
         """
-        timestamp = message.get("timestamp")
-        role = message.get("role")
-        if not timestamp or not isinstance(content, str):
-            return content
-        if role not in ("user", "tool", "assistant"):
-            return content
-        if timezone:
-            try:
-                from datetime import datetime
-                from zoneinfo import ZoneInfo
-                from nanobot.utils.helpers import _format_datetime
-                dt = datetime.fromisoformat(timestamp)
-                if dt.tzinfo is not None:
-                    dt = dt.astimezone(ZoneInfo(timezone))
-                    timestamp = _format_datetime(dt)
-            except Exception:
-                pass
-        return f"[Message Time: {timestamp}]\n{content}"
+        return content
 
     def add_message(self, role: str, content: str, timestamp: str | None = None, **kwargs: Any) -> None:
         """Add a message to the session. *timestamp* should be an ISO-format str if provided."""

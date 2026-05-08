@@ -213,24 +213,22 @@ def test_get_history_annotates_all_message_types_with_timestamps():
     assert history == [
         {
             "role": "user",
-            "content": "[Message Time: 2026-04-26T22:00:00]\n10 点提醒是昨天发生的",
+            "content": "10 点提醒是昨天发生的",
             "timestamp": "2026-04-26T22:00:00",
         },
         {
             "role": "assistant",
-            "content": "[Message Time: 2026-04-26T22:00:05]\n记下来了",
+            "content": "记下来了",
             "timestamp": "2026-04-26T22:00:05",
         },
     ]
 
 
 def test_get_history_annotates_proactive_assistant_deliveries_with_timestamps():
-    """Cron / heartbeat assistant pushes still carry a timestamp prefix.
+    """Cron / heartbeat assistant pushes carry a timestamp property.
 
     These proactive deliveries can sit hours away from the next user reply,
-    so the model needs to know when they fired. They are rare enough that
-    they don't act as in-context demonstrations encouraging the model to
-    prefix its own normal replies with ``[Message Time: ...]``.
+    so the timestamp is stored on the message, not in the content.
     """
     session = Session(key="test:proactive-timestamps")
     session.messages.append({
@@ -250,12 +248,12 @@ def test_get_history_annotates_proactive_assistant_deliveries_with_timestamps():
     assert history == [
         {
             "role": "assistant",
-            "content": "[Message Time: 2026-04-26T15:00:00]\n记得喝水",
+            "content": "记得喝水",
             "timestamp": "2026-04-26T15:00:00",
         },
         {
             "role": "user",
-            "content": "[Message Time: 2026-04-26T18:00:00]\n好",
+            "content": "好",
             "timestamp": "2026-04-26T18:00:00",
         },
     ]
@@ -271,7 +269,7 @@ def test_get_history_annotates_tool_results_with_timestamps():
 
     tool_result = history[-1]
     assert tool_result["role"] == "tool"
-    assert tool_result["content"] == "[Message Time: 2026-04-26T22:00:10]\nok"
+    assert tool_result["content"] == "ok"
     assert tool_result["timestamp"] == "2026-04-26T22:00:10"
 
 
