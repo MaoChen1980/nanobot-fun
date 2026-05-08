@@ -311,17 +311,19 @@ class CronService:
             now = _now_ms()
 
             # Clean up stale one-shot jobs that were never picked up
-            # (e.g. service started after at_ms had passed)
+            # (e.g. service started after at_ms had passed).
+            # Use a 60s grace period to avoid removing jobs that just became due.
             stale = [
                 j for j in self._store.jobs
                 if j.enabled and j.schedule.kind == "at" and j.delete_after_run
                 and j.state.next_run_at_ms is None
-                and j.schedule.at_ms and now >= j.schedule.at_ms
+                and j.schedule.at_ms and now - j.schedule.at_ms > 60_000
             ]
             if stale:
+                stale_desc = ", ".join(f"'{j.name}' ({j.id})" for j in stale)
                 stale_ids = {j.id for j in stale}
                 self._store.jobs = [j for j in self._store.jobs if j.id not in stale_ids]
-                logger.info("Cron: removed {} stale one-shot job(s)", len(stale))
+                logger.info("Cron: removed stale one-shot job(s): {}", stale_desc)
 
             due_jobs = [
                 j for j in self._store.jobs
