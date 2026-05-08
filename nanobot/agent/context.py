@@ -201,9 +201,13 @@ class ContextBuilder:
         cached_tokens: int | None = None,
         current_iteration: int | None = None,
         max_iterations: int | None = None,
+        message_time: str | None = None,
     ) -> str:
         """Build untrusted runtime metadata block for injection before the user message."""
-        lines = [f"Current Time: {current_time_str(timezone)}"]
+        lines = []
+        if message_time:
+            lines.append(f"**Current Message Time: {message_time}**")
+        lines.append(f"Current Time: {current_time_str(timezone)}")
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
         if model:
@@ -290,6 +294,7 @@ class ContextBuilder:
         chat_id: str | None = None,
         current_role: str = "user",
         context_state: ContextState | None = None,
+        message_timestamp: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         cs = context_state or ContextState()
@@ -301,6 +306,7 @@ class ContextBuilder:
             cached_tokens=cs.cached_tokens,
             current_iteration=cs.current_iteration,
             max_iterations=cs.max_iterations,
+            message_time=message_timestamp,
         )
         user_content = self._build_user_content(current_message, media)
         messages = [

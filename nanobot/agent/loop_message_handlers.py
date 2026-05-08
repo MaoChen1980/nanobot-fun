@@ -60,6 +60,7 @@ class SystemMessageHandler:
             chat_id=chat_id,
             current_role=current_role,
             context_state=cs,
+            message_timestamp=msg.timestamp.isoformat() if hasattr(msg, 'timestamp') else None,
         )
         final_content, _, all_msgs, stop_reason, _ = await self._loop._run_agent_loop(messages, session=session, channel=effective_channel, chat_id=chat_id, message_id=msg.metadata.get("message_id"), metadata=msg.metadata, session_key=key, pending_queue=pending_queue)
         self._loop._record_turn(session, all_msgs, 1 + len(history))
@@ -194,6 +195,7 @@ class UserMessageHandler:
                 channel=msg.channel,
                 chat_id=self._loop._runtime_chat_id(msg),
                 context_state=cs,
+                message_timestamp=msg.timestamp.isoformat(),
             )
         return initial_messages, pending_ask_id
 

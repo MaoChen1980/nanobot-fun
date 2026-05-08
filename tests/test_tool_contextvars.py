@@ -197,3 +197,18 @@ async def test_cron_tool_no_context_returns_error(tmp_path) -> None:
 
     result = await tool.execute(action="add", message="test", every_seconds=60)
     assert result == "Error: no session context (channel/chat_id)"
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_proxy_channel_context(tmp_path) -> None:
+    """Proxy-style channel (e.g. proxy:feishu:nanobot) should be stored in job payload."""
+    tool = CronTool(CronService(tmp_path / "jobs.json"))
+    tool.set_context("proxy:feishu:nanobot", "ou_4c3a...")
+
+    result = await tool.execute(action="add", message="proxy reminder", every_seconds=300)
+    assert result.startswith("Created job")
+
+    jobs = tool._cron.list_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].payload.channel == "proxy:feishu:nanobot"
+    assert jobs[0].payload.to == "ou_4c3a..."
