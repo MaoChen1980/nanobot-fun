@@ -249,6 +249,8 @@ class AgentRunner:
                     tool_calls = tool_calls[:ask_index + 1]
                 context.tool_calls = list(tool_calls)
                 if hook.wants_streaming():
+                    if response.content:
+                        await hook.on_stream(context, response.content)
                     await hook.on_stream_end(context, resuming=True)
 
                 assistant_message = build_assistant_message(
