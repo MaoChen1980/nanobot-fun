@@ -37,7 +37,7 @@ class SystemMessageHandler:
         is_subagent = msg.sender_id == "subagent"
         if is_subagent and self._loop._persist_subagent_followup(session, msg):
             self._loop.sessions.save(session)
-        self._loop._set_tool_context(channel, chat_id, msg.metadata.get("message_id"), msg.metadata, session_key=key)
+        self._loop._set_tool_context(msg.channel, chat_id, msg.metadata.get("message_id"), msg.metadata, session_key=key)
         history = session.get_history(max_tokens=self._loop._replay_token_budget(), include_timestamps=True)
         current_role = "assistant" if is_subagent else "user"
         cs = ContextState(
@@ -96,7 +96,7 @@ class UserMessageHandler:
 
         # Stage 3: consolidation + tool context
         await self._loop.consolidator.maybe_consolidate_by_tokens(session, session_summary=pending)
-        self._loop._set_tool_context(channel, chat_id, msg.metadata.get("message_id"), msg.metadata, session_key=key)
+        self._loop._set_tool_context(msg.channel, chat_id, msg.metadata.get("message_id"), msg.metadata, session_key=key)
         self._maybe_start_message_tool()
 
         # Stage 4: build initial messages

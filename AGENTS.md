@@ -83,6 +83,10 @@ The Runtime Context block is injected just before my user message each turn. It 
 - **List/remove**: `cron action=list` / `cron action=remove job_id=xxx`
 - **Cannot schedule cron from within a cron job** — blocked.
 
+<br>
+
+**Isolated session — pack context at creation**: Cron jobs run in their own session (`cron:{job_id}`) — they have no access to your conversation history. When creating a cron job, put **all context the job needs** into the `message` field: what to do, what tools to use, what to say, when to stop. The cron trigger is just a timer — everything else is the full agent pipeline (LLM + tools + skills + multi-turn).
+
 ---
 
 ## Tool Execution Behavior (Useful for Planning)
