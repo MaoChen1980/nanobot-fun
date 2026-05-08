@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -46,6 +47,7 @@ class Dream:
         from nanobot.agent.runner import AgentRunner
         self._runner = AgentRunner(provider)
         self._tools = self._build_tools()
+        self._lock = asyncio.Lock()
 
     def set_provider(self, provider: LLMProvider, model: str) -> None:
         self.provider = provider
@@ -86,7 +88,7 @@ class Dream:
                     continue
                 content = skill_md.read_text(encoding="utf-8")[:500]
                 m = _DESC_RE.search(content)
-                desc = m.group(1).strip() if m else "(no description)"
+                desc = m.group(1).strip().strip('"').strip("'") if m else "(no description)"
                 entries[d.name] = desc
         return [f"{name} — {desc}" for name, desc in sorted(entries.items())]
 
@@ -121,6 +123,10 @@ class Dream:
         return result
 
     async def run(self) -> bool:
+        async with self._lock:
+            return await self._run_unsafe()
+
+    async def _run_unsafe(self) -> bool:
         from nanobot.agent.skills import BUILTIN_SKILLS_DIR
         from nanobot.agent.runner import AgentRunSpec
 
@@ -174,9 +180,9 @@ class Dream:
             skills_section = "\n\n## Existing Skills\n" + "\n".join(f"- {s}" for s in existing_skills)
         phase2_prompt = f"## Analysis Result\n{analysis}\n\n{file_context}{skills_section}"
 
-        skill_creator_path = BUILTIN_SKILLS_DIR / "skill-manager" / "SKILL.md"
+        skill_manager_path = BUILTIN_SKILLS_DIR / "skill-manager" / "SKILL.md"
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": render_template("agent/dream_phase2.md", strip=True, skill_creator_path=str(skill_creator_path))},
+            {"role": "system", "content": render_template("agent/dream_phase2.md", strip=True, skill_manager_path=str(skill_manager_path))},
             {"role": "user", "content": phase2_prompt},
         ]
 
@@ -199,25 +205,25 @@ class Dream:
                 if event["status"] == "ok":
                     changelog.append(f"{event['name']}: {event['detail']}")
 
-        new_cursor = batch[-1]["cursor"]
-        self.store.set_last_dream_cursor(new_cursor)
-        self.store.compact_history()
-
-        if analysis:
-            for entry in batch:
-                self.store.update_summary(entry["cursor"], analysis)
-
         if result and result.stop_reason == "completed":
+            new_cursor = batch[-1]["cursor"]
+            self.store.set_last_dream_cursor(new_cursor)
+            self.store.compact_history()
+
+            if analysis:
+                for entry in batch:
+                    self.store.update_summary(entry["cursor"], analysis)
+
+            if changelog and self.store.git.is_initialized():
+                ts = batch[-1]["timestamp"]
+                commit_msg = f"dream: {ts}, {len(changelog)} change(s)\n\n{analysis.strip()}"
+                sha = self.store.git.auto_commit(commit_msg)
+                if sha:
+                    logger.info("Dream commit: {}", sha)
+
             logger.info("Dream done: {} change(s), cursor advanced to {}", len(changelog), new_cursor)
         else:
             reason = result.stop_reason if result else "exception"
-            logger.warning("Dream incomplete ({}): cursor advanced to {}", reason, new_cursor)
-
-        if changelog and self.store.git.is_initialized():
-            ts = batch[-1]["timestamp"]
-            commit_msg = f"dream: {ts}, {len(changelog)} change(s)\n\n{analysis.strip()}"
-            sha = self.store.git.auto_commit(commit_msg)
-            if sha:
-                logger.info("Dream commit: {}", sha)
+            logger.warning("Dream incomplete ({}): cursor NOT advanced, entries will be retried", reason)
 
         return True

@@ -29,7 +29,7 @@ def test_init_skill_creates_expected_files(tmp_path: Path) -> None:
     assert (skill_dir / "assets" / "example_asset.txt").exists()
 
 
-def test_validate_skill_accepts_existing_skill_creator() -> None:
+def test_validate_skill_accepts_existing_skill_manager() -> None:
     valid, message = quick_validate.validate_skill(
         Path("nanobot/skills/skill-manager").resolve()
     )

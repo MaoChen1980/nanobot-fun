@@ -33,6 +33,7 @@ One line per finding:
 ## Staleness
 
 - ``← Nd`` suffix on MEMORY.md lines = days since last modification
+- Lines WITHOUT ``← Nd`` are recent (within {{ stale_threshold_days }} days) — keep by default
 - Only prune: passed events, resolved tracking, superseded approaches
 - Keep: user habits, persistent project knowledge, hard constraints
 - Prefer deleting individual items over entire sections

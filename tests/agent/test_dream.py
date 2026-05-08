@@ -1,5 +1,6 @@
 """Tests for the Dream class — two-phase memory consolidation via AgentRunner."""
 
+import asyncio
 import json
 
 import pytest
@@ -99,8 +100,8 @@ class TestDreamRun:
         entries = store.read_unprocessed_history(since_cursor=0)
         assert all(e["cursor"] > 0 for e in entries)
 
-    async def test_skill_phase_uses_builtin_skill_creator_path(self, dream, mock_provider, mock_runner, store):
-        """Dream should point skill creation guidance at the builtin skill-creator template."""
+    async def test_skill_phase_uses_builtin_skill_manager_path(self, dream, mock_provider, mock_runner, store):
+        """Dream should point skill creation guidance at the builtin skill-manager template."""
         store.append_history("Repeated workflow one")
         store.append_history("Repeated workflow two")
         mock_provider.chat_with_retry.return_value = MagicMock(content="[SKILL] test-skill: test description")
@@ -257,6 +258,58 @@ class TestDreamRun:
         system_msg = mock_provider.chat_with_retry.call_args.kwargs["messages"][0]["content"]
         # The template renders with a staleness description using "← Nd" notation
         assert "← Nd" in system_msg
+
+
+class TestDreamConcurrency:
+    """Concurrency and failure-recovery for Dream.run()."""
+
+    async def test_concurrent_run_blocks(self, dream, mock_provider, mock_runner, store):
+        """A second run() call should wait for the first to finish."""
+        store.append_history("event 1")
+        mock_provider.chat_with_retry.return_value = MagicMock(content="[SKIP]")
+        mock_runner.run = AsyncMock(return_value=_make_run_result())
+
+        # Hold the lock, then launch a background run() — it must block.
+        await dream._lock.acquire()
+        try:
+            ran = False
+
+            async def _delayed_run():
+                nonlocal ran
+                await dream.run()
+                ran = True
+
+            task = asyncio.create_task(_delayed_run())
+            await asyncio.sleep(0.05)
+            # The task should be blocked waiting for the lock — ran must still be False.
+            assert not ran, "run() should block when lock is held"
+        finally:
+            dream._lock.release()
+
+        await asyncio.wait_for(task, timeout=1)
+        assert ran, "run() should complete after lock is released"
+
+    async def test_cursor_not_advanced_on_phase2_exception(self, dream, mock_provider, mock_runner, store):
+        """Cursor must NOT advance when Phase 2 raises an exception."""
+        store.append_history("event 1")
+        store.append_history("event 2")
+        mock_provider.chat_with_retry.return_value = MagicMock(content="New fact")
+        mock_runner.run = AsyncMock(side_effect=RuntimeError("Phase 2 crashed"))
+
+        await dream.run()
+
+        # Cursor should still be 0 — entries will be retried next cycle.
+        assert store.get_last_dream_cursor() == 0
+
+    async def test_cursor_not_advanced_on_incomplete_phase2(self, dream, mock_provider, mock_runner, store):
+        """Cursor must NOT advance when Phase 2 stop_reason is not 'completed'."""
+        store.append_history("event 1")
+        mock_provider.chat_with_retry.return_value = MagicMock(content="New fact")
+        mock_runner.run = AsyncMock(return_value=_make_run_result(stop_reason="error"))
+
+        await dream.run()
+
+        assert store.get_last_dream_cursor() == 0
 
 
 class TestDreamPromptCaps:
