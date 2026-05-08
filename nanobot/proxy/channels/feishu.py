@@ -107,8 +107,54 @@ class FeishuProxyChannel(BaseProxyChannel):
     # Reply / reaction helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _preprocess_markdown(content: str) -> str:
+        """Convert markdown tables to code blocks for Feishu lark_md compatibility.
+
+        lark_md in Feishu cards supports bold, code, inline code, lists, and
+        links, but not markdown table syntax (``|``-delimited rows). Wrapping
+        tables in code fences preserves their visual layout.
+        """
+        lines = content.split("\n")
+        result: list[str] = []
+        table_lines: list[str] = []
+        in_table = False
+
+        for line in lines:
+            stripped = line.strip()
+            is_table = stripped.startswith("|") and stripped.endswith("|")
+
+            if is_table:
+                if not in_table:
+                    in_table = True
+                    table_lines = [line]
+                else:
+                    table_lines.append(line)
+            else:
+                if in_table:
+                    if len(table_lines) > 2:
+                        result.append("```")
+                        result.extend(table_lines)
+                        result.append("```")
+                    else:
+                        result.extend(table_lines)
+                    in_table = False
+                    table_lines = []
+                result.append(line)
+
+        if in_table:
+            if len(table_lines) > 2:
+                result.append("```")
+                result.extend(table_lines)
+                result.append("```")
+            else:
+                result.extend(table_lines)
+
+        return "\n".join(result)
+
     def _send_text_reply(self, chat_id: str, root_id: str | None, content: str) -> None:
         """Send a reply — uses interactive card with lark_md for markdown rendering, falls back to plain text."""
+        content = self._preprocess_markdown(content)
         try:
             from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
