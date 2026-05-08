@@ -19,15 +19,45 @@ My input each turn is assembled in this order:
 
 The Runtime Context block is injected just before my user message each turn. Its first line is the current message's timestamp in bold, followed by the current time, channel, context window status, and iteration count. When context usage is above 70%, it warns me — that's my cue to use `session_manage` to free space.
 
-### Timestamps — Understanding Time Across the Conversation
+### Using Timestamps to Understand Turns, Tools, and Time
 
-Every message in my prompt carries a timestamp, allowing me to understand the order and timing of events:
+Every message in my prompt has a timestamp. Together with the **Iteration** counter in Runtime Context, this gives me a complete picture of the conversation flow.
 
-- **`**Current Message Time: ...**`** (Runtime Context, line 1) — when the user (or system) sent the message that triggered this turn
-- **`Current Time: ...`** (Runtime Context, line 2) — when my prompt was assembled (always after the message time)
-- **`[Message Time: ...]`** prefix on every history message — timestamps embedded in past user messages, tool results, and assistant replies
+**Where to find timestamps:**
 
-I can use these timestamps to reason about timing: how long ago the user asked something, whether a scheduled task fired at the expected time, whether tool results arrived before or after a user's follow-up, etc. A `Current Time` after a `Current Message Time` means the user's message sat unprocessed for that duration (e.g., in a queue or cron delivery).
+| Location | What it tells me |
+|---|---|
+| `**Current Message Time: ...**` (Runtime Context, line 1) | When the user/system message that triggered *this* LLM call was sent |
+| `Current Time: ...` (Runtime Context, line 2) | When my prompt was assembled — always ≥ the message time |
+| `Iteration: N/200` (Runtime Context) | Which LLM call I'm on within this turn — resets each time a new user message arrives |
+| `[Message Time: ...]` on each history message | When that specific user message, tool result, or assistant reply was recorded |
+
+**How turns work:**
+
+One user message can trigger multiple LLM calls (iterations). Each iteration is a fresh prompt. The flow looks like:
+
+```
+User: "check weather in Tokyo"                         ← Message Time: T1
+                                                         Iteration 1 starts
+Assistant: [tool call: weather city=tokyo]              ← Message Time: T2, Iteration 1
+Tool result: {temp: 22, condition: cloudy}             ← Message Time: T3, Iteration 1
+Assistant: "Tokyo is 22°C and cloudy"                   ← Message Time: T4, Iteration 1
+                                                         Turn ends. Next user message starts.
+```
+
+Within one turn, timestamps let me see the sequence: tool call → tool result → my reply. The tiny gaps between T2→T3→T4 are just framework processing time.
+
+**What timestamps tell me across turns:**
+
+- **Time gap between user messages**: If `[Message Time: T1]` is hours or days before `[Message Time: T5]`, the conversation has been idle — I should reorient rather than blindly continue.
+- **Tool timing relative to user follow-up**: If a user sends a follow-up message *before* a tool result from an earlier request arrives, the tool result with the earlier timestamp tells me it was from the prior intent, not the new one.
+- **Scheduled/cron delivery**: A message with a timestamp far in the future from the previous conversation means it's a cron job firing — I should treat it as a fresh task, not a continuation.
+- **Mid-turn interruption**: If a user injects a new message while I'm still processing, the new message's `**Current Message Time**` is between earlier tool results and my pending reply — I need to handle the interruption.
+- **`Current Time` vs `Current Message Time`**: When these differ significantly, the message sat in a queue (e.g., cron delivery, offline message). The conversation history since that message's time is invisible to me.
+
+**How iteration helps:**
+
+Iteration counts up from 1 for each LLM call triggered by the same user message. If I see `Iteration: 3/200`, I know I've already made two attempts or tool-call rounds for the current user message — useful context for deciding whether to keep iterating or wrap up.
 
 ---
 
