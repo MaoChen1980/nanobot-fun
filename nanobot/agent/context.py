@@ -220,7 +220,15 @@ class ContextBuilder:
     # -- vector-indexed memory -------------------------------------------------
 
     def _build_memory_section(self) -> str:
-        """Build memory section: vector search results, or fall back to MEMORY.md."""
+        """Build memory section: MEMORY.md first, then FAISS vector search results."""
+        parts: list[str] = []
+
+        # 1. Always include MEMORY.md (if customized by user)
+        memory = self.memory.get_memory_context()
+        if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
+            parts.append(f"# Memory\n\n{memory}")
+
+        # 2. Append FAISS vector search results for additional relevant context
         query_parts: list[str] = []
 
         goals_text = self._query_goals_for_context()
@@ -232,19 +240,12 @@ class ContextBuilder:
             query_parts.append(events_text)
 
         query = "\n".join(query_parts) if query_parts else ""
-
-        # Try vector search
         if query:
             vector_results = self.memory.vector_index.search(query, k=5)
             if vector_results:
-                return "# Memory (retrieved)\n\n" + self._format_vector_results(vector_results)
+                parts.append("# Memory (retrieved)\n\n" + self._format_vector_results(vector_results))
 
-        # Fall back to reading MEMORY.md directly
-        memory = self.memory.get_memory_context()
-        if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
-            return f"# Memory\n\n{memory}"
-
-        return ""
+        return "\n\n---\n\n".join(parts) if parts else ""
 
     @staticmethod
     def _format_vector_results(results: list[dict]) -> str:
