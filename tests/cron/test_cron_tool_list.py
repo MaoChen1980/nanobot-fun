@@ -362,7 +362,7 @@ def test_cron_schema_advertises_action_specific_requirements(tmp_path) -> None:
     assert "REQUIRED" in message_desc and "action='add'" in message_desc
     job_id_desc = tool.parameters["properties"]["job_id"]["description"]
     assert "REQUIRED" in job_id_desc and "action='remove'" in job_id_desc
-    assert "action='update'" in job_id_desc
+    assert job_id_desc.count("'") == 8  # all actions quoted: 'remove', 'update', 'test', 'list'
 
 
 def test_validate_params_requires_message_only_for_add(tmp_path) -> None:

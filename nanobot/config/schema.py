@@ -338,6 +338,7 @@ class LogConfig(Base):
     level: str = "INFO"  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
     file: Optional[str] = "logs/nanobot.log"  # Log file path relative to data directory
     console: bool = True  # Whether to log to console
+    error_file: Optional[str] = "logs/error.log"  # ERROR+ only log path (always on, for agent debugging)
 
 
 class Config(BaseSettings):

@@ -462,16 +462,12 @@ class ProxyManager:
                             output.seek(0)
                             content = output.read().decode('utf-8', errors='replace')
                             if content.strip():
-                                for line in content.strip().splitlines()[-50:]:
-                                    logger.warning("[proxy {} crash] {}", key, line)
+                                crash_lines = content.strip().splitlines()[-50:]
+                                logger.error("Proxy {} (pid={}) crashed:\n{}", key, proxy.process.pid, "\n".join(crash_lines))
                         if not enabled:
                             logger.warning("Proxy {} (pid={}) is disabled, removing", key, proxy.process.pid)
                             del self._proxies[key]
                             continue
-                        logger.warning(
-                            "Proxy {} (pid={}) died unexpectedly, restarting...",
-                            key, proxy.process.pid
-                        )
                         self._restart_proxy(proxy)
                 # Check if TCP connection is dead (connection closed by proxy)
                 elif not proxy.is_connected:

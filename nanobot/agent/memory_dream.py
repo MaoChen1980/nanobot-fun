@@ -62,9 +62,11 @@ class Dream:
 
         tools = ToolRegistry()
         workspace = self.store.workspace
-        extra_read = [BUILTIN_SKILLS_DIR] if BUILTIN_SKILLS_DIR.exists() else None
+        # Allow reading project files for reference (builtin skills, memory, etc.)
+        project_root = BUILTIN_SKILLS_DIR.parent.parent
+        extra_read = [d for d in (BUILTIN_SKILLS_DIR, project_root) if d.exists()]
         tools.register(ReadFileTool(workspace=workspace, allowed_dir=workspace, extra_allowed_dirs=extra_read))
-        tools.register(EditFileTool(workspace=workspace, allowed_dir=workspace))
+        tools.register(EditFileTool(workspace=workspace, allowed_dir=workspace, extra_allowed_dirs=[project_root]))
         skills_dir = workspace / "skills"
         skills_dir.mkdir(parents=True, exist_ok=True)
         tools.register(WriteFileTool(workspace=workspace, allowed_dir=skills_dir))
@@ -199,8 +201,10 @@ class Dream:
         skill_manager_path = BUILTIN_SKILLS_DIR / "skill-manager" / "SKILL.md"
         from nanobot.agent.context import ContextBuilder
         runtime_ctx = ContextBuilder._build_runtime_context(None, None, timezone=self.timezone)
+        ws_path = str(self.store.workspace.resolve())
+        ws_hint = f"## Workspace\nYour workspace is at: {ws_path}\nAll file paths are relative to this directory. Use relative paths like `MEMORY.md`, `SOUL.md`, `USER.md` — NOT absolute paths.\n"
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": runtime_ctx + "\n\n" + render_template("agent/dream_phase2.md", strip=True, skill_manager_path=str(skill_manager_path))},
+            {"role": "system", "content": ws_hint + runtime_ctx + "\n\n" + render_template("agent/dream_phase2.md", strip=True, skill_manager_path=str(skill_manager_path))},
             {"role": "user", "content": phase2_prompt},
         ]
 

@@ -341,7 +341,7 @@ class BaseProxyChannel:
     def send_to_hub(
         self, msg_data: dict[str, Any], timeout: int = 300,
     ) -> HubResponse | None:
-        """Thread-safe blocking send.  Self-terminates on permanent failure.
+        """Thread-safe blocking send.  Returns None on permanent failure.
 
         Intended for callback/polling-based channels (feishu, dingtalk, …).
         """
@@ -353,15 +353,13 @@ class BaseProxyChannel:
                 )
                 return future.result(timeout=timeout)
         except Exception as e:
-            logger.error(
-                "Failed to forward message after retries: {}, exiting process", e,
-            )
-            os._exit(1)
+            logger.error("Failed to forward message after retries: {}", e)
+            return None
 
     async def async_send_to_hub(
         self, msg_data: dict[str, Any],
     ) -> HubResponse | None:
-        """Async send.  Self-terminates on permanent failure.
+        """Async send.  Returns None on permanent failure.
 
         Runs the send on the conn_loop to guarantee cross-loop TCP safety,
         then bridges the result back to the caller's event loop.
@@ -374,10 +372,8 @@ class BaseProxyChannel:
             )
             return await asyncio.wrap_future(future)
         except Exception as e:
-            logger.error(
-                "Failed to forward message after retries: {}, exiting process", e,
-            )
-            os._exit(1)
+            logger.error("Failed to forward message after retries: {}", e)
+            return None
 
     # ------------------------------------------------------------------
     # Deduplication

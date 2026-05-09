@@ -12,7 +12,7 @@ from nanobot.cron.service import CronService
 from nanobot.cron.types import CronJob, CronJobState, CronSchedule
 
 _CRON_PARAMETERS = tool_parameters_schema(
-    action=p("string", "Action to perform", enum=["add", "list", "remove", "update"]),
+    action=p("string", "Action to perform", enum=["add", "list", "remove", "update", "test"]),
     name=p("string",
         "Optional short human-readable label for the job "
         "(e.g., 'weather-monitor', 'daily-standup'). Defaults to first 30 chars of message."
@@ -35,15 +35,20 @@ _CRON_PARAMETERS = tool_parameters_schema(
     deliver=p("boolean", "Whether to deliver the execution result to the user channel (default true)",
         default=True,
     ),
-    job_id=p("string", "REQUIRED for action='remove' or action='update'. "
+    job_id=p("string", "REQUIRED for action='remove', 'update', or 'test'. "
         "Optional when inside a cron job (defaults to current job). "
         "Obtain via action='list'."),
+    dry_run=p("boolean",
+        "For action='test': run without delivering result to user channel. "
+        "Use this to test the task without sending messages.",
+        default=False,
+    ),
     required=["action"],
     description=(
         "Action-specific parameters: add requires a non-empty message plus one schedule "
         "(every_seconds, cron_expr, or at); remove requires job_id; "
         "update accepts job_id plus any fields to change (message, schedule, name, deliver); "
-        "list only needs action. "
+        "test runs the job immediately for debugging (job_id required unless inside a cron job). "
         "Per-action requirements are enforced at runtime (see field descriptions) so the "
         "top-level schema stays compatible with providers (e.g. OpenAI Codex/Responses) that "
         "reject oneOf/anyOf/allOf/enum/not at the root of function parameters."
@@ -64,6 +69,10 @@ class CronTool(Tool):
         self._session_key: ContextVar[str] = ContextVar("cron_session_key", default="")
         self._in_cron_context: ContextVar[bool] = ContextVar("cron_in_context", default=False)
         self._current_job_id: ContextVar[str] = ContextVar("cron_job_id", default="")
+        self._test_mode: ContextVar[bool] = ContextVar("cron_test_mode", default=False)
+        self._dry_run: ContextVar[bool] = ContextVar("cron_dry_run", default=False)
+        self._progress_callback: ContextVar[callable | None] = ContextVar("cron_progress_cb", default=None)
+        self._execution_log: ContextVar[list[str]] = ContextVar("cron_exec_log", default=list)
 
     def set_context(
         self, channel: str, chat_id: str,
@@ -75,9 +84,10 @@ class CronTool(Tool):
         self._metadata.set(metadata or {})
         self._session_key.set(session_key or f"{channel}:{chat_id}")
 
-    def set_cron_context(self, active: bool):
+    def set_cron_context(self, active: bool, dry_run: bool = False):
         """Mark whether the tool is executing inside a cron job callback."""
-        return self._in_cron_context.set(active)
+        self._in_cron_context.set(active)
+        self._dry_run.set(dry_run)
 
     def reset_cron_context(self, token) -> None:
         """Restore previous cron context."""
@@ -90,6 +100,26 @@ class CronTool(Tool):
     def reset_current_job_id(self, token) -> None:
         """Restore previous current job ID."""
         self._current_job_id.reset(token)
+
+    def get_execution_log(self) -> list[str]:
+        """Get the current execution log for test/debug display."""
+        return self._execution_log.get()
+
+    def clear_execution_log(self) -> None:
+        """Clear the current execution log."""
+        self._execution_log.set(list())
+
+    def reset_current_job_id(self, token) -> None:
+        """Restore previous current job ID."""
+        self._current_job_id.reset(token)
+
+    def set_progress_callback(self, cb: callable | None) -> None:
+        """Set callback for progress updates during cron execution."""
+        self._progress_callback.set(cb)
+
+    def reset_progress_callback(self, token) -> None:
+        """Restore previous progress callback."""
+        self._progress_callback.reset(token)
 
     @staticmethod
     def _validate_timezone(tz: str) -> str | None:
@@ -127,7 +157,7 @@ class CronTool(Tool):
         action = params.get("action")
         if action == "add" and not str(params.get("message") or "").strip():
             errors.append("message is required when action='add'")
-        if action in ("remove", "update") and not str(params.get("job_id") or "").strip():
+        if action in ("remove", "update", "test") and not str(params.get("job_id") or "").strip():
             if not self._in_cron_context.get():
                 errors.append(f"job_id is required when action='{action}' (or run inside a cron job)")
         return errors
@@ -143,6 +173,7 @@ class CronTool(Tool):
         at: str | None = None,
         job_id: str | None = None,
         deliver: bool = True,
+        dry_run: bool = False,
         **kwargs: Any,
     ) -> str:
         if action == "add":
@@ -155,6 +186,8 @@ class CronTool(Tool):
             return self._remove_job(job_id)
         elif action == "update":
             return self._update_job(job_id, name, message, every_seconds, cron_expr, tz, at, deliver)
+        elif action == "test":
+            return await self._test_job(job_id, dry_run)
         return f"Unknown action: {action}"
 
     def _add_job(
@@ -357,3 +390,73 @@ class CronTool(Tool):
         if message:
             parts.append(f"  New message: {message[:60]}{'...' if len(message) > 60 else ''}")
         return "\n".join(parts)
+
+    async def _test_job(self, job_id: str | None, dry_run: bool = False) -> str:
+        """Test run a cron job immediately for debugging.
+
+        Features:
+        - Shows execution steps in real-time via on_progress callback
+        - Supports dry_run mode (execute without delivering to user)
+        - Returns detailed result or error message
+        """
+        if not job_id:
+            job_id = self._current_job_id.get()
+        if not job_id:
+            return "Error: job_id is required for test (or run inside a cron job)"
+
+        job = self._cron.get_job(job_id)
+        if not job:
+            return f"Error: job '{job_id}' not found"
+
+        if job.name == "dream":
+            return "Error: cannot test system job 'dream'"
+
+        if not self._cron.on_job:
+            return "Error: cron service has no on_job handler (test not available in this context)"
+
+        steps = []
+
+        def on_progress(step: str) -> None:
+            """Collect execution steps for display."""
+            steps.append(f"  [Step] {step}")
+
+        try:
+            # Mark test mode and dry_run
+            test_token = self._test_mode.set(True)
+            dry_run_token = self._dry_run.set(dry_run)
+            job_token = self.set_current_job_id(job.id)
+
+            # Set the progress callback
+            old_callback = self._progress_callback.get()
+            self._progress_callback.set(on_progress)
+
+            steps.append(f"🔍 Test running job '{job.name}' (id: {job.id})")
+            if dry_run:
+                steps.append("  [Mode] Dry run - result will not be delivered")
+
+            # Override deliver based on dry_run
+            if dry_run:
+                job.payload.deliver = False
+
+            try:
+                # Execute the job
+                result = await self._cron.run_job(job_id, force=True)
+
+                steps.append("")  # blank line before result
+                if result:
+                    steps.append(f"✅ Test completed successfully")
+                    steps.append(f"Result preview: {result[:200]}{'...' if len(result) > 200 else ''}")
+                else:
+                    steps.append("⚠️  Test completed but returned empty result")
+
+                return "\n".join(steps)
+
+            finally:
+                self._progress_callback.set(old_callback)
+                self._test_mode.reset(test_token)
+                self._dry_run.reset(dry_run_token)
+                self.reset_current_job_id(job_token)
+
+        except Exception as e:
+            steps.append(f"❌ Test run failed: {e}")
+            return "\n".join(steps)

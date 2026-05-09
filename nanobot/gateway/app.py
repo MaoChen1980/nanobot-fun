@@ -267,6 +267,9 @@ class GatewayApplication:
                     logger.exception("Dream cron job failed")
                 return None
 
+            # Check if this is a test/dry-run execution
+            is_test_mode = isinstance(getattr(self.agent.tools.get("cron"), "_test_mode", None), object)
+
             reminder_note = (
                 "The scheduled time has arrived. Deliver this reminder to the user now, "
                 "as a brief and natural message in their language. Speak directly to them — "
@@ -283,10 +286,15 @@ class GatewayApplication:
             cron_token = None
             cron_job_token = None
             if isinstance(cron_tool, CronTool):
-                cron_token = cron_tool.set_cron_context(True)
+                # Determine if we should show progress
+                dry_run = job.payload.deliver is False  # dry_run mode
+                cron_token = cron_tool.set_cron_context(True, dry_run=dry_run)
                 cron_job_token = cron_tool.set_current_job_id(job.id)
 
-            async def _silent(*_args: Any, **_kwargs: Any) -> None:
+            # Build progress callback for visible execution
+            async def _progress(step: str, done: bool = False) -> None:
+                # In test/dry-run mode, progress is captured for display
+                # In normal mode, progress is silent unless testing
                 pass
 
             message_record_token = None
@@ -295,13 +303,34 @@ class GatewayApplication:
                     message_tool.set_record_channel_delivery(True)
                 )
 
+            # Wire progress callback: capture agent tool steps for display
+            async def _visible_progress(
+                content: str, *, tool_hint: bool = False, tool_events: list = None
+            ) -> None:
+                if isinstance(cron_tool, CronTool):
+                    log = cron_tool.get_execution_log()
+                    if tool_events:
+                        for ev in tool_events:
+                            if ev.get("event") == "start":
+                                tool_name = ev.get("tool", "?")
+                                log.append(f"  [Tool] {tool_name}()")
+                    elif content:
+                        # thought / hint content
+                        line = content.strip().split("\n")[0][:80]
+                        if line:
+                            log.append(f"  [Thought] {line}")
+
+            # Determine on_progress: use visible in test mode, silent otherwise
+            is_test = getattr(cron_tool, "_test_mode", None) and cron_tool._test_mode.get()
+            on_progress = _visible_progress if is_test else _silent
+
             try:
                 resp = await self.agent.process_direct(
                     reminder_note,
                     session_key=f"cron:{job.id}",
                     channel=job.payload.channel or "cli",
                     chat_id=job.payload.to or "direct",
-                    on_progress=_silent,
+                    on_progress=on_progress,
                 )
             finally:
                 if isinstance(cron_tool, CronTool) and cron_token is not None:
@@ -317,6 +346,16 @@ class GatewayApplication:
                     )
 
             response = resp.content if resp else ""
+
+            # In test mode: append execution log to result
+            if is_test and isinstance(cron_tool, CronTool):
+                log = cron_tool.get_execution_log()
+                if log:
+                    response = "[Test Execution Log]\n" + "\n".join(log) + "\n\n[Result]\n" + response
+
+            # Test/dry-run: return result but don't deliver to user
+            if not job.payload.deliver:
+                return response
 
             if (
                 job.payload.deliver

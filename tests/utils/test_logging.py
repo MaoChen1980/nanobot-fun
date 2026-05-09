@@ -11,19 +11,19 @@ class TestLoggerConfig:
         """Second call to configure returns without re-adding handlers."""
         cfg = LoggerConfig()
         cfg._configured = True
-        cfg.configure(LogConfig(enabled=True, level="DEBUG", console=False, file=None))
+        cfg.configure(LogConfig(enabled=True, level="DEBUG", console=False, file=None, error_file=None))
         assert cfg._configured is True
 
     def test_disabled_logging_skips_handlers(self):
         """When enabled=False, handlers are not added and _configured stays False."""
         cfg = LoggerConfig()
-        cfg.configure(LogConfig(enabled=False, level="INFO", console=False, file=None))
+        cfg.configure(LogConfig(enabled=False, level="INFO", console=False, file=None, error_file=None))
         assert cfg._configured is False  # _configured only set to True after handlers added
 
     def test_disabled_console_and_file_no_error(self):
         """Configure with console=False and file=None works fine."""
         cfg = LoggerConfig()
-        cfg.configure(LogConfig(enabled=True, level="WARNING", console=False, file=None))
+        cfg.configure(LogConfig(enabled=True, level="WARNING", console=False, file=None, error_file=None))
         assert cfg._configured is True
 
     def test_global_logger_config_instance(self):
