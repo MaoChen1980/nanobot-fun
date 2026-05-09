@@ -6,7 +6,7 @@ from pathlib import Path
 from nanobot.utils.gitstore import GitStore, CommitInfo
 
 
-TRACKED = ["SOUL.md", "USER.md", "memory/MEMORY.md"]
+TRACKED = ["SOUL.md", "USER.md"]
 
 
 @pytest.fixture
@@ -38,8 +38,10 @@ class TestInit:
         gi = git_ready._workspace / ".gitignore"
         assert gi.exists()
         content = gi.read_text(encoding="utf-8")
-        for f in TRACKED:
-            assert f"!{f}" in content
+        assert "!SOUL.md" in content
+        assert "!USER.md" in content
+        assert "!memory/" in content
+        assert "memory/.vector_index/" in content
 
     def test_init_touches_tracked_files(self, git_ready):
         for f in TRACKED:
@@ -54,18 +56,17 @@ class TestInit:
 class TestBuildGitignore:
     def test_subdirectory_dirs(self, git):
         content = git._build_gitignore()
-        assert "!memory/\n" in content
-        for f in TRACKED:
-            assert f"!{f}\n" in content
+        assert "!SOUL.md" in content
+        assert "!USER.md" in content
+        assert "!memory/" in content
+        assert "memory/.vector_index/" in content
         assert content.startswith("/*\n")
 
-    def test_root_level_files_no_dir_entries(self, tmp_path):
-        gs = GitStore(tmp_path, tracked_files=["a.md", "b.md"])
-        content = gs._build_gitignore()
-        assert "!a.md\n" in content
-        assert "!b.md\n" in content
-        dir_lines = [l for l in content.split("\n") if l.startswith("!") and l.endswith("/")]
-        assert dir_lines == []
+    def test_gitignore_allows_memory_dir(self, tmp_path):
+        content = GitStore(tmp_path, tracked_files=["SOUL.md"])._build_gitignore()
+        assert "!SOUL.md" in content
+        assert "!memory/" in content
+        assert "memory/.vector_index/" in content
 
 
 class TestAutoCommit:

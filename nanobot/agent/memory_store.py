@@ -13,6 +13,7 @@ from loguru import logger
 
 from nanobot.utils.helpers import ensure_dir, truncate_text
 from nanobot.agent.loop_utils import strip_think
+from nanobot.agent.memory_vector import MemoryVectorIndex
 from nanobot.utils.gitstore import GitStore
 
 if TYPE_CHECKING:
@@ -61,8 +62,10 @@ class MemoryStore:
         self._corruption_logged = False
         self._oversize_logged = False
         self._git = GitStore(workspace, tracked_files=[
-            "SOUL.md", "USER.md", "memory/MEMORY.md",
+            "SOUL.md", "USER.md",
         ])
+        self.vector_index = MemoryVectorIndex(self.memory_dir)
+        self.vector_index.load()
         self._maybe_migrate_legacy_history()
         atexit.register(self.flush_cursor)
 
@@ -212,6 +215,47 @@ class MemoryStore:
     def get_memory_context(self) -> str:
         long_term = self.read_memory()
         return f"## Long-term Memory\n{long_term}" if long_term else ""
+
+    # --- Categorized memory file support ---
+
+    def list_memory_files(self) -> list[Path]:
+        """Return all .md files under memory/ (excluding .vector_index/)."""
+        return sorted(
+            p for p in self.memory_dir.rglob("*.md")
+            if ".vector_index" not in p.parts
+        )
+
+    def read_categorized_file(self, rel_path: str) -> str:
+        """Read a file relative to memory/."""
+        return self.read_file(self.memory_dir / rel_path)
+
+    def write_categorized_file(self, rel_path: str, content: str) -> None:
+        """Write a file relative to memory/, creating parent dirs."""
+        target = self.memory_dir / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+    def get_all_memory_text(self) -> str:
+        """Concatenate all categorized memory files for full index rebuild."""
+        parts: list[str] = []
+        for f in self.list_memory_files():
+            content = self.read_file(f)
+            if content.strip():
+                rel = f.relative_to(self.memory_dir)
+                parts.append(f"--- {rel} ---\n{content}")
+        return "\n\n".join(parts)
+
+    def build_vector_index(self) -> None:
+        """Rebuild the FAISS vector index from all memory files."""
+        file_texts: dict[str, str] = {}
+        for f in self.list_memory_files():
+            content = self.read_file(f)
+            if content.strip():
+                rel = str(f.relative_to(self.memory_dir))
+                file_texts[rel] = content
+        if file_texts:
+            self.vector_index.build_from_files(file_texts)
+            self.vector_index.save()
 
     def append_history(self, entry: str, *, max_chars: int | None = None, timestamp: str | None = None) -> int:
         if self._db is not None:

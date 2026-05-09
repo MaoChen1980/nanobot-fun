@@ -203,6 +203,14 @@
   .markdown-body a:hover { text-decoration: underline; }
   .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   .markdown-body strong { font-weight: 700; }
+
+  /* Memory search bar */
+  .memory-search-bar { display: flex; gap: 0.5rem; padding: 0.75rem; background: var(--surface); border-radius: var(--radius); margin-bottom: 0.5rem; box-shadow: var(--shadow-sm); }
+  .memory-search-bar input { flex: 1; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; font-size: 0.875rem; outline: none; transition: border-color 0.15s; }
+  .memory-search-bar input:focus { border-color: var(--primary); }
+  .memory-search-bar button { border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; cursor: pointer; font-size: 0.875rem; transition: all 0.15s; }
+  .memory-search-bar button:hover { background: var(--header-hover); border-color: var(--border-hover); }
+  .memory-search-bar .llm-active { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
 </style>
 </head>
 <body>
@@ -234,7 +242,16 @@
     <div id="tabProviders" class="tab-panel"></div>
     <div id="tabTools" class="tab-panel"></div>
     <div id="tabGateway" class="tab-panel"></div>
-    <div id="tabMemory" class="tab-panel"></div>
+    <div id="tabMemory" class="tab-panel">
+      <div class="memory-search-bar">
+        <input type="text" id="memorySearchInput" placeholder="Search memory..." onkeydown="if(event.key==='Enter') doMemorySearch()">
+        <button type="button" onclick="doMemorySearch()" title="Search">&#x1F50D;</button>
+        <button type="button" id="memoryLlmToggle" onclick="toggleMemoryLlm()" title="LLM interpretation">AI</button>
+        <button type="button" onclick="rebuildMemoryIndex()" title="Rebuild index" style="font-size:0.75rem">&#x1F504; Rebuild</button>
+      </div>
+      <div id="memoryIndexStatus" style="padding:0.25rem 0.75rem;font-size:0.75rem;color:var(--text-muted)"></div>
+      <div id="memoryContent"><div class="card"><div class="markdown-body loading">Switch to Memory tab to load.</div></div></div>
+    </div>
   </form>
 </div>
 
@@ -766,12 +783,22 @@ function resolveMemoryPath(href) {
   return parts.join('/');
 }
 
+let memorySearchLlm = false; // toggle for LLM interpretation
+
+function toggleMemoryLlm() {
+  memorySearchLlm = !memorySearchLlm;
+  const btn = document.getElementById('memoryLlmToggle');
+  if (btn) btn.className = memorySearchLlm ? 'llm-active' : '';
+}
+
 function renderMemory() {
   const el = document.getElementById('tabMemory');
   delete el.dataset.loaded;
   memoryStack.length = 1;
   memoryStack[0] = 'memory/MEMORY.md';
-  el.innerHTML = '<div class="card"><div class="markdown-body loading">Switch to Memory tab to load.</div></div>';
+  el.querySelector('#memorySearchInput').value = '';
+  el.querySelector('#memoryLlmToggle').className = '';
+  el.querySelector('#memoryContent').innerHTML = '<div class="card"><div class="markdown-body loading">Switch to Memory tab to load.</div></div>';
 }
 
 async function loadMemory(path) {
@@ -783,12 +810,12 @@ async function loadMemory(path) {
   }
   const target = path || memoryStack[memoryStack.length - 1] || 'memory/MEMORY.md';
   try {
-    el.innerHTML = '<div class="card"><div class="markdown-body loading">Loading...</div></div>';
+    document.getElementById('memoryContent').innerHTML = '<div class="card"><div class="markdown-body loading">Loading...</div></div>';
     const res = await fetch('/api/workspace/file?path=' + encodeURIComponent(target));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (!data.exists) {
-      el.innerHTML = '<div class="card"><div class="markdown-body"><p class="error">File not found: ' + esc(target) + '</p></div></div>';
+      document.getElementById('memoryContent').innerHTML = '<div class="card"><div class="markdown-body"><p class="error">File not found: ' + esc(target) + '</p></div></div>';
       return;
     }
     const html = marked.parse(data.content, {breaks: true});
@@ -798,14 +825,14 @@ async function loadMemory(path) {
         + '<button type="button" onclick="memoryGoBack()" style="font-size:0.8rem">← Back</button>'
         + '<span style="font-size:0.75rem;color:var(--text-muted)">' + esc(target) + '</span></div>';
     }
-    el.innerHTML = '<div class="card">' + navHtml + '<div class="markdown-body">' + html + '</div></div>';
+    document.getElementById('memoryContent').innerHTML = '<div class="card">' + navHtml + '<div class="markdown-body">' + html + '</div></div>';
     // Render mermaid diagrams
     try {
       mermaid.initialize({startOnLoad: false, theme: 'default'});
       mermaid.run({querySelector: '.markdown-body pre code.language-mermaid'});
     } catch(e) { /* mermaid not loaded or no diagrams */ }
     // Intercept .md links
-    el.querySelectorAll('.markdown-body a[href$=".md"]').forEach(a => {
+    document.querySelectorAll('#memoryContent .markdown-body a[href$=".md"]').forEach(a => {
       a.addEventListener('click', e => {
         e.preventDefault();
         const href = a.getAttribute('href');
@@ -813,13 +840,75 @@ async function loadMemory(path) {
       });
     });
   } catch(e) {
-    el.innerHTML = '<div class="card"><div class="markdown-body"><p class="error">Failed to load: ' + esc(e.message) + '</p></div></div>';
+    document.getElementById('memoryContent').innerHTML = '<div class="card"><div class="markdown-body"><p class="error">Failed to load: ' + esc(e.message) + '</p></div></div>';
   }
 }
 
 function memoryGoBack() {
   if (memoryStack.length > 1) memoryStack.pop();
   loadMemory(memoryStack[memoryStack.length - 1]);
+}
+
+async function doMemorySearch() {
+  const input = document.getElementById('memorySearchInput');
+  const q = input.value.trim();
+  if (!q) return;
+  const content = document.getElementById('memoryContent');
+  content.innerHTML = '<div class="card"><div class="markdown-body loading">Searching...</div></div>';
+  try {
+    const res = await fetch('/api/memory/search?q=' + encodeURIComponent(q) + (memorySearchLlm ? '&llm=1' : ''));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    let html = '<div class="card">';
+    html += '<div style="padding:0.75rem 1.25rem;border-bottom:1px solid var(--border);display:flex;gap:0.5rem;align-items:center">'
+      + '<button type="button" onclick="clearMemorySearch()" style="font-size:0.8rem">← Back to file</button>'
+      + '<span style="font-size:0.75rem;color:var(--text-muted)">Search: ' + esc(q) + '</span></div>';
+    html += '<div class="markdown-body">';
+    if (data.results && data.results.length > 0) {
+      html += '## Search Results\n\n';
+      for (const r of data.results) {
+        const label = r.heading ? r.source + ' — ' + r.heading : r.source;
+        html += '**' + esc(label) + '** (relevance: ' + r.score.toFixed(2) + ')\n\n';
+        html += '> ' + esc(r.text) + '\n\n';
+        html += '<p><a href="#" onclick="loadMemory(\'' + esc(r.source) + '\');return false">📄 Open file</a></p>\n\n';
+      }
+      if (data.interpretation) {
+        html += '---\n\n## LLM Interpretation\n\n' + marked.parse(data.interpretation);
+      }
+    } else {
+      html += '<p class="error">No results found.</p>';
+    }
+    html += '</div></div>';
+    content.innerHTML = html;
+  } catch(e) {
+    content.innerHTML = '<div class="card"><div class="markdown-body"><p class="error">Search failed: ' + esc(e.message) + '</p></div></div>';
+  }
+}
+
+function clearMemorySearch() {
+  document.getElementById('memorySearchInput').value = '';
+  renderMemory();
+  loadMemory();
+}
+
+async function rebuildMemoryIndex() {
+  const status = document.getElementById('memoryIndexStatus');
+  status.textContent = 'Rebuilding index...';
+  try {
+    const res = await fetch('/api/memory/rebuild-index', {method: 'POST'});
+    const data = await res.json();
+    if (data.ok) {
+      if (data.faiss_available) {
+        status.textContent = 'FAISS index rebuilt: ' + data.chunks + ' chunks.';
+      } else {
+        status.textContent = 'Index rebuild done (grep fallback active). Install sentence-transformers + faiss-cpu for vector search.';
+      }
+    } else {
+      status.textContent = 'Failed: ' + (data.error || 'unknown error');
+    }
+  } catch(e) {
+    status.textContent = 'Failed: ' + e.message;
+  }
 }
 
 // ── Field helpers ─────────────────────────────────────────────────────────────

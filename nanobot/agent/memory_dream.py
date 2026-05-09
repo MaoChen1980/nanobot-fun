@@ -239,6 +239,11 @@ class Dream:
                 if sha:
                     logger.info("Dream commit: {}", sha)
 
+            # Rebuild vector index after memory files are updated
+            # Offload to thread pool to avoid blocking the async event loop
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.store.build_vector_index)
+
             logger.info("Dream done: {} change(s), cursor advanced to {}", len(changelog), new_cursor)
         else:
             reason = result.stop_reason if result else "exception"

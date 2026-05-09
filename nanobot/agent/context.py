@@ -80,10 +80,10 @@ class ContextBuilder:
             if section:
                 parts.append(section)
 
-        # Memory before rules — established facts should precede constraints
-        memory = self.memory.get_memory_context()
-        if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
-            parts.append(f"# Memory\n\n{memory}")
+        # Memory — try vector search, fall back to MEMORY.md
+        memory_section = self._build_memory_section()
+        if memory_section:
+            parts.append(memory_section)
 
         bootstrap = self._load_bootstrap_files()
         if bootstrap:
@@ -217,6 +217,57 @@ class ContextBuilder:
             lines.append(f"### [{ts}] {e['content']}")
         return "\n".join(lines)
 
+    # -- vector-indexed memory -------------------------------------------------
+
+    def _build_memory_section(self) -> str:
+        """Build memory section: vector search results, or fall back to MEMORY.md."""
+        query_parts: list[str] = []
+
+        goals_text = self._query_goals_for_context()
+        if goals_text:
+            query_parts.append(goals_text)
+
+        events_text = self._query_recent_events()
+        if events_text:
+            query_parts.append(events_text)
+
+        query = "\n".join(query_parts) if query_parts else ""
+
+        # Try vector search
+        if query:
+            vector_results = self.memory.vector_index.search(query, k=5)
+            if vector_results:
+                return "# Memory (retrieved)\n\n" + self._format_vector_results(vector_results)
+
+        # Fall back to reading MEMORY.md directly
+        memory = self.memory.get_memory_context()
+        if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
+            return f"# Memory\n\n{memory}"
+
+        return ""
+
+    @staticmethod
+    def _format_vector_results(results: list[dict]) -> str:
+        """Format vector search results grouped by source file."""
+        from collections import OrderedDict
+
+        grouped: dict[str, list[dict]] = OrderedDict()
+        for r in results:
+            grouped.setdefault(r["source"], []).append(r)
+
+        lines: list[str] = []
+        for source, items in grouped.items():
+            for item in items:
+                heading = item.get("heading", "")
+                score = item.get("score", 0)
+                label = f"{source} — {heading}" if heading else source
+                lines.append(f"**{label}** (relevance: {score:.2f})")
+                text = item.get("text", "")
+                if len(text) > 300:
+                    text = text[:297] + "..."
+                lines.append(f"> {text}\n")
+
+        return "\n".join(lines)
 
     @staticmethod
     def _build_runtime_context(
@@ -330,6 +381,23 @@ class ContextBuilder:
             max_iterations=cs.max_iterations,
             message_time=message_timestamp,
         )
+
+        # Search vector index with current message for relevant memory.
+        # Nested inside the runtime-context block so _record_turn strips it.
+        msg_query = current_message.strip()
+        if msg_query:
+            vec_results = self.memory.vector_index.search(msg_query, k=3)
+            if vec_results:
+                formatted = self._format_vector_results(vec_results)
+                memory_block = (
+                    "## Memory (current context)\n\n"
+                    f"Relevant memories for the current message:\n\n{formatted}"
+                )
+                end_marker = ContextBuilder._RUNTIME_CONTEXT_END
+                runtime_ctx = runtime_ctx.replace(
+                    end_marker, memory_block + "\n" + end_marker
+                )
+
         user_content = self._build_user_content(current_message, media)
         if runtime_ctx:
             if isinstance(user_content, str):

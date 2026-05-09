@@ -102,8 +102,14 @@ class GitStore:
                 if not p.exists():
                     p.write_text("", encoding="utf-8")
 
+            # Discover existing memory files for the initial commit.
+            initial_memory = sorted(
+                str(p.relative_to(self._workspace))
+                for p in self._workspace.glob("memory/**/*.md")
+            )
+
             # Initial commit
-            porcelain.add(str(self._workspace), paths=[".gitignore"] + self._tracked_files)
+            porcelain.add(str(self._workspace), paths=[".gitignore"] + self._tracked_files + initial_memory)
             porcelain.commit(
                 str(self._workspace),
                 message=b"init: nanobot memory store",
@@ -129,14 +135,19 @@ class GitStore:
         try:
             from dulwich import porcelain
 
-            # .gitignore excludes everything except tracked files,
-            # so any staged/unstaged change must be in our files.
+            # .gitignore allows memory/ dir; dynamically discover memory files.
             st = porcelain.status(str(self._workspace))
             if not st.unstaged and not any(st.staged.values()):
                 return None
 
+            memory_files = sorted(
+                str(p.relative_to(self._workspace))
+                for p in self._workspace.glob("memory/**/*.md")
+            )
+            paths = self._tracked_files + memory_files
+
             msg_bytes = message.encode("utf-8") if isinstance(message, str) else message
-            porcelain.add(str(self._workspace), paths=self._tracked_files)
+            porcelain.add(str(self._workspace), paths=paths)
             sha_bytes = porcelain.commit(
                 str(self._workspace),
                 message=msg_bytes,
@@ -193,17 +204,13 @@ class GitStore:
         return False
 
     def _build_gitignore(self) -> str:
-        """Generate .gitignore content from tracked files."""
-        dirs: set[str] = set()
-        for f in self._tracked_files:
-            parent = str(Path(f).parent)
-            if parent != ".":
-                dirs.add(parent)
+        """Generate .gitignore — allow tracked root files + memory/ dir."""
+        allowed = sorted(set(self._tracked_files))
         lines = ["/*"]
-        for d in sorted(dirs):
-            lines.append(f"!{d}/")
-        for f in self._tracked_files:
+        for f in allowed:
             lines.append(f"!{f}")
+        lines.append("!memory/")
+        lines.append("memory/.vector_index/")
         lines.append("!.gitignore")
         return "\n".join(lines) + "\n"
 
@@ -432,7 +439,6 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
             tracked_files=[
                 "SOUL.md",
                 "USER.md",
-                "memory/MEMORY.md",
             ],
         )
         gs.init()

@@ -91,6 +91,10 @@ discord = [
 langsmith = [
     "langsmith>=0.1.0",
 ]
+memory-vector = [
+    "sentence-transformers>=3.0.0",
+    "faiss-cpu>=1.8.0",
+]
 pdf = [
     "pymupdf>=1.25.0",
 ]

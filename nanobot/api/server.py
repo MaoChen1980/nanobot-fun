@@ -38,6 +38,120 @@ async def handle_workspace_file(request: Request) -> Response:
     return JSONResponse({"content": content, "path": file_path, "exists": True})
 
 
+async def handle_memory_search(request: Request) -> Response:
+    """GET /api/memory/search?q=...&llm=1 — FAISS search with grep fallback."""
+    from nanobot.config.loader import load_config
+
+    q = (request.query_params.get("q") or "").strip()
+    if not q:
+        return JSONResponse({"results": []})
+
+    config = load_config()
+    workspace = config.workspace_path
+    from nanobot.agent.memory_store import MemoryStore
+    store = MemoryStore(workspace)
+
+    # Try vector search first
+    store.vector_index.load()
+    results = store.vector_index.search(q, k=5)
+
+    # Fall back to grep when FAISS index unavailable or empty
+    if not results:
+        results = _grep_memory(workspace, q)
+
+    resp: dict[str, object] = {"results": results}
+
+    if request.query_params.get("llm") == "1" and results:
+        try:
+            from nanobot.providers.factory import make_provider
+
+            provider = make_provider(config)
+            memory_text = "\n\n".join(
+                f"--- {r['source']} ({r['heading']}) ---\n{r['text']}"
+                for r in results
+            )
+            interpretation = await provider.chat_with_retry(
+                model=config.agents.defaults.model,
+                messages=[
+                    {"role": "system", "content": (
+                        "You are a memory analyst. Given a user's question and the "
+                        "relevant memory fragments retrieved from their personal knowledge base, "
+                        "provide a concise interpretation: how each fragment relates to the query, "
+                        "what the user was trying to remember, and any patterns or insights."
+                    )},
+                    {"role": "user", "content": (
+                        f"## Query\n{q}\n\n## Retrieved Memories\n{memory_text}"
+                    )},
+                ],
+            )
+            resp["interpretation"] = interpretation.content if interpretation else None
+        except Exception as e:
+            resp["interpretation"] = f"LLM interpretation unavailable: {e}"
+
+    return JSONResponse(resp)
+
+
+def _grep_memory(workspace: Path, q: str, k: int = 5) -> list[dict]:
+    """Simple grep-based memory search when FAISS index is unavailable."""
+    import re
+    memory_dir = workspace / "memory"
+    if not memory_dir.is_dir():
+        return []
+    results: list[dict] = []
+    for f in sorted(memory_dir.rglob("*.md")):
+        if ".vector_index" in f.parts:
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        lines = text.split("\n")
+        # Score: count matching lines (case-insensitive)
+        q_lower = q.lower()
+        match_lines = [i for i, line in enumerate(lines) if q_lower in line.lower()]
+        if not match_lines:
+            continue
+        score = min(1.0, len(match_lines) / max(1, len(lines)) * 10)
+        # Extract context around first match
+        start = max(0, match_lines[0] - 2)
+        context = "\n".join(lines[start:match_lines[0] + 3])
+        rel = str(f.relative_to(memory_dir))
+        results.append({
+            "source": rel,
+            "heading": "",
+            "text": context[:500],
+            "score": round(score, 4),
+        })
+    results.sort(key=lambda r: r["score"], reverse=True)
+    return results[:k]
+
+
+async def handle_memory_rebuild_index(request: Request) -> Response:
+    """POST /api/memory/rebuild-index — rebuild FAISS index in background thread."""
+    import asyncio
+    from nanobot.config.loader import load_config
+
+    config = load_config()
+    workspace = config.workspace_path
+
+    loop = asyncio.get_event_loop()
+
+    def _build() -> dict:
+        from nanobot.agent.memory_store import MemoryStore
+        store = MemoryStore(workspace)
+        store.build_vector_index()
+        return {
+            "faiss_available": store.vector_index._index is not None,
+            "chunks": len(store.vector_index._chunks),
+        }
+
+    try:
+        result = await loop.run_in_executor(None, _build)
+        return JSONResponse({"ok": True, **result})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 async def handle_settings_get(request: Request) -> Response:
     """GET /api/settings"""
     try:
@@ -297,6 +411,8 @@ def create_app(index_html_path: str | Path = "", proxy_manager=None) -> Starlett
         Route("/api/shutdown", endpoint=handle_shutdown, methods=["POST"]),
         Route("/api/stop", endpoint=handle_stop, methods=["POST"]),
         Route("/api/workspace/file", endpoint=handle_workspace_file),
+        Route("/api/memory/search", endpoint=handle_memory_search),
+        Route("/api/memory/rebuild-index", endpoint=handle_memory_rebuild_index, methods=["POST"]),
     ]
     if public_dir.is_dir():
         routes.append(
