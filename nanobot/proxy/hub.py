@@ -167,6 +167,7 @@ class HubTCPServer:
                     channel=inbound.channel,
                     chat_id=inbound.chat_id,
                     media=inbound.media or None,
+                    metadata=inbound.metadata,
                 )
 
         try:

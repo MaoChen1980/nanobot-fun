@@ -87,6 +87,14 @@ class UserMessageHandler:
             new_content, image_only = extract_documents(msg.content, msg.media)
             msg = dataclasses.replace(msg, content=new_content, media=image_only)
 
+        # Inject quoted message context into content
+        quoted = msg.metadata.get("quoted_message", "")
+        if quoted:
+            msg = dataclasses.replace(
+                msg,
+                content=f"[Quoting the following message]\n{quoted}\n\n---\n{msg.content}",
+            )
+
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
 

@@ -65,6 +65,12 @@ class FeishuProxyChannel(BaseProxyChannel):
                 sender_id = str(sender_id_obj or "")
             chat_id = getattr(message, "chat_id", "")
 
+            # Fetch quoted message if this is a reply
+            parent_id = getattr(message, "parent_id", None)
+            quoted_text = ""
+            if parent_id:
+                quoted_text = self._fetch_quoted_message(parent_id)
+
             # THUMBSUP reaction immediately
             self._add_reaction(message_id, self._reaction_emoji)
 
@@ -82,6 +88,8 @@ class FeishuProxyChannel(BaseProxyChannel):
                     logger.error("Failed to send reply/reaction: {}", e)
 
             msg_data = self.build_message(sender_id, chat_id, text, message_id)
+            if quoted_text:
+                msg_data["metadata"] = {"quoted_message": quoted_text}
             self._thread_pool.submit(lambda: _do_reply(self.send_to_hub(msg_data)))
 
         except Exception as e:
@@ -90,6 +98,28 @@ class FeishuProxyChannel(BaseProxyChannel):
     def on_reaction(self, data: Any) -> None:
         """Handle reaction events (im.message.reaction.created_v1)."""
         pass
+
+    # ------------------------------------------------------------------
+    # Fetch quoted message
+    # ------------------------------------------------------------------
+
+    def _fetch_quoted_message(self, message_id: str) -> str:
+        """Fetch the content of the message being replied to."""
+        try:
+            from lark_oapi.api.im.v1 import GetMessageRequest
+            request = GetMessageRequest.builder().message_id(message_id).build()
+            response = self._client.im.v1.message.get(request)
+            if response.success():
+                items = response.data.items
+                if items:
+                    content_str = items[0].body.content
+                    obj = json.loads(content_str)
+                    if isinstance(obj, dict):
+                        return obj.get("text", "") or obj.get("content", "") or str(obj)
+                    return str(obj)
+        except Exception as e:
+            logger.debug("Failed to fetch quoted message {}: {}", message_id, e)
+        return ""
 
     # ------------------------------------------------------------------
     # Push delivery from Hub (cron reminders, etc.)

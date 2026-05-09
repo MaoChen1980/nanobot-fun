@@ -939,6 +939,7 @@ class AgentLoop:
         channel: str = "cli",
         chat_id: str = "direct",
         media: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
@@ -947,7 +948,7 @@ class AgentLoop:
         await self._connect_mcp()
         msg = InboundMessage(
             channel=channel, sender_id="user", chat_id=chat_id,
-            content=content, media=media or [],
+            content=content, media=media or [], metadata=metadata or {},
         )
         return await self._process_message(
             msg,
