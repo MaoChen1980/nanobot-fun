@@ -179,5 +179,14 @@ class HubTCPServer:
             logger.exception("Error processing proxy TCP message: {}", e)
             resp = HubResponse(success=False, error=str(e))
 
-        writer.write((json.dumps(resp.to_dict()) + "\n").encode())
-        await writer.drain()
+        # Route response through proxy_manager so it reaches the CURRENT
+        # TCP connection — the proxy may have reconnected during processing.
+        proxy_key = f"{msg.channel}:{msg.bot}"
+        delivered = await self._proxy_manager.deliver_to_proxy(
+            proxy_key, resp.to_dict(),
+        )
+        if not delivered:
+            logger.warning(
+                "Response not delivered to proxy {} (disconnected during processing)",
+                proxy_key,
+            )

@@ -308,11 +308,11 @@ class BaseProxyChannel:
                         timeout=5,
                     )
                     if resp.get("type") != "pong":
-                        logger.error("Heartbeat: unexpected response from hub, exiting")
-                        os._exit(1)
-                except Exception:
-                    logger.error("Heartbeat: hub not reachable, exiting")
-                    os._exit(1)
+                        logger.error("Heartbeat: unexpected pong response, reconnecting...")
+                        await self._reconnect_to_hub()
+                except Exception as e:
+                    logger.warning("Heartbeat ping failed ({}), reconnecting...", e)
+                    await self._reconnect_to_hub()
 
             # Check 3: config file says channel is still enabled (every 30s)
             config_check_interval += 1
