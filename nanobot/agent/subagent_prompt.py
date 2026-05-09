@@ -17,17 +17,14 @@ def build_subagent_prompt(
     timezone: str | None = None,
 ) -> str:
     """Build a focused system prompt for the subagent."""
-    from nanobot.agent.context import ContextBuilder
     from nanobot.agent.skills import SkillsLoader
 
-    time_ctx = ContextBuilder._build_runtime_context(None, None, timezone=timezone)
     skills_summary = SkillsLoader(
         workspace,
         disabled_skills=disabled_skills,
     ).build_skills_summary()
     return render_template(
         "agent/subagent_system.md",
-        time_ctx=time_ctx,
         workspace=str(workspace),
         skills_summary=skills_summary or "",
         context="",

@@ -61,8 +61,8 @@ def test_system_prompt_reflects_current_dream_memory_contract(tmp_path) -> None:
     assert "write important facts here" not in prompt
 
 
-def test_runtime_context_is_in_system_prompt_not_user_message(tmp_path) -> None:
-    """Runtime metadata lives in system prompt, not merged into user message."""
+def test_runtime_context_is_in_user_message_not_system_prompt(tmp_path) -> None:
+    """Runtime metadata is prepended to the current user message, not in system prompt."""
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)
 
@@ -74,19 +74,21 @@ def test_runtime_context_is_in_system_prompt_not_user_message(tmp_path) -> None:
     )
 
     assert messages[0]["role"] == "system"
-    # Runtime context should be in system prompt (metadata section)
-    assert ContextBuilder._RUNTIME_CONTEXT_TAG in messages[0]["content"]
-    assert "Current Time:" in messages[0]["content"]
-    assert "Channel: cli" in messages[0]["content"]
-    assert "Chat ID: direct" in messages[0]["content"]
+    # Per-turn runtime metadata should NOT be in system prompt
+    assert ContextBuilder._RUNTIME_CONTEXT_END not in messages[0]["content"]
+    assert "Channel: cli" not in messages[0]["content"]
+    assert "Chat ID: direct" not in messages[0]["content"]
 
-    # User message should contain only actual user content
+    # Runtime context should be prepended to user message
     assert messages[-1]["role"] == "user"
     user_content = messages[-1]["content"]
     assert isinstance(user_content, str)
+    assert user_content.startswith(ContextBuilder._RUNTIME_CONTEXT_TAG)
+    assert "Current Time:" in user_content
+    assert "Channel: cli" in user_content
+    assert "Chat ID: direct" in user_content
     assert "Return exactly: OK" in user_content
-    assert ContextBuilder._RUNTIME_CONTEXT_TAG not in user_content
-    assert "Current Time:" not in user_content
+    assert user_content.index(ContextBuilder._RUNTIME_CONTEXT_TAG) < user_content.index("Return exactly: OK")
 
 
 def test_unprocessed_history_injected_into_system_prompt(tmp_path) -> None:

@@ -147,9 +147,12 @@ class SubagentManager:
         try:
             tools = build_subagent_tools(self.workspace, self.web_config, self.exec_config, self.restrict_to_workspace)
             system_prompt = build_subagent_prompt(self.workspace, self.disabled_skills, timezone=getattr(self, 'timezone', None))
+            from nanobot.agent.context import ContextBuilder
+            runtime_ctx = ContextBuilder._build_runtime_context(None, None, timezone=getattr(self, 'timezone', None))
+            task_content = f"{runtime_ctx}\n\n{task}" if runtime_ctx else task
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": task},
+                {"role": "user", "content": task_content},
             ]
 
             result = await self.runner.run(AgentRunSpec(

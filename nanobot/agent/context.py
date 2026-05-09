@@ -69,19 +69,16 @@ class ContextBuilder:
         skill_names: list[str] | None = None,
         channel: str | None = None,
         tool_definitions: list[dict[str, Any]] | None = None,
-        runtime_context: str = "",
     ) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
         _t0 = time.time()
         parts = [self._get_identity(channel=channel)]
 
-        if runtime_context:
-            parts.append(runtime_context)
-
-        # Current State — Goals + recent events from DB
-        state_block = self._build_state_section()
-        if state_block:
-            parts.append(f"# Current State\n\n{state_block}")
+        # Tools early — let LLM know capabilities before loading context
+        if tool_definitions:
+            section = self._build_tools_section(tool_definitions)
+            if section:
+                parts.append(section)
 
         # Memory before rules — established facts should precede constraints
         memory = self.memory.get_memory_context()
@@ -111,11 +108,10 @@ class ContextBuilder:
             history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
             parts.append("# Recent History\n\n" + history_text)
 
-        # Tools at end — reference section, not reasoning section
-        if tool_definitions:
-            section = self._build_tools_section(tool_definitions)
-            if section:
-                parts.append(section)
+        # Current State — Goals + recent events from DB, near end for recency bias
+        state_block = self._build_state_section()
+        if state_block:
+            parts.append(f"# Current State\n\n{state_block}")
 
         _elapsed = (time.time() - _t0) * 1000
         if _elapsed > 100:
@@ -335,8 +331,13 @@ class ContextBuilder:
             message_time=message_timestamp,
         )
         user_content = self._build_user_content(current_message, media)
+        if runtime_ctx:
+            if isinstance(user_content, str):
+                user_content = f"{runtime_ctx}\n\n{user_content}"
+            else:
+                user_content = [{"type": "text", "text": runtime_ctx}] + list(user_content)
         messages = [
-            {"role": "system", "content": self.build_system_prompt(skill_names, channel=channel, tool_definitions=cs.tool_definitions, runtime_context=runtime_ctx)},
+            {"role": "system", "content": self.build_system_prompt(skill_names, channel=channel, tool_definitions=cs.tool_definitions)},
             *history,
         ]
         if messages[-1].get("role") == current_role:

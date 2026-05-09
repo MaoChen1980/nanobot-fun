@@ -784,6 +784,8 @@ class AgentLoop:
                     end_pos = content.find(end_marker)
                     if end_pos >= 0:
                         after = content[end_pos + len(end_marker):].lstrip("\n")
+                        if after.startswith("--- Current Turn ---"):
+                            after = after[len("--- Current Turn ---"):].lstrip("\n")
                         if after:
                             entry["content"] = after
                         else:
