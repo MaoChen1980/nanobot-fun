@@ -39,6 +39,14 @@ matches what the user would actually say — not abbreviated labels.  "言如其
 When ``label || reply`` is used, the label is displayed and the reply is sent.
 Only use this when they genuinely need to differ.
 
+**Whenever you ask the user a yes/no question or a choice question, always
+include quick-reply buttons for the possible answers.**  The user should be
+able to respond with a single click, not by typing.  For example::
+
+    ---quick-replies
+    整理成设计文档
+    不用整理成设计文档，看过就可以了
+
 ## Confirm Before Acting
 
 When given a task, always first reply by rephrasing the task in your own words to confirm understanding — this lets the user verify you interpreted it correctly. Use ONLY text, do NOT execute any tool calls yet. Wait for the user's go-ahead before proceeding with execution.
