@@ -165,7 +165,11 @@ class FeishuProxyChannel(BaseProxyChannel):
         chat_id = data.get("chat_id", "")
         content = data.get("content", "")
         if chat_id and content:
-            self._send_text_reply(chat_id, None, content)
+            try:
+                self._send_text_reply(chat_id, None, content)
+                logger.info("Delivered to {}: content={}", chat_id, content[:60])
+            except Exception as e:
+                logger.error("Failed to deliver to {}: {}", chat_id, e)
 
     # ------------------------------------------------------------------
     # Reply / reaction helpers
@@ -302,12 +306,6 @@ class FeishuProxyChannel(BaseProxyChannel):
                 {"tag": "markdown", "content": body or content},
             ]
 
-            # V1 schema for full send_feedback button support (V2 removed this)
-            card: dict[str, Any] = {
-                "config": {"width_mode": "fill"},
-                "schema": "1.0",
-            }
-
             if quick_replies:
                 btn_elements = [
                     {
@@ -323,7 +321,13 @@ class FeishuProxyChannel(BaseProxyChannel):
                     "actions": btn_elements,
                 })
 
-            card["body"] = {"elements": elements}
+            # V1 schema for full send_feedback button support (V2 removed this)
+            # Elements go at top level in V1 (not inside body.elements).
+            card: dict[str, Any] = {
+                "config": {"width_mode": "fill"},
+                "schema": "1.0",
+                "elements": elements,
+            }
             if header_text:
                 template = self.config.get("cardTemplate", "blue")
                 card["header"] = {
