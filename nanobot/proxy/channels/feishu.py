@@ -100,6 +100,14 @@ class FeishuProxyChannel(BaseProxyChannel):
         """Handle reaction events (im.message.reaction.created_v1)."""
         pass
 
+    def on_bot_enter_chat(self, data: Any) -> None:
+        """Suppress 'processor not found' error for bot_p2p_chat_entered_v1."""
+        pass
+
+    def on_message_read(self, data: Any) -> None:
+        """Suppress 'processor not found' error for message_read_v1."""
+        pass
+
     def on_card_action(self, data: Any) -> None:
         """Handle card button click — forward reply text to Hub as user message."""
         try:
@@ -502,6 +510,8 @@ class FeishuProxyChannel(BaseProxyChannel):
             .register_p2_im_message_receive_v1(self.on_message)
             .register_p2_im_message_reaction_created_v1(self.on_reaction)
             .register_p2_card_action_trigger(self.on_card_action)
+            .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(self.on_bot_enter_chat)
+            .register_p2_im_message_message_read_v1(self.on_message_read)
         )
         event_handler = builder.build()
 
