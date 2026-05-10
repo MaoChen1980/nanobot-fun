@@ -111,7 +111,9 @@ class HubTCPServer:
                     await writer.drain()
 
                 elif msg_type == "message":
-                    await self._route_message(writer, data, peername)
+                    # Process asynchronously so heartbeats and other messages
+                    # from the same proxy are still serviced during long LLM calls.
+                    asyncio.create_task(self._route_message(writer, data, peername))
 
         except asyncio.CancelledError:
             pass

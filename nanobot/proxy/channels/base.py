@@ -107,8 +107,16 @@ class BaseProxyChannel:
             sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)
 
             if platform.system() == "Windows":
-                # (on_off, idle_ms, interval_ms)
-                sock.ioctl(_socket.SIO_KEEPALIVE_VALS, (1, 5000, 3000))
+                # Python 3.10+ exposes TCP_KEEPIDLE on Windows 10 1703+;
+                # the ioctl(SIO_KEEPALIVE_VALS) approach fails on asyncio
+                # ProactorEventLoop sockets.
+                keepidle = getattr(_socket, "TCP_KEEPIDLE", None)
+                if keepidle is not None:
+                    sock.setsockopt(_socket.IPPROTO_TCP, keepidle, 5)
+                    keepintvl = getattr(_socket, "TCP_KEEPINTVL", 3)
+                    sock.setsockopt(_socket.IPPROTO_TCP, keepintvl, 3)
+                else:
+                    sock.ioctl(_socket.SIO_KEEPALIVE_VALS, (1, 5000, 3000))
             else:
                 # Linux: TCP_KEEPIDLE / TCP_KEEPINTVL / TCP_KEEPCNT
                 for name, val in [("TCP_KEEPIDLE", 5), ("TCP_KEEPINTVL", 3), ("TCP_KEEPCNT", 3)]:

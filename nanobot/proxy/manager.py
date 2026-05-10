@@ -63,6 +63,7 @@ class ProxyManager:
         self._proxies: dict[str, ProxyInfo] = {}  # key -> ProxyInfo
         self._monitor_task: asyncio.Task | None = None
         self._writers: dict[int, str] = {}  # writer_id -> proxy key
+        self._deliver_locks: dict[str, asyncio.Lock] = {}  # proxy_key -> Lock
 
     _pid_file: str | None = None
 
@@ -361,22 +362,29 @@ class ProxyManager:
     async def deliver_to_proxy(self, proxy_key: str, data: dict[str, Any]) -> bool:
         """Deliver a JSON message to a proxy via its TCP connection.
 
+        Uses a per-proxy lock to prevent concurrent write/drain interleaving
+        when multiple async tasks deliver to the same proxy (e.g. when
+        message processing runs concurrently to service heartbeats).
+
         Returns True if the message was written successfully, False if
         the proxy is not connected or the write failed.
         """
-        proxy = self._proxies.get(proxy_key)
-        if proxy is None or proxy.writer is None or proxy.writer.is_closing():
-            logger.warning("Cannot deliver to proxy {}: not connected", proxy_key)
-            return False
-        import json
-        try:
-            proxy.writer.write((json.dumps(data) + "\n").encode())
-            await proxy.writer.drain()
-            logger.debug("Delivered to proxy {}", proxy_key)
-            return True
-        except Exception as e:
-            logger.error("Failed to deliver to proxy {}: {}", proxy_key, e)
-            return False
+        if proxy_key not in self._deliver_locks:
+            self._deliver_locks[proxy_key] = asyncio.Lock()
+        async with self._deliver_locks[proxy_key]:
+            proxy = self._proxies.get(proxy_key)
+            if proxy is None or proxy.writer is None or proxy.writer.is_closing():
+                logger.warning("Cannot deliver to proxy {}: not connected", proxy_key)
+                return False
+            import json
+            try:
+                proxy.writer.write((json.dumps(data) + "\n").encode())
+                await proxy.writer.drain()
+                logger.debug("Delivered to proxy {}", proxy_key)
+                return True
+            except Exception as e:
+                logger.error("Failed to deliver to proxy {}: {}", proxy_key, e)
+                return False
 
     def heartbeat(self, registration: dict[str, Any]) -> None:
         """Update last heartbeat for a proxy (HTTP-based, legacy)."""
