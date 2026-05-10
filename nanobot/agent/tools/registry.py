@@ -102,21 +102,63 @@ class ToolRegistry:
         return tool, cast_params, None
 
     async def execute(self, name: str, params: dict[str, Any]) -> Any:
-        """Execute a tool by name with given parameters."""
+        """Execute a tool by name with given parameters.
+
+        The execution pipeline is:
+
+        1. :meth:`prepare_call` — resolve tool, cast params, validate schema
+        2. **Pre-validators** — run :attr:`Tool._pre_validators`, abort on failure
+        3. **Execute** — call ``tool.execute(**params)``
+        4. **Post-validators** — run :attr:`Tool._post_validators`, collect warnings
+        5. **Format result** — append ``❌`` on error, ``✓`` on single-line success
+        """
         _HINT = "\n\n[Analyze the error above and try a different approach.]"
         tool, params, error = self.prepare_call(name, params)
         if error:
-            return error + _HINT
+            return error + " ❌" + _HINT
 
+        # Pre-validators
+        for v in tool._pre_validators:
+            err = await v.check(tool, params)
+            if err:
+                return f"❌ {v.__class__.__name__}: {err}" + _HINT
+
+        # Execute
         try:
-            assert tool is not None  # guarded by prepare_call()
             result = await tool.execute(**params)
-            if isinstance(result, str) and result.startswith("Error"):
-                return result + _HINT
-            return result
         except Exception as e:
             logger.exception("Tool '{}' execution failed", name)
-            return f"Error executing {name}: {str(e)}" + _HINT
+            return f"Error executing {name}: {str(e)} ❌" + _HINT
+
+        # If tool itself reported an error, skip post-validators
+        if isinstance(result, str) and result.startswith("Error"):
+            return result + " ❌" + _HINT
+
+        # Post-validators
+        warnings: list[str] = []
+        for v in tool._post_validators:
+            warn = await v.check(tool, params, result)
+            if warn:
+                warnings.append(f"⚠️ {v.__class__.__name__}: {warn}")
+
+        if warnings:
+            result = str(result) + "\n" + "\n".join(warnings)
+
+        return self._format_result(name, result)
+
+    @staticmethod
+    def _format_result(name: str, result: Any) -> str:
+        """Standardize result formatting.
+
+        - Error strings (starting with ``Error``) get ``❌``.
+        - Single-line success strings get ``✓``.
+        - Multi-line results (file contents, exec output) are returned as-is.
+        """
+        if isinstance(result, str) and result.startswith("Error"):
+            return result + " ❌"
+        if isinstance(result, str) and "\n" not in result and "✓" not in result:
+            return result + " ✓"
+        return str(result)
 
     @property
     def tool_names(self) -> list[str]:

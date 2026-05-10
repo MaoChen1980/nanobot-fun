@@ -67,6 +67,13 @@ class WriteFileTool(_FsTool):
             file_state.record_write(fp)
             write_result = f"Successfully wrote {len(content)} characters to {fp}"
 
+            # Auto-verify: extract first meaningful line from content as verification
+            content_lines = [l.strip() for l in content.splitlines() if l.strip() and not l.strip().startswith("#")]
+            verify_pattern = content_lines[0] if content_lines else None
+            verify_result = ""
+            if verify_pattern:
+                verify_result = self._grep_file(fp, verify_pattern, max_matches=3)
+
             # Type-check before exec (if requested)
             check_result = ""
             if then_check:
@@ -83,6 +90,8 @@ class WriteFileTool(_FsTool):
                 exec_result = f"\n\nExec output:\n{await exec_tool.execute(then_exec)}"
 
             parts = [write_result]
+            if verify_result:
+                parts.append(f"Verified:\n{verify_result}")
             if check_result:
                 parts.append(check_result)
             if exec_result:

@@ -130,7 +130,7 @@ async def test_registry_executes_decorated_tool_end_to_end() -> None:
     reg.register(DecoratedSampleTool())
 
     ok = await reg.execute("decorated_sample", {"query": "hello", "count": "3"})
-    assert ok == "ok:3"
+    assert ok == "ok:3 ✓"
 
     err = await reg.execute("decorated_sample", {"query": "h", "count": 3})
     assert "Invalid parameters" in err

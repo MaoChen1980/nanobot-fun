@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, TypeVar
 
 _ToolT = TypeVar("_ToolT", bound="Tool")
@@ -104,12 +105,165 @@ class Schema(ABC):
         return Schema.validate_json_schema_value(value, self.to_json_schema(), path)
 
 
+# ---------------------------------------------------------------------------
+# Validator framework
+# ---------------------------------------------------------------------------
+
+
+class Validator(ABC):
+    """Base class for tool validators.
+
+    A validator runs before (pre) or after (post) tool execution.
+    Return ``None`` for pass, or an error/warning string on failure.
+    """
+
+    @abstractmethod
+    async def check(self, tool: Tool, params: dict[str, Any], result: Any = None) -> str | None:
+        ...
+
+    @staticmethod
+    def _resolve(tool: Tool, val: str) -> Path:
+        """Resolve a path using the tool's ``_resolve`` if available."""
+        resolve = getattr(tool, "_resolve", None)
+        if resolve:
+            return resolve(val)
+        return Path(val)
+
+
+class PathExists(Validator):
+    """Pre-validator: parameter must point to an existing path."""
+
+    def __init__(self, key: str) -> None:
+        self._key = key
+
+    async def check(self, tool: Tool, params: dict[str, Any], result: Any = None) -> str | None:
+        val = params.get(self._key)
+        if not val:
+            return None
+        try:
+            resolved = self._resolve(tool, val)
+        except Exception as e:
+            return f"{self._key} cannot be resolved: {e}"
+        if not resolved.exists():
+            return f"{self._key} does not exist: {resolved}"
+        return None
+
+
+class PathNotExists(Validator):
+    """Pre-validator: parameter must not already exist."""
+
+    def __init__(self, key: str) -> None:
+        self._key = key
+
+    async def check(self, tool: Tool, params: dict[str, Any], result: Any = None) -> str | None:
+        val = params.get(self._key)
+        if not val:
+            return None
+        try:
+            resolved = self._resolve(tool, val)
+        except Exception as e:
+            return f"{self._key} cannot be resolved: {e}"
+        if resolved.exists():
+            return f"{self._key} already exists: {resolved}"
+        return None
+
+
+class PathType(Validator):
+    """Pre-validator: parameter must be a file or directory."""
+
+    def __init__(self, key: str, kind: str) -> None:
+        self._key = key
+        self._kind = kind  # "file" or "dir"
+
+    async def check(self, tool: Tool, params: dict[str, Any], result: Any = None) -> str | None:
+        val = params.get(self._key)
+        if not val:
+            return None
+        try:
+            resolved = self._resolve(tool, val)
+        except Exception as e:
+            return f"{self._key} cannot be resolved: {e}"
+        if not resolved.exists():
+            return None  # PathExists should catch this first
+        if self._kind == "file" and not resolved.is_file():
+            return f"{self._key} is a directory, expected a file: {resolved}"
+        if self._kind == "dir" and not resolved.is_dir():
+            return f"{self._key} is a file, expected a directory: {resolved}"
+        return None
+
+
+class FileDeleted(Validator):
+    """Post-validator: confirm a file was deleted."""
+
+    def __init__(self, key: str) -> None:
+        self._key = key
+
+    async def check(self, tool: Tool, params: dict[str, Any], result: Any = None) -> str | None:
+        val = params.get(self._key)
+        if not val:
+            return None
+        try:
+            resolved = self._resolve(tool, val)
+        except Exception:
+            return None
+        if resolved.exists():
+            return f"{self._key} still exists after delete: {resolved}"
+        return None
+
+
+class FileCreated(Validator):
+    """Post-validator: confirm a file was created."""
+
+    def __init__(self, key: str) -> None:
+        self._key = key
+
+    async def check(self, tool: Tool, params: dict[str, Any], result: Any = None) -> str | None:
+        val = params.get(self._key)
+        if not val:
+            return None
+        try:
+            resolved = self._resolve(tool, val)
+        except Exception:
+            return None
+        if not resolved.exists():
+            return f"{self._key} not found after operation: {resolved}"
+        return None
+
+
+class ExitCode(Validator):
+    """Post-validator: check command exit code matches expected."""
+
+    def __init__(self, expected: int = 0) -> None:
+        self._expected = expected
+
+    async def check(self, tool: Tool, params: dict[str, Any], result: Any = None) -> str | None:
+        if result is None:
+            return "no result to check"
+        if isinstance(result, str) and "Exit code:" in result:
+            import re
+            m = re.search(r"Exit code:\s*(-?\d+)", result)
+            if m:
+                code = int(m.group(1))
+                if code != self._expected:
+                    return f"exit code {code} ≠ expected {self._expected}"
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Tool base class
+# ---------------------------------------------------------------------------
+
+
 class Tool(ABC):
     """Agent capability: read files, run commands, etc.
 
     Subclasses set :attr:`name`, :attr:`description`, :attr:`read_only`,
     and :attr:`exclusive` as class attributes.  The :attr:`parameters` schema
     is attached via the :func:`tool_parameters` decorator.
+
+    Subclasses can declare :attr:`_pre_validators` and :attr:`_post_validators`
+    to have the framework automatically verify conditions before and after
+    :meth:`execute` runs.
     """
 
     name: str = ""
@@ -119,6 +273,12 @@ class Tool(ABC):
 
     _tool_parameters_schema: dict[str, Any] = {"type": "object", "properties": {}}
     """Cached JSON Schema (set by :func:`tool_parameters`)."""
+
+    _pre_validators: list[Validator] = []
+    """Validators run before :meth:`execute`. Return error string to abort."""
+
+    _post_validators: list[Validator] = []
+    """Validators run after :meth:`execute`. Return warning string on failure."""
 
     @property
     def concurrency_safe(self) -> bool:
@@ -233,7 +393,15 @@ def tool_parameters(
         schema = {"type": "object", "properties": {}}
 
     def decorator(cls: type[_ToolT]) -> type[_ToolT]:
-        cls._tool_parameters_schema = deepcopy(schema)  # type: ignore[assignment]
+        schema_copy = deepcopy(schema)  # type: ignore[assignment]
+        # Auto-inject minLength: 1 for required string params
+        required = schema_copy.get("required", [])
+        props = schema_copy.get("properties", {})
+        for key in required:
+            prop = props.get(key, {})
+            if isinstance(prop, dict) and prop.get("type") == "string" and "minLength" not in prop:
+                prop["minLength"] = 1
+        cls._tool_parameters_schema = schema_copy
         return cls
 
     return decorator

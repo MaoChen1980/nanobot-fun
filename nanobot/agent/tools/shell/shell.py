@@ -69,6 +69,26 @@ _EXES_WITH_SCRIPT_FLAGS: set[str] = {
             "Skip execution and operate on cached output. "
             "Use with grep/extract to re-examine, or alone to see full cached output."
         ),
+        verify=p("string",
+            "Post-execution checks: comma-separated list (no shell needed). "
+            "Available checks:\n"
+            "  exit:N                  — expect exit code N (default 0)\n"
+            "  output_contains:text    — output must contain text\n"
+            "  output_not_contains:text— output must NOT contain text\n"
+            "  file_created:path       — file must exist after command\n"
+            "  file_deleted:path       — file must not exist after command\n"
+            "  file_contains:path:text — file must contain text (e.g. log check)\n"
+            "  file_not_contains:path:text — file must NOT contain text\n"
+            "Example: verify=\"exit:0,output_contains:Build OK,file_created:dist/app.exe\""
+        ),
+        check=p("string",
+            "Post-execution validation script (shell command). "
+            "Runs after the main command. Exit 0 = pass, non-zero = fail.\n"
+            "Use {cache} for the cached output file path.\n"
+            "Examples:\n"
+            "  check=\"python -c \\\"import sys; data=open('{cache}').read(); sys.exit(0 if 'PASS' in data else 1)\\\"\"\n"
+            "  check=\"test -f dist/app.exe\""
+        ),
         required=[],
     )
 )
@@ -133,7 +153,15 @@ class ExecTool(Tool):
             "  - extract: run a script against cached output using {cache} placeholder\n"
             "  - from_cache: pass a previous cache path to re-examine its output\n\n"
             "Workflow: exec once, inspect multiple ways. "
-            "No need to re-run a command just to grep its output — use from_cache."
+            "No need to re-run a command just to grep its output — use from_cache.\n\n"
+            "Post-execution verification (use after commands where correctness matters):\n"
+            "  - verify: declarative comma-separated checks — exit:N, output_contains:text,\n"
+            "    output_not_contains:text, file_created:path, file_deleted:path,\n"
+            "    file_contains:path:text, file_not_contains:path:text\n"
+            "    Example: verify=\"exit:0,output_contains:Build OK,file_created:dist/app.exe\"\n"
+            "  - check: arbitrary shell script for custom validation (exit 0 = pass, non-zero = fail).\n"
+            "    Use {cache} to reference the cached output file.\n"
+            "  Both verify and check run after the command and report ✓/❌ per check."
         )
 
     exclusive = True
@@ -142,7 +170,9 @@ class ExecTool(Tool):
         self, command: str = "", working_dir: str | None = None,
         timeout: int | None = None, capture_file: str | None = None,
         grep: str | None = None, extract: str | None = None,
-        from_cache: str | None = None, **kwargs: Any,
+        from_cache: str | None = None,
+        verify: str | None = None, check: str | None = None,
+        **kwargs: Any,
     ) -> str:
         # ── from_cache mode: skip execution, operate on cached output ──
         if from_cache:
@@ -261,7 +291,7 @@ class ExecTool(Tool):
                 if stderr_text.strip():
                     output_parts.append(f"STDERR:\n{stderr_text}")
 
-            output_parts.append(f"\nExit code: {process.returncode}")
+            output_parts.append(f"Exit code: {process.returncode} {'✓' if process.returncode == 0 else '❌'}")
 
             shell_info = f"[cwd: {cwd}, shell: {'cmd' if _IS_WINDOWS else 'sh'}]"
             result = shell_info + "\n" + ("\n".join(output_parts) if output_parts else "(no output)")
@@ -278,15 +308,25 @@ class ExecTool(Tool):
             # Save full output to cache
             cache_path = self._save_to_cache(command, stdout_text, stderr_text, process.returncode)
 
+            # Post-execution verification (verify + check)
+            verification = ""
+            if verify or check:
+                verification = await self._run_verification(
+                    verify or "", check or "", stdout_text, stderr_text,
+                    process.returncode, cache_path, cwd, env,
+                )
+
             # Route through grep/extract modes
             if grep:
-                return self._format_grep_result(stdout_text, stderr_text, process.returncode, grep)
+                return self._format_grep_result(stdout_text, stderr_text, process.returncode, grep) + verification
             if extract:
-                return await self._format_extract_result(cache_path, stdout_text, stderr_text, process.returncode, extract)
+                return (await self._format_extract_result(
+                    cache_path, stdout_text, stderr_text, process.returncode, extract,
+                )) + verification
 
             # Default: append cache path to result
             result += f"\n[Full output cached: {cache_path}]"
-            return result
+            return result + verification
 
         except Exception as e:
             logger.exception("Command execution failed")
@@ -362,7 +402,7 @@ class ExecTool(Tool):
         tail = lines[-tail_lines:] if len(lines) > tail_lines else lines
         tail_text = "\n".join(tail)
 
-        result = f"[Loaded from cache: {cache_path}]\nExit code: {exit_code}"
+        result = f"[Loaded from cache: {cache_path}]\nExit code: {exit_code} {'✓' if exit_code == 0 else '❌'}"
         if tail_text:
             result += f"\n\nLast {len(tail)} lines:\n{tail_text}"
         return result
@@ -381,14 +421,14 @@ class ExecTool(Tool):
         matched = [(i + 1, line) for i, line in enumerate(lines) if pattern in line]
 
         if not matched:
-            return f"[No lines matched {pattern!r}]\nExit code: {exit_code}"
+            return f"[No lines matched {pattern!r}]\nExit code: {exit_code} {'✓' if exit_code == 0 else '❌'}"
 
         result_lines = [f"[Filtered: {len(matched)} of {len(lines)} lines matching {pattern!r}]"]
         for line_no, text in matched:
             display = text if len(text) <= 200 else text[:197] + "..."
             result_lines.append(f"  {line_no}:{display}")
 
-        result_lines.append(f"Exit code: {exit_code}")
+        result_lines.append(f"Exit code: {exit_code} {'✓' if exit_code == 0 else '❌'}")
         return "\n".join(result_lines)
 
     # ------------------------------------------------------------------
@@ -426,6 +466,120 @@ class ExecTool(Tool):
             return f"[Extract timed out after 30s]"
         except Exception as e:
             return f"[Extract error: {e}]"
+
+    # ------------------------------------------------------------------
+    # Post-execution verification
+    # ------------------------------------------------------------------
+
+    async def _run_verification(
+        self, verify: str, check: str, stdout: str, stderr: str,
+        exit_code: int, cache_path: Path, cwd: str, env: dict,
+    ) -> str:
+        """Run both declarative verify and script-based check, return formatted block."""
+        parts: list[str] = []
+        has_fail = False
+
+        if verify:
+            v_result, v_fail = self._run_verify(verify, stdout, stderr, exit_code)
+            if v_result:
+                parts.append(v_result)
+                if v_fail:
+                    has_fail = True
+
+        if check:
+            c_result, c_fail = await self._run_check(check, cache_path, cwd, env)
+            if c_result:
+                parts.append(c_result)
+                if c_fail:
+                    has_fail = True
+
+        if not parts:
+            return ""
+
+        joined = "\n".join(parts)
+        header = "[Verification]" + (" ❌" if has_fail else " ✓")
+        return "\n" + header + "\n" + joined
+
+    @staticmethod
+    def _run_verify(verify: str, stdout: str, stderr: str, exit_code: int) -> tuple[str, bool]:
+        """Run declarative verify checks. Returns (formatted_block, has_failure)."""
+        combined = stdout
+        if stderr.strip():
+            combined += "\n" + stderr
+        checks = [c.strip() for c in verify.split(",")]
+        lines: list[str] = []
+        has_fail = False
+
+        for check_item in checks:
+            if not check_item:
+                continue
+            if check_item.startswith("exit:"):
+                expected = int(check_item.split(":", 1)[1])
+                ok = exit_code == expected
+                lines.append(f"  {'✓' if ok else '❌'} exit={exit_code}" + ("" if ok else f" (expected {expected})"))
+                if not ok:
+                    has_fail = True
+            elif check_item.startswith("output_contains:"):
+                text = check_item.split(":", 1)[1]
+                ok = text in combined
+                lines.append(f"  {'✓' if ok else '❌'} output contains {text!r}")
+                if not ok:
+                    has_fail = True
+            elif check_item.startswith("output_not_contains:"):
+                text = check_item.split(":", 1)[1]
+                ok = text not in combined
+                lines.append(f"  {'✓' if ok else '❌'} output does not contain {text!r}")
+                if not ok:
+                    has_fail = True
+            elif check_item.startswith("file_created:"):
+                path = check_item.split(":", 1)[1]
+                ok = Path(path).exists()
+                lines.append(f"  {'✓' if ok else '❌'} file created: {path}")
+                if not ok:
+                    has_fail = True
+            elif check_item.startswith("file_deleted:"):
+                path = check_item.split(":", 1)[1]
+                ok = not Path(path).exists()
+                lines.append(f"  {'✓' if ok else '❌'} file deleted: {path}")
+                if not ok:
+                    has_fail = True
+            elif check_item.startswith("file_contains:"):
+                parts = check_item.split(":", 2)
+                path, text = parts[1], parts[2]
+                ok = Path(path).exists() and text in Path(path).read_text(encoding="utf-8", errors="replace")
+                lines.append(f"  {'✓' if ok else '❌'} {path} contains {text!r}")
+                if not ok:
+                    has_fail = True
+            elif check_item.startswith("file_not_contains:"):
+                parts = check_item.split(":", 2)
+                path, text = parts[1], parts[2]
+                exists = Path(path).exists()
+                ok = not exists or text not in Path(path).read_text(encoding="utf-8", errors="replace")
+                lines.append(f"  {'✓' if ok else '❌'} {path} does not contain {text!r}")
+                if not ok:
+                    has_fail = True
+
+        return "\n".join(lines) if lines else "", has_fail
+
+    async def _run_check(self, check_cmd: str, cache_path: Path, cwd: str, env: dict) -> tuple[str, bool]:
+        """Run a post-execution validation script. Returns (formatted_block, has_failure)."""
+        cmd = check_cmd.replace("{cache}", str(cache_path))
+        try:
+            proc = await self._spawn(cmd, cwd, env)
+            stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=30)
+            out = stdout_b.decode("utf-8", errors="replace") if stdout_b else ""
+            err = stderr_b.decode("utf-8", errors="replace") if stderr_b else ""
+            ok = proc.returncode == 0
+            parts = [f"  {'✓' if ok else '❌'} check script (exit {proc.returncode})"]
+            if out.strip():
+                parts.append(out.rstrip())
+            if err.strip():
+                parts.append(f"  STDERR: {err.strip()}")
+            return "\n".join(parts), not ok
+        except asyncio.TimeoutError:
+            return "  ❌ check script timed out after 30s", True
+        except Exception as e:
+            return f"  ❌ check script error: {e}", True
 
     @staticmethod
     def _try_direct_args(command: str) -> list[str] | None:

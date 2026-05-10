@@ -41,16 +41,14 @@ class ReadFileTool(_FsTool):
             "Text output format: LINE_NUM|CONTENT. "
             "Images return visual content for analysis. "
             "Use offset and limit for large text files. "
-            "Reads exceeding ~128K chars are truncated."
+            "Reads exceeding ~128K chars are truncated.\n"
+            "Framework auto-validates: path is required and non-empty."
         )
 
     read_only = True
 
-    async def execute(self, path: str | None = None, offset: int = 1, limit: int | None = None, pages: str | None = None, **kwargs: Any) -> Any:
+    async def execute(self, path: str = "", offset: int = 1, limit: int | None = None, pages: str | None = None, **kwargs: Any) -> Any:
         try:
-            if not path:
-                return "Error reading file: Unknown path"
-
             # Device path blacklist
             if _is_blocked_device(path):
                 return f"Error: Reading {path} is blocked (device path that could hang or produce infinite output)."
