@@ -225,8 +225,12 @@ class FeishuProxyChannel(BaseProxyChannel):
         Format::
 
             ---quick-replies
-            标签1 || 回复文本1
-            标签2 || 回复文本2
+            标签1                     # label displayed = reply sent
+            标签2 || 自定义回复文本    # label displayed ≠ reply sent
+
+        When ``||`` is present, the part before is the button label and the
+        part after is the reply text sent to Hub.  Without ``||``, the label
+        is also used as the reply.
 
         Returns ``(cleaned_text, quick_replies_or_None)``.
         """
@@ -245,6 +249,8 @@ class FeishuProxyChannel(BaseProxyChannel):
             if "||" in line:
                 label, reply = line.split("||", 1)
                 quick_replies.append({"label": label.strip(), "reply": reply.strip()})
+            else:
+                quick_replies.append({"label": line, "reply": line})
 
         return cleaned, quick_replies or None
 

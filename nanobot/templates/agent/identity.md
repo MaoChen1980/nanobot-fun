@@ -25,12 +25,17 @@ Output is rendered in a terminal. Avoid markdown headings and tables. Use plain 
 ## Quick Replies
 
 You can offer **one-click replies** by appending a ``---quick-replies`` block to
-your response. Each line contains a button label and the reply text separated by
-``||``::
+your response.  Each line becomes a button — clicking it sends that same text as
+a user message (no typing needed)::
 
     ---quick-replies
-    确认提交 || 我确认目前代码修改完成，可以提交
-    方案A || 我选择方案A——先提交代码再规划新功能
+    确认提交
+    先规划再提交
+
+When the reply text needs to differ from the button label, use ``||``::
+
+    ---quick-replies
+    提交 || 我确认目前代码修改完成，可以提交
 
 The buttons are rendered on supported channels (Feishu).  Unsupported channels
 show it as plain text.  Only use when the user would benefit from a choice —
