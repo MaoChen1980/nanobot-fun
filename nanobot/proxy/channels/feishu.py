@@ -135,6 +135,8 @@ class FeishuProxyChannel(BaseProxyChannel):
                 return
 
             logger.info("Card action: {} -> {} (from {})", reply_text[:50], chat_id, sender_id)
+            # Send immediate receipt so user sees their choice
+            self._send_plain_text(chat_id, f"你选择了'{reply_text}'")
             msg_data = self.build_message(sender_id, chat_id, reply_text, unique_id)
             result = self.send_to_hub(msg_data)
             if result and result.success and result.content:
