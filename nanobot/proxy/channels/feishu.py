@@ -34,7 +34,8 @@ class FeishuProxyChannel(BaseProxyChannel):
             else "https://open.larksuite.com"
         )
         self._thread_pool = ThreadPoolExecutor(max_workers=10)
-        self._notified_chats: set[str] = set()  # chat_ids already sent ready notification  # chat_ids already sent ready notification
+        self._notified_chats: set[str] = set()  # chat_ids already sent ready notification
+        self._consumed_qids: set[str] = set()  # chat-scoped QIDs already clicked
 
     # ------------------------------------------------------------------
     # Message handler (called from Feishu SDK thread)
@@ -119,6 +120,7 @@ class FeishuProxyChannel(BaseProxyChannel):
 
             reply_text = value.get("qr", "")
             chat_id = value.get("cid", "")
+            qid = value.get("qid", reply_text)
             if not reply_text or not chat_id:
                 logger.warning("Card action missing qr/cid: {}", value)
                 return
@@ -129,12 +131,20 @@ class FeishuProxyChannel(BaseProxyChannel):
                 logger.warning("Card action missing open_id in operator")
                 return
 
+            # Check if this quick-reply was already consumed for this chat
+            dedup_key = f"qr:{chat_id}:{qid}"
+            if dedup_key in self._consumed_qids:
+                logger.info("QID already consumed, notifying user: {}", dedup_key)
+                self._send_plain_text(chat_id, f'您已经选择了"{reply_text}"')
+                return
+
             # CallBackAction has no .action_id — use .name for dedup key
             unique_id = f"card_{action.name or ''}_{int(time.time())}"
             if self.check_duplicate(unique_id):
                 return
 
             logger.info("Card action: {} -> {} (from {})", reply_text[:50], chat_id, sender_id)
+            self._consumed_qids.add(dedup_key)
             # Send immediate receipt so user sees their choice
             self._send_plain_text(chat_id, f"你选择了'{reply_text}'")
             msg_data = self.build_message(sender_id, chat_id, reply_text, unique_id)
@@ -332,7 +342,7 @@ class FeishuProxyChannel(BaseProxyChannel):
                         "behaviors": [
                             {
                                 "type": "callback",
-                                "value": {"qr": qr["reply"], "cid": chat_id},
+                                "value": {"qr": qr["reply"], "qid": qr["reply"], "cid": chat_id},
                             }
                         ],
                     })
