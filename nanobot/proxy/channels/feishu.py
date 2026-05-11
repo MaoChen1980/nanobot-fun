@@ -227,12 +227,12 @@ class FeishuProxyChannel(BaseProxyChannel):
         Format::
 
             ---quick-replies
-            标签1                     # label displayed = reply sent
-            标签2 || 自定义回复文本    # label displayed ≠ reply sent
+            标签1                     # label = reply, WYSIWYG
 
-        When ``||`` is present, the part before is the button label and the
-        part after is the reply text sent to Hub.  Without ``||``, the label
-        is also used as the reply.
+        Each line becomes a button.  When ``||`` is present, label and reply
+        are compared and the longer one wins — both label and reply are set
+        to that longer text for clarity.  Without ``||``, the whole line is
+        used as both.
 
         Returns ``(cleaned_text, quick_replies_or_None)``.
         """
@@ -249,8 +249,9 @@ class FeishuProxyChannel(BaseProxyChannel):
             if not line:
                 continue
             if "||" in line:
-                label, reply = line.split("||", 1)
-                quick_replies.append({"label": label.strip(), "reply": reply.strip()})
+                label, reply = (s.strip() for s in line.split("||", 1))
+                text = label if len(label) >= len(reply) else reply
+                quick_replies.append({"label": text, "reply": text})
             else:
                 quick_replies.append({"label": line, "reply": line})
 

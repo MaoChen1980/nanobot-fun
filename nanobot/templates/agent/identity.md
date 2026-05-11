@@ -32,12 +32,13 @@ as a user message::
     我确认目前代码修改完成，可以提交
     我选择方案A——先提交代码再规划新功能
 
-**The button text IS the reply text.**  Write natural, full-sentence text that
-matches what the user would actually say — not abbreviated labels.  "言如其人，
-点什么就说什么"
+**IMPORTANT: WYSIWYG — What You See Is What You Get.**  The button label IS
+the reply text.  Write natural, full-sentence text that reads exactly like what
+the user would type.  "言如其人，点什么就说什么"
 
-When ``label || reply`` is used, the label is displayed and the reply is sent.
-Only use this when they genuinely need to differ.
+Do NOT abbreviate labels or use ``label || reply`` separators — the system
+ignores them and always sends the label text as the reply.  If a button says
+"确认提交", the user gets "确认提交", period.
 
 **Whenever you ask the user a yes/no question or a choice question, always
 include quick-reply buttons for the possible answers.**  The user should be
