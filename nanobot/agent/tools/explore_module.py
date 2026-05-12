@@ -94,7 +94,8 @@ class ExploreModuleTool(_FsTool):
         "Do NOT use when:\n"
         "- You need the full file content — use read_file instead\n"
         "- You only need to search for a keyword — use grep instead\n\n"
-        "Supports Python, JavaScript, TypeScript, Go, Rust, Java, Kotlin.\n"
+        "Supports Python, JavaScript, TypeScript, Go, Rust, Java, Kotlin. "
+        "Nesting depth: max 5 levels."
         "For Python files, uses AST parsing for accurate results. For other "
         "languages, uses regex-based extraction."
     )

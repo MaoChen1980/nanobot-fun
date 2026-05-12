@@ -34,6 +34,7 @@ class ToolCallLogTool(Tool):
             "- Checking what tools ran in a session\n"
             "- Tracking large results (min_result_size > 5000)\n\n"
             "Parameters:\n"
+            "limit: max 100 records.\n"
             "- session_key: Filter by session\n"
             "- tool_name: Filter by tool (e.g. 'exec', 'read_file', 'grep')\n"
             "- success: true=failed only, false=success only\n"

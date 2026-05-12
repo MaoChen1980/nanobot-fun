@@ -55,6 +55,7 @@ class SearchMemoryTool(Tool):
         "Limitations:\n"
         "- Only searches memory/ directory (markdown files)\n"
         "- Newly added content may not be indexed yet\n"
+        "- k max 20 results per query\n"
         "- NOT for code search — code keywords don't match BGE embeddings well"
     )
 
@@ -134,6 +135,7 @@ class SearchTextTool(Tool):
         "- score 0.3-0.6: possibly relevant — read for context\n"
         "- score < 0.3: weak match — try different query or use inspect_text\n"
         "- If all scores are < 0.3, the text probably doesn't contain what you need\n\n"
+        "Limits: 5 MB max input text, k max 20 results.\n"
         "You can pass the text directly, or pass a path to a file on disk.\n\n"
         "Limitations:\n"
         "- Max 5 MB — larger inputs are rejected\n"

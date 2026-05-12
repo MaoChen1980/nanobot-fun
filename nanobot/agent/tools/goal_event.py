@@ -276,7 +276,8 @@ class ListEvents(Tool):
         "- Reviewing blockers before reporting status\n\n"
         "Do NOT use when:\n"
         "- You need to see active goals — use list_goals instead\n"
-        "- You need to log a new event — use write_event instead"
+        "- You need to log a new event — use write_event instead\n\n"
+        "Limits: max 100 events per query."
     )
 
     def __init__(self, memory: MemoryStore):

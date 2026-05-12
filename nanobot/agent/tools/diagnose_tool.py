@@ -43,7 +43,8 @@ class DiagnoseTool(_FsTool):
         "Do NOT use when:\n"
         "- You only need code search (use grep instead)\n"
         "- You only need git log (use git_inspect instead)\n"
-        "- The error is clearly a configuration or environment issue, not code-related"
+        "- The error is clearly a configuration or environment issue, not code-related\n\n"
+        "Limits: max_results max 50, days max 90, 15s git timeout."
     )
 
     async def execute(

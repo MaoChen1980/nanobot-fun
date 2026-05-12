@@ -44,7 +44,8 @@ class ReadFilesTool(_FsTool):
         "Supply `grep` to only return matching lines from each file.\n\n"
         "Do NOT use when:\n"
         "- You need to read from a specific offset — use read_file instead\n"
-        "- You only need file names — use glob instead\n"
+        "- You only need file names — use glob instead\n\n"
+        "Limits: max 50 files, ~500 lines each, ~128K chars total output."
         "- You're searching for specific content — use grep instead"
     )
 

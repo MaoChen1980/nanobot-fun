@@ -124,7 +124,8 @@ class MyTool(Tool):
             "- User asks about your model, settings, or token usage → check that key.\n"
             "- A tool fails or behaves unexpectedly → check the related config to diagnose.\n"
             "- User asks you to remember a preference for this session → set to store it in your scratchpad.\n"
-            "- About to start a large task → check context_window_tokens and max_iterations first."
+            "- About to start a large task → check context_window_tokens and max_iterations first.\n"
+            "Scratchpad: max 64 keys, values must be JSON-safe types."
         )
         if not self._modify_allowed:
             base += "\nREAD-ONLY MODE: set is disabled."

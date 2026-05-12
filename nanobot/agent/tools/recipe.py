@@ -40,7 +40,8 @@ class RecipeTool(Tool):
         "- The task has a well-known multi-step pattern (search→read, explore→drill)\n\n"
         "Do NOT use when:\n"
         "- You only need one step (use grep, read_files, or explore_module directly)\n"
-        "- You need tight control over each step's parameters"
+        "- You need tight control over each step's parameters\n\n"
+        "Limits: max_files capped at 50."
     )
 
     def __init__(self, run_tool: Callable[[str, dict[str, Any]], Coroutine[Any, Any, Any]] | None = None):
