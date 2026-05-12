@@ -337,8 +337,11 @@ class AgentLoop:
             self.tools.register(
                 CronTool(self.cron_service, default_timezone=self.context.timezone or "UTC")
             )
-        # Exec is registered LAST so it appears at the bottom of the LLM's
-        # tool list — the LLM should consider all other tools before exec.
+        # Exec is registered LAST so workspace interaction tools (read_file,
+        # grep, glob, etc.) appear first in the LLM's tool list. When the LLM
+        # reaches for a task, it sees workspace tools before exec — nudging it
+        # toward the right tool for interaction tasks without blocking
+        # computational exec use (data processing, scripts, builds).
         if self.exec_config.enable:
             self.tools.register(
                 ExecTool(

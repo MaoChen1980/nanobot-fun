@@ -158,11 +158,11 @@ class ExecTool(Tool):
     _TAIL_LINES_ON_ERROR = 15
 
     description = (
-            "LAST RESORT — only use when no other tool can do the job. "
-            "Prefer dedicated tools: read_file over cat/type, write_file over echo>/print, "
-            "edit_file over sed -i, grep over grep/findstr, glob over find/ls/dir, "
-            "list_dir over ls/dir, web_fetch over curl/wget.\n\n"
-            "Execute a shell command and return its output. "
+            "Execute shell commands for computation and scripting. "
+            "Best for: Python/data scripts, pip/npm, builds, batch operations. "
+            "For workspace interaction (reading, writing, searching files), "
+            "use dedicated tools instead: read_file, write_file, edit_file, "
+            "grep, glob, list_dir, web_fetch.\n\n"
             "Use -y or --yes flags to avoid interactive prompts. "
             "Output is truncated at 20 000 chars; timeout defaults to 60s.\n\n"
             "All output is automatically cached. After running, you can re-examine "
