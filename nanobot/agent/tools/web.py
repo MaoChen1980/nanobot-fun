@@ -320,11 +320,11 @@ class WebFetchTool(WebToolBase, Tool):
 
     name = "web_fetch"
     description = (
-        "Fetch a URL and extract readable content (HTML → markdown/text). "
+        "Fetch a URL and extract readable content — has built-in regex `extract` parameter "
+        "for filtering lines from the fetched page (e.g. extract='price.*\\\\d+'). "
         "Output is capped at maxChars (default 50 000). "
-        "Use `extract` to supply a regex pattern and only get matching lines (+ context) "
-        "from the fetched page — e.g. extract='price.*\\d+' to find pricing info. "
-        "Works for most web pages and docs; may fail on login-walled or JS-heavy sites."
+        "Works for most web pages and docs; may fail on login-walled or JS-heavy sites. "
+        "Preferred over exec curl/wget."
     )
 
     def __init__(self, config: WebFetchConfig | None = None, proxy: str | None = None, user_agent: str | None = None, max_chars: int = 100000):

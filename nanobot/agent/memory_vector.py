@@ -17,6 +17,7 @@ class MemoryVectorIndex:
     Gracefully degrades when sentence-transformers is not installed.
     """
 
+    _MODEL_NAME = "BAAI/bge-small-zh-v1.5"
     _INDEX_DIR = ".vector_index"
     _INDEX_FILE = "index.faiss"
     _CHUNKS_FILE = "chunks.json"
@@ -32,28 +33,38 @@ class MemoryVectorIndex:
     # -- embedding model -------------------------------------------------------
 
     def _load_model(self) -> bool:
-        """Lazy-load sentence-transformers model. Returns True if loaded."""
+        """Lazy-load sentence-transformers model. Returns True if loaded.
+
+        Also checks index dimension on load; invalidates mismatched index.
+        """
         if self._model is not None:
+            self._check_index_dimension()
             return True
         with self._model_lock:
             if self._model is not None:
+                self._check_index_dimension()
                 return True
             try:
                 from sentence_transformers import SentenceTransformer
 
-                self._model = SentenceTransformer("BAAI/bge-small-zh-v1.5")
-                if self._index is not None:
-                    dim = self._model.get_sentence_embedding_dimension()
-                    if dim != self._index.d:
-                        logger.warning(
-                            "Index dimension ({}) differs from model dimension ({}), "
-                            "discarding old index; rebuild on next write",
-                            self._index.d, dim,
-                        )
-                        self._index = None
+                self._model = SentenceTransformer(self._MODEL_NAME)
+                self._check_index_dimension()
                 return True
             except ImportError:
                 return False
+
+    def _check_index_dimension(self) -> None:
+        """Invalidate _index if its dimension doesn't match the model."""
+        if self._index is None:
+            return
+        dim = self._model.get_sentence_embedding_dimension()
+        if dim != self._index.d:
+            logger.warning(
+                "Index dimension ({}) differs from model dimension ({}), "
+                "discarding old index; rebuild on next write",
+                self._index.d, dim,
+            )
+            self._index = None
 
     # -- chunking --------------------------------------------------------------
 
@@ -156,9 +167,12 @@ class MemoryVectorIndex:
         Returns up to *k* results with ``source``, ``heading``, ``text``,
         and ``score`` keys.  Results below *min_score* are discarded.
         """
-        if self._index is None or not self._chunks:
+        if not self._chunks:
             return []
+        # Load model BEFORE checking _index — this also invalidates mismatched indexes
         if not self._load_model():
+            return []
+        if self._index is None:
             return []
 
         import numpy as np
@@ -221,5 +235,9 @@ class MemoryVectorIndex:
             except Exception:
                 logger.warning("Failed to load FAISS index")
                 self._index = None
+
+        # Check dimension when model is already loaded (e.g. restart without rebuild)
+        if self._model is not None and self._index is not None:
+            self._check_index_dimension()
 
         return self._index is not None

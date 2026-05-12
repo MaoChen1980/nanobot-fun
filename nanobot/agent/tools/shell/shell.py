@@ -23,6 +23,22 @@ from nanobot.config.paths import get_media_dir, get_runtime_subdir
 
 _IS_WINDOWS = sys.platform == "win32"
 
+# Pattern → tool suggestion mapping for common shell commands that have a
+# dedicated nanobot tool. Used by ExecTool._suggest_tool() to nudge the LLM
+# toward tool usage instead of exec.
+# Order: (command_prefix_pattern, tool_call_hint, reason_suffix)
+_TOOL_SUGGESTIONS: list[tuple[re.Pattern, str, str]] = [
+    (re.compile(r'^cat\s+', re.IGNORECASE), "read_file(path=...)", "handles text, images, PDFs, and Office docs"),
+    (re.compile(r'^type\s+', re.IGNORECASE), "read_file(path=...)", "handles text, images, PDFs, and Office docs"),
+    (re.compile(r'^grep\s+', re.IGNORECASE), "grep(pattern=..., path=...)", "search file contents with regex"),
+    (re.compile(r'^findstr\s+', re.IGNORECASE), "grep(pattern=..., path=...)", "search file contents with regex"),
+    (re.compile(r'^ls\s+', re.IGNORECASE), "list_dir(path=...)", "list directory contents"),
+    (re.compile(r'^dir\s+', re.IGNORECASE), "list_dir(path=...)", "list directory contents"),
+    (re.compile(r'^find\s+', re.IGNORECASE), "glob(pattern=...)", "find files matching a pattern"),
+    (re.compile(r'^curl\s+', re.IGNORECASE), "web_fetch(url=...)", "fetch URL content"),
+    (re.compile(r'^wget\s+', re.IGNORECASE), "web_fetch(url=...)", "fetch URL content"),
+]
+
 # Executables whose -c/-e/-Command/-File flags take a quoted script argument
 # that cmd.exe /c would mangle (list2cmdline → outer-quote wrappping → strip).
 # Spawning these directly avoids the problem.
@@ -142,9 +158,11 @@ class ExecTool(Tool):
     _TAIL_LINES_ON_ERROR = 15
 
     description = (
+            "LAST RESORT — only use when no other tool can do the job. "
+            "Prefer dedicated tools: read_file over cat/type, write_file over echo>/print, "
+            "edit_file over sed -i, grep over grep/findstr, glob over find/ls/dir, "
+            "list_dir over ls/dir, web_fetch over curl/wget.\n\n"
             "Execute a shell command and return its output. "
-            "Prefer read_file/write_file/edit_file over cat/echo/sed, "
-            "and grep/glob over shell find/grep. "
             "Use -y or --yes flags to avoid interactive prompts. "
             "Output is truncated at 20 000 chars; timeout defaults to 60s.\n\n"
             "All output is automatically cached. After running, you can re-examine "
@@ -166,6 +184,33 @@ class ExecTool(Tool):
 
     exclusive = True
 
+    @staticmethod
+    def _suggest_tool(command: str) -> str | None:
+        """Suggest a tool alternative if the command matches a known pattern.
+
+        Returns a formatted suggestion string, or None if exec is appropriate.
+        Only triggers on simple commands — piped/compound commands are skipped.
+        """
+        for op in ("|", "&&", "||", ";"):
+            if op in command:
+                return None
+        stripped = command.strip()
+        for pat, tool_call, reason in _TOOL_SUGGESTIONS:
+            if pat.search(stripped):
+                return f"💡 Suggestion: Use **{tool_call}** instead of exec — {reason}."
+        # Special case: sed -i (in-place edit)
+        lower = stripped.lower()
+        if lower.startswith("sed") and " -i" in lower:
+            return "💡 Suggestion: Use **edit_file(path=..., old_string=..., new_string=...)** instead of `sed -i`."
+        # git log/show
+        if lower.startswith("git"):
+            rest = lower[3:].strip()
+            if rest.startswith("log"):
+                return "💡 Suggestion: Use **git_inspect(action='log', ...)** to browse commit history."
+            if rest.startswith("show"):
+                return "💡 Suggestion: Use **git_inspect(action='show', ...)** to inspect commits."
+        return None
+
     async def execute(
         self, command: str = "", working_dir: str | None = None,
         timeout: int | None = None, capture_file: str | None = None,
@@ -174,6 +219,15 @@ class ExecTool(Tool):
         verify: str | None = None, check: str | None = None,
         **kwargs: Any,
     ) -> str:
+        # ── Tool suggestion nudge ──
+        # Check if this command could be done by a dedicated tool, and if so,
+        # prepend a suggestion. This teaches the LLM in real-time.
+        suggestion = ""
+        if command and not from_cache:
+            s = self._suggest_tool(command)
+            if s:
+                suggestion = s + "\n\n"
+
         # ── from_cache mode: skip execution, operate on cached output ──
         if from_cache:
             return await self._from_cache_mode(from_cache, grep, extract)
@@ -318,15 +372,15 @@ class ExecTool(Tool):
 
             # Route through grep/extract modes
             if grep:
-                return self._format_grep_result(stdout_text, stderr_text, process.returncode, grep) + verification
+                return suggestion + self._format_grep_result(stdout_text, stderr_text, process.returncode, grep) + verification
             if extract:
-                return (await self._format_extract_result(
+                return suggestion + (await self._format_extract_result(
                     cache_path, stdout_text, stderr_text, process.returncode, extract,
                 )) + verification
 
             # Default: append cache path to result
             result += f"\n[Full output cached: {cache_path}]"
-            return result + verification
+            return suggestion + result + verification
 
         except Exception as e:
             logger.exception("Command execution failed")
