@@ -17,13 +17,13 @@ from nanobot.utils.media_decode import build_image_content_blocks, detect_image_
 @tool_parameters(
     tool_parameters_schema(
         path=p("string", "The file path to read"),
+        extract=p("string", "Optional regex — only lines matching this pattern are returned, with 1 line of context before/after each match. Use instead of grep+cat for filtering logs or code."),
         offset=p("integer", "Line number to start reading from (1-indexed, default 1)",
             minimum=1,
         ),
         limit=p("integer", "Maximum number of lines to read (default 2000)",
             minimum=1,
         ),
-        extract=p("string", "Optional regex pattern — only lines matching this pattern are returned, with 1 line of context before/after each match"),
         pages=p("string", "Page range for PDF files, e.g. '1-5' (default: all, max 20 pages)"),
         required=["path"],
     )
@@ -38,19 +38,19 @@ class ReadFileTool(_FsTool):
     name = "read_file"
 
     description = (
-            "Read a file. Preferred over exec(cat/head/tail) — handles images, PDFs, "
-            "DOCX, XLSX, PPTX automatically.\n"
+            "Read a file (or grep/filter a log) — has built-in regex `extract` parameter. "
+            "Preferred over exec(cat/head/tail/grep/findstr/PowerShell)...\n"
             "Text output format: LINE_NUM|CONTENT. "
-            "Images return visual content for analysis. "
-            "Use offset and limit for large text files. "
+            "Also handles images, PDFs, DOCX, XLSX, PPTX automatically.\n"
             "Use `extract` to filter by regex and only see matching lines (+ context).\n"
+            "Use offset and limit for large text files.\n"
             "Reads exceeding ~256K chars are truncated.\n"
             "Framework auto-validates: path is required and non-empty."
         )
 
     read_only = True
 
-    async def execute(self, path: str = "", offset: int = 1, limit: int | None = None, extract: str | None = None, pages: str | None = None, **kwargs: Any) -> Any:
+    async def execute(self, path: str = "", extract: str | None = None, offset: int = 1, limit: int | None = None, pages: str | None = None, **kwargs: Any) -> Any:
         try:
             # Device path blacklist
             if _is_blocked_device(path):
