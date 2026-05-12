@@ -64,12 +64,18 @@ class NotebookEditTool(_FsTool):
     name = "notebook_edit"
 
     description = (
-            "Edit a Jupyter notebook (.ipynb) cell. "
-            "Modes: replace (default) replaces cell content, "
-            "insert adds a new cell after the target index, "
-            "delete removes the cell at the index. "
-            "cell_index is 0-based."
-        )
+        "Edit a Jupyter notebook (.ipynb) cell. "
+        "Modes: replace (default) replaces cell content, "
+        "insert adds a new cell after the target index, "
+        "delete removes the cell at the index. "
+        "cell_index is 0-based.\n\n"
+        "Use this when:\n"
+        "- You need to modify a Jupyter notebook's code or markdown cells\n"
+        "- Adding, replacing, or deleting cells in .ipynb files\n\n"
+        "Do NOT use when:\n"
+        "- Editing regular Python/text files — use edit_file instead\n"
+        "- Creating a new notebook from scratch — use insert mode on a non-existent file"
+    )
 
     async def execute(
         self,

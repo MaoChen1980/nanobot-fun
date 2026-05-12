@@ -1,0 +1,180 @@
+"""Analyze tool — read data and extract structured insights in one call."""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+from nanobot.agent.tools.base import Tool, tool_parameters
+from nanobot.agent.tools.schema import p, tool_parameters_schema
+
+
+@tool_parameters(
+    tool_parameters_schema(
+        data=p("string", "Text content to analyze (provide this or path)"),
+        path=p("string", "File path to read and analyze (provide this or data)"),
+        question=p("string", "Optional analysis question to focus the results"),
+        max_keywords=p("integer", "Maximum keywords to extract (default 15)", minimum=1, maximum=50),
+    ),
+    required=[],
+)
+class AnalyzeTool(Tool):
+    """Read data (from text or file) and return structured analysis."""
+
+    name = "analyze_data"
+    read_only = True
+
+    description = (
+        "Analyze text content and return structured insights without reading every line.\n\n"
+        "Provide `data` (inline text) or `path` (file to read). Optionally give "
+        "a `question` to focus the analysis on relevant sections.\n\n"
+        "Returns: line/word/character counts, detected sections (headings), "
+        "most frequent keywords, and lines matching your question.\n\n"
+        "Use this when:\n"
+        "- You need a quick summary of a long document or log file\n"
+        "- You want to understand what a file is about without reading it fully\n"
+        "- You need to find keywords or patterns in a text corpus\n\n"
+        "Do NOT use when:\n"
+        "- You need the full text content — use read_file instead\n"
+        "- You need to search for a specific pattern — use grep instead\n"
+        "- You need to explore code structure — use explore_module instead"
+    )
+
+    MAX_TEXT_SIZE = 500_000
+
+    async def execute(
+        self,
+        data: str | None = None,
+        path: str | None = None,
+        question: str | None = None,
+        max_keywords: int = 15,
+        **kwargs: Any,
+    ) -> str:
+        text = await self._load_text(data, path)
+        if text is None:
+            return "Error: Provide either `data` (text) or `path` (file) to analyze."
+        if isinstance(text, str) and text.startswith("Error"):
+            return text
+
+        lines = text.split("\n")
+        total_lines = len(lines)
+        total_chars = len(text)
+        words = text.split()
+        total_words = len(words)
+
+        parts = ["# Analysis"]
+
+        parts.append("\n## Overview")
+        parts.append(f"- Lines: {total_lines:,}")
+        parts.append(f"- Words: {total_words:,}")
+        parts.append(f"- Characters: {total_chars:,}")
+
+        sections = self._detect_sections(lines)
+        if sections:
+            parts.append(f"\n## Sections ({len(sections)})")
+            for title, size, preview in sections[:20]:
+                parts.append(f"- \"{title}\" ({size} lines)  {preview}")
+
+        keywords = self._extract_keywords(text, max_keywords)
+        if keywords:
+            parts.append(f"\n## Keywords")
+            parts.append(", ".join(f"`{w}`" for w, _ in keywords[:max_keywords]))
+
+        if question:
+            parts.append(f"\n## Question: {question}")
+            q_lines = self._find_relevant_lines(lines, question)
+            if q_lines:
+                for lineno, line in q_lines[:15]:
+                    parts.append(f"  L{lineno}: {line[:120]}")
+            else:
+                parts.append("  (No directly matching lines found)")
+
+        parts.append(f"\n---\n({total_lines} lines, {total_words} words)")
+        return "\n".join(parts)
+
+    async def _load_text(self, data: str | None, path: str | None) -> str | None:
+        if data:
+            return data[:self.MAX_TEXT_SIZE]
+        if path:
+            try:
+                fp = Path(path).expanduser().resolve()
+                if not fp.exists():
+                    return f"Error: File not found: {path}"
+                if fp.stat().st_size > self.MAX_TEXT_SIZE:
+                    return f"Error: File too large ({fp.stat().st_size:,} bytes)"
+                raw = fp.read_bytes()
+                return raw.decode("utf-8")[:self.MAX_TEXT_SIZE]
+            except UnicodeDecodeError:
+                return f"Error: Cannot read binary file: {path}"
+            except OSError as e:
+                return f"Error: {e}"
+        return None
+
+    @staticmethod
+    def _detect_sections(lines: list[str]) -> list[tuple[str, int, str]]:
+        sections: list[tuple[str, int, str]] = []
+        start = 0
+        current_title = "(top)"
+
+        for i, line in enumerate(lines):
+            title = None
+            m = re.match(r"^#{1,6}\s+(.+)$", line.strip())
+            if m:
+                title = m.group(1).strip()
+            elif re.match(r"^={3,}$", line.strip()) and i > 0 and lines[i - 1].strip():
+                title = lines[i - 1].strip()
+
+            if title:
+                section_lines = i - start
+                preview = lines[start][:60] if start < len(lines) else ""
+                sections.append((current_title, section_lines, preview))
+                current_title = title[:60]
+                start = i + 1
+
+        if start < len(lines):
+            sections.append((current_title, len(lines) - start, lines[start][:60] if start < len(lines) else ""))
+
+        return sections
+
+    @staticmethod
+    def _extract_keywords(text: str, n: int = 15) -> list[tuple[str, int]]:
+        words = re.findall(r"[a-zA-Z一-鿿_]+", text.lower())
+        stopwords = {
+            "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+            "have", "has", "had", "do", "does", "did", "will", "would", "could",
+            "should", "may", "might", "shall", "can", "need", "to", "of", "in",
+            "for", "on", "with", "at", "by", "from", "as", "into", "through",
+            "during", "before", "after", "above", "below", "between", "and",
+            "but", "or", "nor", "not", "so", "yet", "both", "either", "neither",
+            "if", "then", "else", "this", "that", "these", "those", "it", "its",
+            "we", "they", "them", "our", "you", "your", "he", "she", "him",
+            "her", "his", "my", "me", "all", "each", "every", "some", "any",
+            "no", "none", "most", "many", "much", "few", "more", "less",
+            "other", "another", "such", "own", "same", "different",
+            "about", "than", "too", "very", "just", "also", "only", "now",
+            "here", "there", "when", "where", "why", "how", "which", "what",
+            "who", "whom", "def", "class", "return", "import", "from", "self",
+            "true", "false", "none", "async", "await", "pass", "raise", "try",
+            "except", "finally", "with", "yield", "lambda",
+        }
+        filtered = [w for w in words if w not in stopwords and len(w) > 1]
+        return Counter(filtered).most_common(n)
+
+    @staticmethod
+    def _find_relevant_lines(lines: list[str], question: str) -> list[tuple[int, str]]:
+        keywords = re.findall(r"[a-zA-Z一-鿿_]+", question.lower())
+        keywords = [k for k in keywords if len(k) > 2]
+        if not keywords:
+            return []
+
+        scored: list[tuple[int, int, str]] = []
+        for i, line in enumerate(lines):
+            lower = line.lower()
+            score = sum(1 for k in keywords if k in lower)
+            if score > 0:
+                scored.append((i, score, line.strip()))
+
+        scored.sort(key=lambda x: -x[1])
+        return [(i, s) for i, _, s in scored[:20]]

@@ -51,7 +51,18 @@ class WriteGoal(Tool):
     """
 
     name = "write_goal"
-    description = "Create or update a goal. Goals are stored in DB, not files."
+    description = (
+        "Create or update a goal — a high-level objective tracked across sessions.\n\n"
+        "Goals are stored in DB (not files) and automatically loaded into context "
+        "each turn so you can track progress without writing markdown.\n\n"
+        "Use this when:\n"
+        "- Starting work on a new feature/fix — create a goal to track progress\n"
+        "- Updating status of an ongoing task (in_progress → completed, etc.)\n"
+        "- You want progress to persist across context compactions and restarts\n\n"
+        "Do NOT use when:\n"
+        "- You just need a quick note — use scratchpad (self set) instead\n"
+        "- The info is temporary and won't be needed next session"
+    )
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -129,7 +140,16 @@ class ListGoals(Tool):
     """List goals from structured DB."""
 
     name = "list_goals"
-    description = "List goals from DB. Filter by status/project/scope."
+    description = (
+        "List goals from DB. Filter by status, project, or scope.\n\n"
+        "Use this when:\n"
+        "- You want to see what goals are active before starting work\n"
+        "- You need to find a goal's ID to update or log events against it\n"
+        "- Checking progress across projects\n\n"
+        "Do NOT use when:\n"
+        "- You need to update a goal — use write_goal instead\n"
+        "- You need detailed event history — use list_events instead"
+    )
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -181,7 +201,19 @@ class WriteEvent(Tool):
     """
 
     name = "write_event"
-    description = "Log an event (progress/milestone/decision/blocker) to DB."
+    description = (
+        "Log a progress event — milestone, decision, blocker, or note — to "
+        "the current goal's timeline.\n\n"
+        "Events are stored in DB and shown in context alongside goals.\n\n"
+        "Use this when:\n"
+        "- You hit a milestone worth recording\n"
+        "- You made a design decision that future-you should know\n"
+        "- Something is blocking progress\n"
+        "- You want to log a quick progress update against a goal\n\n"
+        "Do NOT use when:\n"
+        "- The info belongs in the goal description itself (long-lived, not event-like)\n"
+        "- You're logging something not related to any goal"
+    )
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -236,7 +268,16 @@ class ListEvents(Tool):
     """List recent events from DB."""
 
     name = "list_events"
-    description = "List recent events from DB. Filter by goal/type."
+    description = (
+        "List recent events from DB. Filter by goal or event type.\n\n"
+        "Use this when:\n"
+        "- You want to see what happened recently on a goal\n"
+        "- Checking the timeline of decisions and milestones\n"
+        "- Reviewing blockers before reporting status\n\n"
+        "Do NOT use when:\n"
+        "- You need to see active goals — use list_goals instead\n"
+        "- You need to log a new event — use write_event instead"
+    )
 
     def __init__(self, memory: MemoryStore):
         super().__init__()
@@ -477,7 +518,12 @@ class DeclareCheckpoint(Tool):
     """
 
     name = "declare_checkpoint"
-    description = "Declare a subtask checkpoint - marks subtask as done with summary and artifacts."
+    description = (
+        "Declare a subtask as complete with a summary and optional artifacts.\n\n"
+        "Use this when finishing a subtask within a goal — records what was done\n"
+        "and what was produced.\n\n"
+        "Does NOT enforce subtask ordering — allows early/skip completion."
+    )
 
     def __init__(self, memory: MemoryStore):
         super().__init__()

@@ -311,6 +311,7 @@ class WebSearchTool(WebToolBase, Tool):
             "default": "markdown",
         },
         maxChars=p("integer", "", minimum=100),
+        extract=p("string", "Optional regex — only lines matching this pattern are returned from the fetched text, with 1 line context before/after"),
         required=["url"],
     )
 )
@@ -321,6 +322,8 @@ class WebFetchTool(WebToolBase, Tool):
     description = (
         "Fetch a URL and extract readable content (HTML → markdown/text). "
         "Output is capped at maxChars (default 50 000). "
+        "Use `extract` to supply a regex pattern and only get matching lines (+ context) "
+        "from the fetched page — e.g. extract='price.*\\d+' to find pricing info. "
         "Works for most web pages and docs; may fail on login-walled or JS-heavy sites."
     )
 
@@ -333,7 +336,7 @@ class WebFetchTool(WebToolBase, Tool):
 
     read_only = True
 
-    async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> Any:
+    async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, extract: str | None = None, **kwargs: Any) -> Any:
         # Strip whitespace, markdown backticks, and quotes that LLM-generated URLs often carry
         url = url.strip().strip("`").strip('"').strip("'")
         max_chars = maxChars or self.max_chars
@@ -362,9 +365,9 @@ class WebFetchTool(WebToolBase, Tool):
         if self.config.use_jina_reader:
             result = await self._fetch_jina(url, max_chars)
             if result is not None:
-                return result
+                return self._apply_extract(result, extract) if extract else result
         result = await self._fetch_readability(url, extractMode, max_chars)
-        return result
+        return self._apply_extract(result, extract) if extract else result
 
     async def _fetch_jina(self, url: str, max_chars: int) -> str | None:
         """Try fetching via Jina Reader API. Returns None on failure."""
@@ -457,3 +460,44 @@ class WebFetchTool(WebToolBase, Tool):
         text = re.sub(r'</(p|div|section|article)>', '\n\n', text, flags=re.I)
         text = re.sub(r'<(br|hr)\s*/?>', '\n', text, flags=re.I)
         return _normalize(_strip_tags(text))
+
+    @staticmethod
+    def _apply_extract(result: str, pattern: str) -> str:
+        """Filter text content in the fetched result using regex."""
+        try:
+            data = json.loads(result)
+        except json.JSONDecodeError:
+            return result
+
+        text = data.get("text", "")
+        if not text:
+            return result
+
+        try:
+            extract_re = re.compile(pattern)
+        except re.error as e:
+            return f"Error: invalid extract regex: {e}"
+
+        # Strip the untrusted banner for line filtering, then re-add
+        banner = _UNTRUSTED_BANNER
+        has_banner = text.startswith(banner)
+        body = text[len(banner):].lstrip() if has_banner else text
+
+        lines = body.split("\n")
+        match_idx: set[int] = set()
+        for i, line in enumerate(lines):
+            if extract_re.search(line):
+                if i > 0:
+                    match_idx.add(i - 1)
+                match_idx.add(i)
+                if i + 1 < len(lines):
+                    match_idx.add(i + 1)
+
+        if not match_idx:
+            return f"(No lines matched extract pattern: {pattern})"
+
+        filtered = "\n".join(lines[i] for i in sorted(match_idx))
+        data["text"] = f"{banner}\n\n[Extract filter: {pattern}]\n\n{filtered}" if has_banner else f"[Extract filter: {pattern}]\n\n{filtered}"
+        data["extract_filter"] = pattern
+        data["truncated"] = False
+        return json.dumps(data, ensure_ascii=False)

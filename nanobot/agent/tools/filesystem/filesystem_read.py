@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from nanobot.utils.media_decode import build_image_content_blocks, detect_image_
         limit=p("integer", "Maximum number of lines to read (default 2000)",
             minimum=1,
         ),
+        extract=p("string", "Optional regex pattern — only lines matching this pattern are returned, with 1 line of context before/after each match"),
         pages=p("string", "Page range for PDF files, e.g. '1-5' (default: all, max 20 pages)"),
         required=["path"],
     )
@@ -41,13 +43,14 @@ class ReadFileTool(_FsTool):
             "Text output format: LINE_NUM|CONTENT. "
             "Images return visual content for analysis. "
             "Use offset and limit for large text files. "
+            "Use `extract` to filter by regex and only see matching lines (+ context).\n"
             "Reads exceeding ~128K chars are truncated.\n"
             "Framework auto-validates: path is required and non-empty."
         )
 
     read_only = True
 
-    async def execute(self, path: str = "", offset: int = 1, limit: int | None = None, pages: str | None = None, **kwargs: Any) -> Any:
+    async def execute(self, path: str = "", offset: int = 1, limit: int | None = None, extract: str | None = None, pages: str | None = None, **kwargs: Any) -> Any:
         try:
             # Device path blacklist
             if _is_blocked_device(path):
@@ -135,6 +138,27 @@ class ReadFileTool(_FsTool):
             start = offset - 1
             end = min(start + (limit or self._DEFAULT_LIMIT), total)
             numbered = [f"{start + i + 1}| {line}" for i, line in enumerate(all_lines[start:end])]
+
+            # -- extract mode: filter to lines matching the regex + 1 line context --
+            if extract:
+                try:
+                    extract_re = re.compile(extract)
+                except re.error as e:
+                    return f"Error: invalid extract regex: {e}"
+                match_idx: set[int] = set()
+                for i, numbered_line in enumerate(numbered):
+                    content = numbered_line.split("|", 1)[1] if "|" in numbered_line else numbered_line
+                    if extract_re.search(content):
+                        if i > 0:
+                            match_idx.add(i - 1)
+                        match_idx.add(i)
+                        if i + 1 < len(numbered):
+                            match_idx.add(i + 1)
+                if match_idx:
+                    numbered = [numbered[i] for i in sorted(match_idx)]
+                else:
+                    return f"(No lines matched extract pattern: {extract})"
+
             result = "\n".join(numbered)
 
             if len(result) > self._MAX_CHARS:

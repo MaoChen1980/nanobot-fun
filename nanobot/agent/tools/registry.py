@@ -7,6 +7,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.output_cache import OutputCache
 
 
 class ToolRegistry:
@@ -16,9 +17,10 @@ class ToolRegistry:
     Allows dynamic registration and execution of tools.
     """
 
-    def __init__(self):
+    def __init__(self, output_cache: OutputCache | None = None):
         self._tools: dict[str, Tool] = {}
         self._cached_definitions: list[dict[str, Any]] | None = None
+        self._cache = output_cache or OutputCache()
 
     def register(self, tool: Tool) -> None:
         """Register a tool."""
@@ -117,6 +119,13 @@ class ToolRegistry:
         if error:
             return error + " ❌" + _HINT
 
+        # Cache hit for read_only tools — skip execution
+        if tool.read_only:
+            cached = self._cache.get(name, params)
+            if cached is not None:
+                cached_result, age = cached
+                return self._format_result(name, cached_result) + f"\n(cached {age}s ago)"
+
         # Pre-validators
         for v in tool._pre_validators:
             err = await v.check(tool, params)
@@ -143,6 +152,16 @@ class ToolRegistry:
 
         if warnings:
             result = str(result) + "\n" + "\n".join(warnings)
+
+        result_str = str(result)
+
+        # Cache successful result for read_only tools
+        if tool.read_only:
+            self._cache.put(name, params, result_str)
+
+        # Check dedup — same content returned within recent history
+        if self._cache.check_duplicate(result_str):
+            return "[Content unchanged since previous tool call — see earlier output for the full content.]"
 
         return self._format_result(name, result)
 

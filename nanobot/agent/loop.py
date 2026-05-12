@@ -41,6 +41,12 @@ from nanobot.agent.tools.session_manage import SessionManageTool
 from nanobot.agent.tools.recall import RecallTool
 from nanobot.agent.tools.semantic_search import SearchMemoryTool, SearchTextTool
 from nanobot.agent.tools.inspect import InspectTextTool
+from nanobot.agent.tools.read_files import ReadFilesTool
+from nanobot.agent.tools.explore_module import ExploreModuleTool
+from nanobot.agent.tools.git_inspect import GitInspectTool
+from nanobot.agent.tools.recipe import RecipeTool
+from nanobot.agent.tools.analyze_tool import AnalyzeTool
+from nanobot.agent.tools.diagnose_tool import DiagnoseTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
@@ -325,6 +331,12 @@ class AgentLoop:
         self.tools.register(SearchMemoryTool(store=self.context.memory))
         self.tools.register(SearchTextTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tools.register(InspectTextTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        self.tools.register(ReadFilesTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        self.tools.register(ExploreModuleTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        self.tools.register(GitInspectTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        self.tools.register(RecipeTool(run_tool=self.tools.execute))
+        self.tools.register(AnalyzeTool())
+        self.tools.register(DiagnoseTool(workspace=self.workspace, allowed_dir=allowed_dir))
         if self._db:
             from nanobot.agent.tools.tool_call_log import ToolCallLogTool
             self.tools.register(ToolCallLogTool(db=self._db))
