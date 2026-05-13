@@ -34,8 +34,6 @@ class FeishuProxyChannel(BaseProxyChannel):
             else "https://open.larksuite.com"
         )
         self._thread_pool = ThreadPoolExecutor(max_workers=32)
-        # Serialize Hub requests + replies per session to prevent concurrent write/race
-        self._hub_lock = threading.Lock()
         self._notified_chats: set[str] = set()  # chat_ids already sent ready notification
         self._consumed_qids: set[str] = set()  # chat-scoped QIDs already clicked
 
@@ -81,16 +79,14 @@ class FeishuProxyChannel(BaseProxyChannel):
                     if quoted_text:
                         msg_data["metadata"] = {"quoted_message": quoted_text}
 
-                    # Lock serializes Hub request + Feishu reply to keep them atomic
-                    with self._hub_lock:
-                        response = self.send_to_hub(msg_data)
-                        if response and response.success and response.content:
-                            self._send_text_reply(chat_id, message_id, response.content)
-                        if response and response.success and response.metadata.get("done_emoji"):
-                            self._add_reaction(message_id, response.metadata["done_emoji"])
-                        elif response:
-                            self._add_reaction(message_id, self._done_emoji)
-                        self._remove_reaction(message_id)
+                    response = self.send_to_hub(msg_data)
+                    if response and response.success and response.content:
+                        self._send_text_reply(chat_id, message_id, response.content)
+                    if response and response.success and response.metadata.get("done_emoji"):
+                        self._add_reaction(message_id, response.metadata["done_emoji"])
+                    elif response:
+                        self._add_reaction(message_id, self._done_emoji)
+                    self._remove_reaction(message_id)
                 except Exception as e:
                     logger.error("Feishu on_message process error: {}", e)
 
@@ -159,11 +155,9 @@ class FeishuProxyChannel(BaseProxyChannel):
         try:
             self._send_plain_text(chat_id, f"你选择了'{reply_text}'")
             msg_data = self.build_message(sender_id, chat_id, reply_text, f"card_{action_name}")
-            # Lock serializes Hub request + Feishu reply to keep them atomic
-            with self._hub_lock:
-                result = self.send_to_hub(msg_data)
-                if result and result.success and result.content:
-                    self._send_text_reply(chat_id, None, result.content)
+            result = self.send_to_hub(msg_data)
+            if result and result.success and result.content:
+                self._send_text_reply(chat_id, None, result.content)
         except Exception as e:
             logger.error("Failed to process card action: {}", e)
 
