@@ -121,6 +121,7 @@ class FeishuProxyChannel(BaseProxyChannel):
             reply_text = value.get("qr", "")
             chat_id = value.get("cid", "")
             qid = value.get("qid", reply_text)
+            card_token = value.get("token", "")
             if not reply_text or not chat_id:
                 logger.warning("Card action missing qr/cid: {}", value)
                 return
@@ -131,8 +132,8 @@ class FeishuProxyChannel(BaseProxyChannel):
                 logger.warning("Card action missing open_id in operator")
                 return
 
-            # Check if this quick-reply was already consumed for this chat
-            dedup_key = f"qr:{chat_id}:{qid}"
+            # Per-card dedup: token makes each card's buttons unique
+            dedup_key = f"qr:{chat_id}:{qid}:{card_token}" if card_token else f"qr:{chat_id}:{qid}"
             if dedup_key in self._consumed_qids:
                 logger.info("QID already consumed, notifying user: {}", dedup_key)
                 self._send_plain_text(chat_id, f'您已经选择了"{reply_text}"')
@@ -334,6 +335,7 @@ class FeishuProxyChannel(BaseProxyChannel):
             ]
 
             if quick_replies:
+                card_token = str(time.time_ns())
                 for qr in quick_replies:
                     elements.append({
                         "tag": "button",
@@ -342,7 +344,12 @@ class FeishuProxyChannel(BaseProxyChannel):
                         "behaviors": [
                             {
                                 "type": "callback",
-                                "value": {"qr": qr["reply"], "qid": qr["reply"], "cid": chat_id},
+                                "value": {
+                                    "qr": qr["reply"],
+                                    "qid": qr["reply"],
+                                    "cid": chat_id,
+                                    "token": card_token,
+                                },
                             }
                         ],
                     })
