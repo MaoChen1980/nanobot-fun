@@ -54,6 +54,25 @@ class BaseProxyChannel:
         self._parent_pid: int = 0  # set after TCP connect
         # msg_id -> timestamp for deduplication
         self._dedup: dict[str, float] = {}
+        self._last_chat_id: str = ""  # last chat_id to send startup notification to
+
+    # ------------------------------------------------------------------
+    # Lifecycle: startup notification
+    # ------------------------------------------------------------------
+
+    async def _send_startup_notification(self) -> None:
+        """Send startup notification to the last chat that messaged us.
+
+        Override in subclass to use non-blocking _send_plain_text.
+        Base stub does nothing — avoids AttributeError if subclass doesn't have _send_plain_text.
+        """
+        pass  # base stub
+
+    def notify_ready(self) -> None:
+        """Called by subclasses when the channel is ready — sends startup message to last chat."""
+        if self._last_chat_id and hasattr(self, "_send_plain_text"):
+            self._send_plain_text(self._last_chat_id, "Nano Bot 已启动，Proxy ready")
+            logger.info("Sent startup notification to {}", self._last_chat_id)
 
     # ------------------------------------------------------------------
     # TCP connection lifecycle
@@ -91,6 +110,14 @@ class BaseProxyChannel:
                 logger.info("Registered with Hub via TCP")
                 await self._start_background_reader()
                 self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+                # Notify last chat if we have one (startup message)
+                # Use hasattr + create_task to avoid blocking conn_loop, and handle missing _send_plain_text
+                if self._last_chat_id and hasattr(self, "_send_plain_text"):
+                    # Schedule startup notification on conn_loop (non-blocking)
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._send_startup_notification(), self._conn_loop
+                    )
+                    # Don't wait — let it run in background
             else:
                 raise RuntimeError(f"TCP registration failed: {resp}")
 

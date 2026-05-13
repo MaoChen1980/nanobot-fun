@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
 import time
@@ -36,6 +37,43 @@ class FeishuProxyChannel(BaseProxyChannel):
         self._thread_pool = ThreadPoolExecutor(max_workers=32)
         self._notified_chats: set[str] = set()  # chat_ids already sent ready notification
         self._consumed_qids: set[str] = set()  # chat-scoped QIDs already clicked
+        self._last_chat_id: str = self._load_last_chat_id()  # last chat that sent a message → used for ready notification
+
+    # ------------------------------------------------------------------
+    # State persistence (last chat for startup notification)
+    # ------------------------------------------------------------------
+
+    def _state_file(self) -> str:
+        """Path to the state file storing last_chat_id."""
+        # Use config directory, e.g. ~/.nanobot/config.json → parent dir
+        config_path = os.environ.get("NANOBOT_CONFIG_PATH", "")
+        if config_path:
+            state_dir = os.path.dirname(config_path)
+        else:
+            state_dir = os.path.expanduser("~/.nanobot")
+        return os.path.join(state_dir, "proxy_feishu_last_chat.json")
+
+    def _load_last_chat_id(self) -> str:
+        """Load last chat_id from state file."""
+        try:
+            path = self._state_file()
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data.get("last_chat_id", "")
+        except Exception as e:
+            logger.debug("Failed to load last_chat_id: {}", e)
+        return ""
+
+    def _save_last_chat_id(self, chat_id: str) -> None:
+        """Persist last chat_id to state file."""
+        try:
+            path = self._state_file()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"last_chat_id": chat_id}, f)
+        except Exception as e:
+            logger.debug("Failed to save last_chat_id: {}", e)
 
     # ------------------------------------------------------------------
     # Message handler (called from Feishu SDK thread)
@@ -72,6 +110,8 @@ class FeishuProxyChannel(BaseProxyChannel):
 
             def _process() -> None:
                 try:
+                    self._last_chat_id = chat_id  # remember last sender for ready notification
+                    self._save_last_chat_id(chat_id)
                     quoted_text = self._fetch_quoted_message(parent_id) if parent_id else ""
                     self._add_reaction(message_id, self._reaction_emoji)
 
@@ -518,6 +558,24 @@ class FeishuProxyChannel(BaseProxyChannel):
             logger.debug("Failed to remove reaction: {}", e)
 
     # ------------------------------------------------------------------
+    # Lifecycle: startup notification (override base._send_startup_notification)
+    # ------------------------------------------------------------------
+
+    async def _send_startup_notification(self) -> None:
+        """Send startup notification to the last chat that messaged us."""
+        # Wait a moment for WS to settle
+        await asyncio.sleep(2)
+        if self._last_chat_id:
+            try:
+                # Use to_thread to avoid blocking conn_loop
+                await asyncio.to_thread(
+                    self._send_plain_text, self._last_chat_id, "Nano Bot 已启动，Proxy ready ✅"
+                )
+                logger.info("Startup notification sent to {}", self._last_chat_id)
+            except Exception as e:
+                logger.error("Failed to send startup notification: {}", e)
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
@@ -573,6 +631,10 @@ class FeishuProxyChannel(BaseProxyChannel):
 
         thread = threading.Thread(target=run_ws, daemon=True)
         thread.start()
+
+        # Wait for WS loop to initialize (lark client is created in this method)
+        # then send startup notification to last chat that messaged us
+        asyncio.run_coroutine_threadsafe(self._send_startup_notification(), self._conn_loop)
 
         while True:
             time.sleep(5)
