@@ -27,17 +27,40 @@ _IS_WINDOWS = sys.platform == "win32"
 # dedicated nanobot tool. Used by ExecTool._suggest_tool() to nudge the LLM
 # toward tool usage instead of exec.
 # Order: (command_prefix_pattern, tool_call_hint, reason_suffix)
+# PowerShell aliases (Get-Content, Get-ChildItem, Select-String, etc.) are
+# merged into the same patterns — they are matched against the inner command
+# extracted from "powershell -Command \"...\"" by _extract_powershell_inner().
 _TOOL_SUGGESTIONS: list[tuple[re.Pattern, str, str]] = [
-    (re.compile(r'^cat\s+', re.IGNORECASE), "read_file(path=...)", "handles text, images, PDFs, and Office docs"),
-    (re.compile(r'^type\s+', re.IGNORECASE), "read_file(path=...)", "handles text, images, PDFs, and Office docs"),
-    (re.compile(r'^grep\s+', re.IGNORECASE), "grep(pattern=..., path=...)", "search file contents with regex"),
-    (re.compile(r'^findstr\s+', re.IGNORECASE), "grep(pattern=..., path=...)", "search file contents with regex"),
-    (re.compile(r'^ls\s+', re.IGNORECASE), "list_dir(path=...)", "list directory contents"),
-    (re.compile(r'^dir\s+', re.IGNORECASE), "list_dir(path=...)", "list directory contents"),
+    (re.compile(r'^(?:cat|type|gc|Get-Content)\s+', re.IGNORECASE), "read_file(path=...)", "handles text, images, PDFs, and Office docs"),
+    (re.compile(r'^(?:grep|findstr|sls|Select-String)\s+', re.IGNORECASE), "grep(pattern=..., path=...)", "search file contents with regex"),
+    (re.compile(r'^(?:ls|dir|gci|Get-ChildItem)\s+', re.IGNORECASE), "list_dir(path=...)", "list directory contents"),
     (re.compile(r'^find\s+', re.IGNORECASE), "glob(pattern=...)", "find files matching a pattern"),
     (re.compile(r'^curl\s+', re.IGNORECASE), "web_fetch(url=...)", "fetch URL content"),
     (re.compile(r'^wget\s+', re.IGNORECASE), "web_fetch(url=...)", "fetch URL content"),
+    (re.compile(r'^(?:Clear-Content|Set-Content|Add-Content|sc|ac)\s+', re.IGNORECASE), "write_file(path=..., content=...)", "write content to a file"),
 ]
+
+
+def _extract_powershell_inner(command: str) -> str | None:
+    """Extract the inner command from a powershell -Command invocation.
+
+    Returns the command text inside -Command, or None if this isn't a
+    PowerShell invocation.  Handles both quoted and unquoted forms::
+
+      powershell -Command "Get-ChildItem -Name"
+      pwsh -Command Get-Content file.txt
+    """
+    m = re.match(
+        r'^(?:powershell|pwsh|powershell\.exe|pwsh\.exe)\s+'
+        r'(?:-[cC]ommand\s+)?(.+)$',
+        command,
+    )
+    if not m:
+        return None
+    inner = m.group(1).strip()
+    if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in ('"', "'"):
+        inner = inner[1:-1]
+    return inner.strip()
 
 # Executables whose -c/-e/-Command/-File flags take a quoted script argument
 # that cmd.exe /c would mangle (list2cmdline → outer-quote wrappping → strip).
@@ -197,9 +220,23 @@ class ExecTool(Tool):
             if op in command:
                 return None
         stripped = command.strip()
+
+        # Match against full command (cat file.txt, grep foo, etc.)
         for pat, tool_call, reason in _TOOL_SUGGESTIONS:
             if pat.search(stripped):
                 return f"💡 Suggestion: Use **{tool_call}** instead of exec — {reason}."
+
+        # For powershell -Command "...", extract the inner command and re-check.
+        # This catches e.g. "powershell -Command \"Get-ChildItem -Name\"" where
+        # the command starts with "powershell", not "ls".
+        inner = _extract_powershell_inner(stripped)
+        if inner:
+            for pat, tool_call, reason in _TOOL_SUGGESTIONS:
+                if pat.search(inner):
+                    return f"💡 Suggestion: Use **{tool_call}** instead of exec — {reason}."
+            # PowerShell inner command doesn't need sed/git checks below
+            return None
+
         # Special case: sed -i (in-place edit)
         lower = stripped.lower()
         if lower.startswith("sed") and " -i" in lower:

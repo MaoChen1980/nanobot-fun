@@ -33,6 +33,8 @@ class _LoopHook(AgentHook):
         message_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         session_key: str | None = None,
+        observe_think: bool = False,
+        observe_tool: bool = False,
     ) -> None:
         super().__init__(reraise=True)
         self._loop = agent_loop
@@ -45,6 +47,8 @@ class _LoopHook(AgentHook):
         self._metadata = metadata or {}
         self._session_key = session_key
         self._stream_buf = ""
+        self._observe_think = observe_think
+        self._observe_tool = observe_tool
 
     def wants_streaming(self) -> bool:
         return self._on_stream is not None
@@ -67,22 +71,48 @@ class _LoopHook(AgentHook):
     async def before_iteration(self, context: AgentHookContext) -> None:
         self._loop._current_iteration = context.iteration
 
+    async def _send_progress(
+        self,
+        content: str,
+        *,
+        tool_hint: bool = False,
+        tool_events: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Send progress to the bus via on_progress, respecting observe toggles."""
+        if not self._on_progress:
+            return
+        # Respect /tool toggle: only emit tool hints/events when /tool is on
+        effective_tool_hint = tool_hint and self._observe_tool
+        effective_tool_events = tool_events if self._observe_tool else None
+        # Respect /think toggle for content-only progress
+        effective_content = content if self._observe_think or self._observe_tool else ""
+        # Skip if nothing to send (e.g. tool hint but /tool is off and no content)
+        if not effective_content and not effective_tool_events:
+            return
+        await invoke_on_progress(
+            self._on_progress,
+            effective_content,
+            tool_hint=effective_tool_hint,
+            tool_events=effective_tool_events,
+        )
+
     async def before_execute_tools(self, context: AgentHookContext) -> None:
-        if self._on_progress:
-            if not self._on_stream:
-                thought = self._loop._strip_think(
-                    context.response.content if context.response else None
-                )
-                if thought:
-                    await self._on_progress(thought)
+        self._loop._current_iteration = context.iteration
+
+        # Send LLM thinking when /think is on and not streaming
+        if self._observe_think and not self._on_stream:
+            thought = self._loop._strip_think(
+                context.response.content if context.response else None
+            )
+            if thought:
+                await self._on_progress(thought)
+
+        # Send tool start events when /tool is on
+        if self._observe_tool:
             tool_hint = self._loop._strip_think(self._loop._tool_hint(context.tool_calls))
             tool_events = [build_tool_event_start_payload(tc) for tc in context.tool_calls]
-            await invoke_on_progress(
-                self._on_progress,
-                tool_hint,
-                tool_hint=True,
-                tool_events=tool_events,
-            )
+            await self._send_progress(tool_hint, tool_hint=True, tool_events=tool_events)
+
         for tc in context.tool_calls:
             args_str = json.dumps(tc.arguments, ensure_ascii=False)
             logger.info("Tool call: {}({})", tc.name, args_str[:200])
@@ -95,20 +125,16 @@ class _LoopHook(AgentHook):
         )
 
     async def after_iteration(self, context: AgentHookContext) -> None:
+        # Send tool finish events when /tool is on
         if (
-            self._on_progress
+            self._observe_tool
             and context.tool_calls
             and context.tool_events
             and on_progress_accepts_tool_events(self._on_progress)
         ):
             tool_events = build_tool_event_finish_payloads(context)
             if tool_events:
-                await invoke_on_progress(
-                    self._on_progress,
-                    "",
-                    tool_hint=False,
-                    tool_events=tool_events,
-                )
+                await self._send_progress("", tool_hint=False, tool_events=tool_events)
         u = context.usage or {}
         logger.debug(
             "LLM usage: prompt={} completion={} cached={}",

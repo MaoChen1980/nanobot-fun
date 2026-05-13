@@ -580,6 +580,9 @@ async def cmd_list_goals(ctx: CommandContext) -> OutboundMessage:
 
 def register_builtin_commands(router: CommandRouter) -> None:
     """Register the default set of slash commands."""
+    # Observe toggles
+    from nanobot.agent.commands.observe import register_observe_commands
+    register_observe_commands(router)
     router.priority("/stop", cmd_stop)
     router.priority("/restart", cmd_restart)
     router.priority("/status", cmd_status)

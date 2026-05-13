@@ -1,11 +1,20 @@
-"""Context variables shared across agent modules."""
+"""Thread-local context for the current agent loop and session."""
 
 from __future__ import annotations
 
 from contextvars import ContextVar
+from typing import Any
 
-# Stores the current message list during agent loop execution.
-# Subagent tools read this to build their context block.
-_current_messages_for_subagent: ContextVar[list | None] = ContextVar(
-    "current_messages_for_subagent", default=None
+# The currently-executing AgentLoop instance (set per-request in loop.py).
+_current_agent_loop: ContextVar[Any] = ContextVar("_current_agent_loop", default=None)
+
+# The current session_key (set per-request in loop.py).
+_current_session_key: ContextVar[str] = ContextVar("_current_session_key", default="")
+
+# The current inbound message (set per-request in loop.py).
+_current_inbound: ContextVar[Any] = ContextVar("_current_inbound", default=None)
+
+# The current messages to use for a subagent (set by spawn tool).
+_current_messages_for_subagent: ContextVar[list[dict] | None] = ContextVar(
+    "_current_messages_for_subagent", default=None
 )

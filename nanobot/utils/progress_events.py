@@ -6,39 +6,130 @@ import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from nanobot.agent.hook import AgentHookContext
+from loguru import logger
 
 
-def on_progress_accepts_tool_events(cb: Callable[..., Any]) -> bool:
+# ----------------------------------------------------------------------
+# Observe event emission — /think and /tool
+# ----------------------------------------------------------------------
+
+
+def _emit_observe_event(event_type: str, content: str, metadata: dict | None = None) -> None:
+    """Emit a /think or /tool observe event to the proxy channel via context var.
+
+    Safe to call even when no loop is active (no-op).
+    """
+    from nanobot.agent.context_vars import _current_agent_loop
+
+    loop = _current_agent_loop.get()
+    if loop is not None:
+        loop._emit_observe_event(event_type, content, metadata or {})
+
+
+# ----------------------------------------------------------------------
+# on_progress integration (legacy callback format)
+# ----------------------------------------------------------------------
+
+
+def on_progress_accepts_tool_events(on_progress: Callable[..., Any] | None) -> bool:
+    """Check whether on_progress callback accepts a ``tool_events`` kwarg.
+
+    Returns True if the callback has ``tool_events`` as a named parameter
+    (positional or keyword), accepts ``**kwargs``, or has 3+ positional
+    params (legacy ``cb(content, tool_hint, tool_events)`` format).
+    """
+    if on_progress is None:
+        return False
     try:
-        sig = inspect.signature(cb)
+        sig = inspect.signature(on_progress)
     except (TypeError, ValueError):
         return False
-    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+    params = sig.parameters
+    # Named ``tool_events`` param (positional or keyword) or **kwargs
+    if "tool_events" in params:
         return True
-    return "tool_events" in sig.parameters
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True
+    # 3+ positional params (legacy cb(content, tool_hint, tool_events))
+    positional = [p for p in params.values() if p.kind in (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.VAR_POSITIONAL,
+    )]
+    return len(positional) >= 3
 
 
 async def invoke_on_progress(
-    on_progress: Callable[..., Awaitable[None]],
+    on_progress: Callable[..., Awaitable[None] | None] | None,
     content: str,
-    *,
     tool_hint: bool = False,
-    tool_events: list[dict[str, Any]] | None = None,
+    tool_events: Any = None,
+    **kwargs: Any,
 ) -> None:
-    if tool_events and on_progress_accepts_tool_events(on_progress):
-        await on_progress(content, tool_hint=tool_hint, tool_events=tool_events)
-        return
-    await on_progress(content, tool_hint=tool_hint)
+    """Call on_progress with structured args (legacy format: content + tool_hint + tool_events).
+
+    Also emits via the new _emit_observe_event context var when available.
+    """
+    # Determine whether to pass tool_events to the old callback.
+    accept_tool_events = on_progress_accepts_tool_events(on_progress)
+
+    # Emit via the new observe system (_emit_observe_event is always safe to call).
+    if tool_events:
+        for te in tool_events:
+            if isinstance(te, dict):
+                phase = te.get("phase", "start")
+                if phase == "start":
+                    _emit_observe_event("tool_start", content, te)
+                elif phase == "end":
+                    _emit_observe_event("tool_end", content, te)
+                elif phase == "error":
+                    _emit_observe_event("tool_error", content, te)
+
+    if on_progress is not None:
+        try:
+            # Only pass tool_events to old-format callbacks that can accept them.
+            passed_tool_events = tool_events if accept_tool_events else None
+            result = on_progress(content, tool_hint=tool_hint, tool_events=passed_tool_events, **kwargs)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            logger.warning("on_progress callback raised: {}", exc)
 
 
-def build_tool_event_start_payload(tool_call: Any) -> dict[str, Any]:
+# ----------------------------------------------------------------------
+# Legacy payload format (kept for backwards compat with existing tests)
+# ----------------------------------------------------------------------
+
+
+def tool_event_result_extras(result: Any) -> tuple[list[str], list[dict]]:
+    """Extract file/embed extras from a tool result dict (legacy compat)."""
+    files: list[str] = []
+    embeds: list[dict] = []
+    if isinstance(result, dict):
+        if isinstance(result.get("files"), list):
+            files = result["files"]
+        if isinstance(result.get("embeds"), list):
+            embeds = result["embeds"]
+    return files, embeds
+
+
+def build_tool_event_start_payload(tc: Any) -> dict:
+    """Build a dict-based start event payload (legacy compat)."""
+    call_id = getattr(tc, "id", "")
+    name = getattr(tc, "name", "")
+    arguments = getattr(tc, "arguments", {})
+    if isinstance(arguments, str):
+        import json
+        try:
+            arguments = json.loads(arguments)
+        except Exception:
+            arguments = {}
     return {
         "version": 1,
         "phase": "start",
-        "call_id": str(getattr(tool_call, "id", "") or ""),
-        "name": getattr(tool_call, "name", ""),
-        "arguments": getattr(tool_call, "arguments", {}) or {},
+        "call_id": call_id,
+        "name": name,
+        "arguments": arguments,
         "result": None,
         "error": None,
         "files": [],
@@ -46,39 +137,44 @@ def build_tool_event_start_payload(tool_call: Any) -> dict[str, Any]:
     }
 
 
-def tool_event_result_extras(result: Any) -> tuple[list[Any], list[Any]]:
-    if not isinstance(result, dict):
-        return [], []
-    files = result.get("files") if isinstance(result.get("files"), list) else []
-    embeds = result.get("embeds") if isinstance(result.get("embeds"), list) else []
-    return files, embeds
-
-
-def build_tool_event_finish_payloads(context: AgentHookContext) -> list[dict[str, Any]]:
-    payloads: list[dict[str, Any]] = []
-    count = min(len(context.tool_calls), len(context.tool_results), len(context.tool_events))
-    for idx in range(count):
-        tool_call = context.tool_calls[idx]
-        result = context.tool_results[idx]
-        event = context.tool_events[idx] if isinstance(context.tool_events[idx], dict) else {}
-        status = event.get("status")
-        phase = "end" if status == "ok" else "error"
+def build_tool_event_finish_payloads(context: Any) -> list[dict]:
+    """Build dict-based finish event payloads from context (legacy compat)."""
+    payloads = []
+    tool_calls = getattr(context, "tool_calls", [])
+    results = getattr(context, "tool_results", [])
+    events = getattr(context, "tool_events", [])
+    n = min(len(tool_calls), len(results), len(events))
+    for i in range(n):
+        tc = tool_calls[i]
+        result = results[i]
+        event = events[i]
+        call_id = getattr(tc, "id", "")
+        name = getattr(tc, "name", "")
+        arguments = getattr(tc, "arguments", {}) or {}
+        if isinstance(arguments, str):
+            import json
+            try:
+                arguments = json.loads(arguments)
+            except Exception:
+                arguments = {}
+        status = event.get("status", "ok") if isinstance(event, dict) else "ok"
         files, embeds = tool_event_result_extras(result)
-        payload = {
-            "version": 1,
-            "phase": phase,
-            "call_id": str(getattr(tool_call, "id", "") or ""),
-            "name": getattr(tool_call, "name", ""),
-            "arguments": getattr(tool_call, "arguments", {}) or {},
-            "result": result if phase == "end" else None,
-            "error": None,
-            "files": files,
-            "embeds": embeds,
-        }
-        if phase == "error":
-            if isinstance(result, str) and result.strip():
-                payload["error"] = result.strip()
-            else:
-                payload["error"] = str(event.get("detail") or "Tool execution failed")
-        payloads.append(payload)
+        if status == "error":
+            error_detail = event.get("detail") if isinstance(event, dict) else None
+            error_msg = error_detail or (result if isinstance(result, str) and result else "Tool execution failed")
+            payloads.append({
+                "version": 1, "phase": "error",
+                "call_id": call_id, "name": name,
+                "arguments": arguments, "result": None,
+                "error": error_msg,
+                "files": [], "embeds": [],
+            })
+        else:
+            payloads.append({
+                "version": 1, "phase": "end",
+                "call_id": call_id, "name": name,
+                "arguments": arguments, "result": result,
+                "error": None,
+                "files": files, "embeds": embeds,
+            })
     return payloads

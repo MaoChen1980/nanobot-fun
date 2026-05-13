@@ -49,6 +49,7 @@ from nanobot.agent.tools.analyze_tool import AnalyzeTool
 from nanobot.agent.tools.diagnose_tool import DiagnoseTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.agent.context_vars import _current_agent_loop
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
 from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import LLMProvider
@@ -261,6 +262,51 @@ class AgentLoop:
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
         self.context.warmup()
+        # Per-session observe toggles — keyed by session_key
+        # Format: {_observe_think: {session_key: bool}, _observe_tool: {session_key: bool}}
+        self._session_observe: dict[str, dict[str, bool]] = {
+            "_observe_think": {},
+            "_observe_tool": {},
+        }
+
+    # ------------------------------------------------------------------
+    # Observe events — /think and /tool
+    # ------------------------------------------------------------------
+
+    def _emit_observe_event(
+        self,
+        event_type: str,
+        content: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Emit a /think or /tool progress event to the proxy channel.
+
+        Called from runner/hook callbacks to push real-time events to the user.
+        """
+        from nanobot.agent.context_vars import _current_inbound
+
+        inbound = _current_inbound.get()
+        if inbound is None:
+            return
+
+        # Skip if observe toggle is off for this session
+        session_key = self._effective_session_key(inbound)
+        if event_type == "thinking":
+            if not self._session_observe["_observe_think"].get(session_key, False):
+                return
+        elif event_type.startswith("tool_"):
+            if not self._session_observe["_observe_tool"].get(session_key, False):
+                return
+        else:
+            return
+
+        msg = OutboundMessage(
+            channel=inbound.channel,
+            chat_id=inbound.chat_id,
+            content=content,
+            metadata=metadata,
+        )
+        self.bus.publish_outbound(msg)
 
     def _apply_provider_snapshot(self, snapshot: ProviderSnapshot) -> None:
         """Swap model/provider for future turns without disturbing an active one."""
@@ -445,6 +491,13 @@ class AgentLoop:
             return UNIFIED_SESSION_KEY
         return msg.session_key
 
+    def _get_session_key_for_chat(self, chat_id: str, channel: str) -> str:
+        """Derive session_key from chat_id and channel for observe toggle commands.
+
+        Uses the same convention as proxy messages: channel:chat_id.
+        """
+        return f"{channel}:{chat_id}"
+
     def _replay_token_budget(self) -> int:
         """Derive a token budget for session history replay from the context window."""
         if self.context_window_tokens <= 0:
@@ -482,6 +535,8 @@ class AgentLoop:
 
         Returns (final_content, tools_used, messages, stop_reason, had_injections).
         """
+        observe_think = self._session_observe["_observe_think"].get(session_key, False)
+        observe_tool = self._session_observe["_observe_tool"].get(session_key, False)
         loop_hook = _LoopHook(
             self,
             on_progress=on_progress,
@@ -492,6 +547,8 @@ class AgentLoop:
             message_id=message_id,
             metadata=metadata,
             session_key=session_key,
+            observe_think=observe_think,
+            observe_tool=observe_tool,
         )
         hook: AgentHook = (
             CompositeHook([loop_hook] + self._extra_hooks) if self._extra_hooks else loop_hook
@@ -967,11 +1024,14 @@ class AgentLoop:
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
         """Process a message directly and return the outbound payload."""
+        from nanobot.agent.context_vars import _current_inbound
+
         await self._connect_mcp()
         msg = InboundMessage(
             channel=channel, sender_id="user", chat_id=chat_id,
             content=content, media=media or [], metadata=metadata or {},
         )
+        _current_inbound.set(msg)
         return await self._process_message(
             msg,
             session_key=session_key,

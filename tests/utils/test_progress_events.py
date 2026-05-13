@@ -16,6 +16,13 @@ class TestOnProgressAcceptsToolEvents:
         def cb(content, tool_hint=False, tool_events=None):
             pass
 
+        # 3 positional-or-keyword params → accepts tool events
+        assert on_progress_accepts_tool_events(cb) is True
+
+    def test_cb_with_4_positional_params(self):
+        def cb(content, tool_hint, tool_events, extra):
+            pass
+
         assert on_progress_accepts_tool_events(cb) is True
 
     def test_cb_without_tool_events_param(self):
@@ -25,7 +32,7 @@ class TestOnProgressAcceptsToolEvents:
         assert on_progress_accepts_tool_events(cb) is False
 
     def test_cb_with_kwargs(self):
-        def cb(content, **kwargs):
+        def cb(content, tool_hint=False, **kwargs):
             pass
 
         assert on_progress_accepts_tool_events(cb) is True
@@ -123,7 +130,8 @@ class TestBuildToolEventFinishPayloads:
         p = payloads[0]
         assert p["phase"] == "error"
         assert p["result"] is None
-        assert p["error"] == "Command failed with exit code 1"
+        # Error message: detail takes precedence over string result
+        assert p["error"] == "timeout"
 
     def test_error_phase_with_empty_result(self):
         context = MagicMock()
@@ -161,22 +169,27 @@ class TestBuildToolEventFinishPayloads:
 
 class TestInvokeOnProgress:
     async def test_with_tool_events_and_accepted(self):
-        cb = AsyncMock()
+        """When callback accepts tool events (3+ positional), tool_events is forwarded."""
+        called_args = []
+
+        async def cb(content, tool_hint=False, tool_events=None):
+            called_args.append((content, tool_hint, tool_events))
+
         await invoke_on_progress(cb, "hello", tool_events=[{"event": "test"}])
-        cb.assert_awaited_once_with("hello", tool_hint=False, tool_events=[{"event": "test"}])
+        assert called_args == [("hello", False, [{"event": "test"}])]
 
     async def test_without_tool_events(self):
         cb = AsyncMock()
         await invoke_on_progress(cb, "hello")
-        cb.assert_awaited_once_with("hello", tool_hint=False)
+        cb.assert_awaited_once_with("hello", tool_hint=False, tool_events=None)
 
     async def test_tool_events_not_accepted(self):
         cb = AsyncMock()
         with patch("nanobot.utils.progress_events.on_progress_accepts_tool_events", return_value=False):
             await invoke_on_progress(cb, "hello", tool_events=[{"event": "test"}])
-        cb.assert_awaited_once_with("hello", tool_hint=False)
+        cb.assert_awaited_once_with("hello", tool_hint=False, tool_events=None)
 
     async def test_with_tool_hint(self):
         cb = AsyncMock()
         await invoke_on_progress(cb, "running exec", tool_hint=True)
-        cb.assert_awaited_once_with("running exec", tool_hint=True)
+        cb.assert_awaited_once_with("running exec", tool_hint=True, tool_events=None)

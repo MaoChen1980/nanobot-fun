@@ -33,7 +33,9 @@ class FeishuProxyChannel(BaseProxyChannel):
             if config.get("domain", "feishu") == "feishu"
             else "https://open.larksuite.com"
         )
-        self._thread_pool = ThreadPoolExecutor(max_workers=10)
+        self._thread_pool = ThreadPoolExecutor(max_workers=32)
+        # Serialize Hub requests + replies per session to prevent concurrent write/race
+        self._hub_lock = threading.Lock()
         self._notified_chats: set[str] = set()  # chat_ids already sent ready notification
         self._consumed_qids: set[str] = set()  # chat-scoped QIDs already clicked
 
@@ -67,32 +69,32 @@ class FeishuProxyChannel(BaseProxyChannel):
                 sender_id = str(sender_id_obj or "")
             chat_id = getattr(message, "chat_id", "")
 
-            # Fetch quoted message if this is a reply
+            # Offload all blocking work (Feishu API calls, Hub TCP) to thread pool
             parent_id = getattr(message, "parent_id", None)
-            quoted_text = ""
-            if parent_id:
-                quoted_text = self._fetch_quoted_message(parent_id)
 
-            # THUMBSUP reaction immediately
-            self._add_reaction(message_id, self._reaction_emoji)
-
-            # Forward to Hub
-            def _do_reply(response: HubResponse | None) -> None:
+            def _process() -> None:
                 try:
-                    if response and response.success and response.content:
-                        self._send_text_reply(chat_id, message_id, response.content)
-                    if response and response.success and response.metadata.get("done_emoji"):
-                        self._add_reaction(message_id, response.metadata["done_emoji"])
-                    elif response:
-                        self._add_reaction(message_id, self._done_emoji)
-                    self._remove_reaction(message_id)
-                except Exception as e:
-                    logger.error("Failed to send reply/reaction: {}", e)
+                    quoted_text = self._fetch_quoted_message(parent_id) if parent_id else ""
+                    self._add_reaction(message_id, self._reaction_emoji)
 
-            msg_data = self.build_message(sender_id, chat_id, text, message_id)
-            if quoted_text:
-                msg_data["metadata"] = {"quoted_message": quoted_text}
-            self._thread_pool.submit(lambda: _do_reply(self.send_to_hub(msg_data)))
+                    msg_data = self.build_message(sender_id, chat_id, text, message_id)
+                    if quoted_text:
+                        msg_data["metadata"] = {"quoted_message": quoted_text}
+
+                    # Lock serializes Hub request + Feishu reply to keep them atomic
+                    with self._hub_lock:
+                        response = self.send_to_hub(msg_data)
+                        if response and response.success and response.content:
+                            self._send_text_reply(chat_id, message_id, response.content)
+                        if response and response.success and response.metadata.get("done_emoji"):
+                            self._add_reaction(message_id, response.metadata["done_emoji"])
+                        elif response:
+                            self._add_reaction(message_id, self._done_emoji)
+                        self._remove_reaction(message_id)
+                except Exception as e:
+                    logger.error("Feishu on_message process error: {}", e)
+
+            self._thread_pool.submit(_process)
 
         except Exception as e:
             logger.error("Feishu proxy message handler error: {}", e)
@@ -139,21 +141,31 @@ class FeishuProxyChannel(BaseProxyChannel):
                 self._send_plain_text(chat_id, f'您已经选择了"{reply_text}"')
                 return
 
-            # CallBackAction has no .action_id — use .name for dedup key
-            unique_id = f"card_{action.name or ''}_{int(time.time())}"
-            if self.check_duplicate(unique_id):
+            # Deduplicate by action name to avoid double-clicks
+            if self.check_duplicate(action.name or ""):
                 return
 
             logger.info("Card action: {} -> {} (from {})", reply_text[:50], chat_id, sender_id)
             self._consumed_qids.add(dedup_key)
-            # Send immediate receipt so user sees their choice
-            self._send_plain_text(chat_id, f"你选择了'{reply_text}'")
-            msg_data = self.build_message(sender_id, chat_id, reply_text, unique_id)
-            result = self.send_to_hub(msg_data)
-            if result and result.success and result.content:
-                self._send_text_reply(chat_id, None, result.content)
+            # Offload blocking work (Feishu API, Hub TCP) to thread pool
+            self._thread_pool.submit(
+                lambda: self._process_card_action(chat_id, sender_id, reply_text, action.name or "")
+            )
         except Exception as e:
             logger.error("Failed to handle card action: {}", e)
+
+    def _process_card_action(self, chat_id: str, sender_id: str, reply_text: str, action_name: str) -> None:
+        """Process card action after dedup — runs on thread pool."""
+        try:
+            self._send_plain_text(chat_id, f"你选择了'{reply_text}'")
+            msg_data = self.build_message(sender_id, chat_id, reply_text, f"card_{action_name}")
+            # Lock serializes Hub request + Feishu reply to keep them atomic
+            with self._hub_lock:
+                result = self.send_to_hub(msg_data)
+                if result and result.success and result.content:
+                    self._send_text_reply(chat_id, None, result.content)
+        except Exception as e:
+            logger.error("Failed to process card action: {}", e)
 
     # ------------------------------------------------------------------
     # Fetch quoted message
@@ -187,7 +199,7 @@ class FeishuProxyChannel(BaseProxyChannel):
         content = data.get("content", "")
         if chat_id and content:
             try:
-                self._send_text_reply(chat_id, None, content)
+                await asyncio.to_thread(self._send_text_reply, chat_id, None, content)
                 logger.info("Delivered to {}: content={}", chat_id, content[:60])
             except Exception as e:
                 logger.error("Failed to deliver to {}: {}", chat_id, e)

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.agent.loop_constants import UNIFIED_SESSION_KEY
+from nanobot.agent.context_vars import _current_inbound
 
 
 class DispatchManager:
@@ -28,6 +29,7 @@ class DispatchManager:
         self, msg: InboundMessage, session_key: str, pending: asyncio.Queue,
     ) -> None:
         """Execute dispatch body: process message with streaming, handle cancel/error."""
+        _current_inbound.set(msg)
         async with self._gate():
             try:
                 try:

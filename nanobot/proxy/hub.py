@@ -145,10 +145,28 @@ class HubTCPServer:
             return
 
         session_key = f"{msg.channel}:{msg.bot}:{msg.sender_id}"
+        proxy_key = f"{msg.channel}:{msg.bot}"
         logger.info(
             "TCP proxy message for {}: {} (session={})",
             session_key, msg.content[:50], session_key,
         )
+
+        # Progress callback delivers /think and /tool observe events
+        # to the proxy in real-time while the main request is processing.
+        async def _on_progress(
+            content: str,
+            *,
+            tool_hint: bool = False,
+            tool_events: list | None = None,
+        ) -> None:
+            if not content:
+                return
+            deliver_data = {
+                "type": "deliver",
+                "chat_id": msg.chat_id,
+                "content": content,
+            }
+            await self._proxy_manager.deliver_to_proxy(proxy_key, deliver_data)
 
         inbound = msg.to_inbound_message()
 
@@ -161,6 +179,7 @@ class HubTCPServer:
                         channel=inbound.channel,
                         chat_id=inbound.chat_id,
                         media=inbound.media or None,
+                        on_progress=_on_progress,
                     )
             else:
                 return await self._agent_loop.process_direct(
@@ -170,6 +189,7 @@ class HubTCPServer:
                     chat_id=inbound.chat_id,
                     media=inbound.media or None,
                     metadata=inbound.metadata,
+                    on_progress=_on_progress,
                 )
 
         try:
