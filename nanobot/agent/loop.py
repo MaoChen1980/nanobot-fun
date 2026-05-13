@@ -94,6 +94,7 @@ from .loop_checkpoint import (
 from .loop_checkpoint import RecoveryManager
 from .loop_dispatch import DispatchManager
 from .loop_message_handlers import SystemMessageHandler, UserMessageHandler
+from .context_optimizer import ContextOptimizer
 
 if TYPE_CHECKING:
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig, ToolsConfig, WebToolsConfig
@@ -267,7 +268,14 @@ class AgentLoop:
         self._session_observe: dict[str, dict[str, bool]] = {
             "_observe_think": {},
             "_observe_tool": {},
+            "_observe_opt": {},
         }
+        self.context_optimizer = ContextOptimizer(
+            provider=self.provider,
+            tool_registry=self.tools,
+            model=self.model,
+            enabled=False,  # opt-in via config or toggle
+        )
 
     # ------------------------------------------------------------------
     # Observe events — /think and /tool

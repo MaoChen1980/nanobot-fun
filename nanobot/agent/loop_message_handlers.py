@@ -113,6 +113,10 @@ class UserMessageHandler:
         # Stage 4: build initial messages
         initial_messages, pending_ask_id = self._build_initial_messages(msg, history, pending)
 
+        # Stage 4.5: context optimization (skip when waiting for ask_user answer)
+        if not pending_ask_id and self._loop._session_observe["_observe_opt"].get(key, False):
+            initial_messages = await self._loop.context_optimizer.optimize(initial_messages)
+
         # Stage 5: callbacks
         on_progress_final = on_progress or self._make_bus_progress_callback(msg)
         on_retry_wait = self._make_retry_wait_callback(msg)
