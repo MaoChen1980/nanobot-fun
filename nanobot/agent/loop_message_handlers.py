@@ -158,10 +158,8 @@ class UserMessageHandler:
         """Restore checkpoints, return session + derived context."""
         key = session_key or msg.session_key
         session = self._loop.sessions.get_or_create(key)
-        if self._loop._recovery.restore_runtime_checkpoint(session):
-            self._loop.sessions.save(session)
-        if self._loop._recovery.restore_pending_user_turn(session):
-            self._loop.sessions.save(session)
+        self._loop._recovery.restore_runtime_checkpoint(session)
+        self._loop._recovery.restore_pending_user_turn(session)
         session, pending = self._loop.auto_compact.prepare_session(session, key)
         history = session.get_history(max_tokens=self._loop._replay_token_budget(), include_timestamps=True, timezone=self._loop.context.timezone)
         channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id))
@@ -234,7 +232,7 @@ class UserMessageHandler:
         return _on_retry_wait
 
     def _persist_user_message_early(self, session, msg, pending_ask_id):
-        """Persist the user message before the loop runs, enabling crash recovery."""
+        """Add user message to session before the loop runs (persisted at finalize)."""
         media_paths = [p for p in (msg.media or []) if isinstance(p, str) and p]
         has_text = isinstance(msg.content, str) and msg.content.strip()
         if not pending_ask_id and (has_text or media_paths):
@@ -242,7 +240,6 @@ class UserMessageHandler:
             text = msg.content if isinstance(msg.content, str) else ""
             session.add_message("user", text, timestamp=msg.timestamp.isoformat(), **extra)
             self._loop._recovery.mark_pending_user_turn(session)
-            self._loop.sessions.save(session)
             return True
         return False
 
