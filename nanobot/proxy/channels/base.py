@@ -51,6 +51,7 @@ class BaseProxyChannel:
         self._heartbeat_task: asyncio.Task | None = None
         self._reader_task: asyncio.Task | None = None
         self._pending_response: asyncio.Future | None = None
+        self._pending_request_type: str | None = None
         self._parent_pid: int = 0  # set after TCP connect
         # msg_id -> timestamp for deduplication
         self._dedup: dict[str, float] = {}
@@ -172,6 +173,7 @@ class BaseProxyChannel:
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         self._pending_response = future
+        self._pending_request_type = data.get("type", "")
         try:
             self._writer.write((json.dumps(data) + "\n").encode())
             await self._writer.drain()
@@ -179,6 +181,7 @@ class BaseProxyChannel:
             return response
         finally:
             self._pending_response = None
+            self._pending_request_type = None
 
     async def _background_reader(self) -> None:
         """Continuously read TCP messages and dispatch pushes or fulfill pending responses."""
@@ -192,8 +195,16 @@ class BaseProxyChannel:
                     logger.debug("Background reader: deliver msg to chat={}", data.get("chat_id", "")[:20])
                     await self._handle_deliver(data)
                 elif self._pending_response is not None and not self._pending_response.done():
-                    logger.trace("Background reader: fulfill pending response")
-                    self._pending_response.set_result(data)
+                    # Only fulfill if the response type matches expectation.
+                    # Prevents async route_message responses from resolving heartbeat ping futures.
+                    if self._pending_request_type == "ping" and data.get("type") != "pong":
+                        logger.warning(
+                            "Background reader: ignoring msg (expected pong, got type={}): {}",
+                            data.get("type", "none"), str(data.get("content", ""))[:60],
+                        )
+                    else:
+                        logger.trace("Background reader: fulfill pending response")
+                        self._pending_response.set_result(data)
                 else:
                     has_content = bool(data.get("content"))
                     logger.warning(
