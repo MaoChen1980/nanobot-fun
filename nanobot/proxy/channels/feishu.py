@@ -35,6 +35,7 @@ class FeishuProxyChannel(BaseProxyChannel):
             else "https://open.larksuite.com"
         )
         self._thread_pool = ThreadPoolExecutor(max_workers=32)
+        self._api_lock = threading.Lock()  # serialize Feishu API calls across concurrent paths
         self._notified_chats: set[str] = set()  # chat_ids already sent ready notification
         self._consumed_qids: set[str] = set()  # chat-scoped QIDs already clicked
         self._last_chat_id: str = self._load_last_chat_id()  # last chat that sent a message → used for ready notification
@@ -505,21 +506,22 @@ class FeishuProxyChannel(BaseProxyChannel):
 
         Falls back through the chain: card → post → plain text.
         """
-        cleaned, qrs = self._parse_quick_replies(content)
-        render_mode = self.config.get("renderMode", "card")
-        use_card = qrs is not None or render_mode == "card" or (
-            render_mode == "auto" and self._has_rich_content(cleaned)
-        )
+        with self._api_lock:
+            cleaned, qrs = self._parse_quick_replies(content)
+            render_mode = self.config.get("renderMode", "card")
+            use_card = qrs is not None or render_mode == "card" or (
+                render_mode == "auto" and self._has_rich_content(cleaned)
+            )
 
-        if use_card:
-            if self._send_card_reply(chat_id, cleaned, quick_replies=qrs):
+            if use_card:
+                if self._send_card_reply(chat_id, cleaned, quick_replies=qrs):
+                    return
+
+            processed = self._wrap_tables_in_code_fences(cleaned)
+            if self._send_post_reply(chat_id, processed):
                 return
 
-        processed = self._wrap_tables_in_code_fences(cleaned)
-        if self._send_post_reply(chat_id, processed):
-            return
-
-        self._send_plain_text(chat_id, processed)
+            self._send_plain_text(chat_id, processed)
 
     def _add_reaction(self, message_id: str, emoji: str) -> None:
         """Add reaction emoji to message."""
