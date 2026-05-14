@@ -212,14 +212,14 @@ def test_identity_has_no_behavioral_instructions(tmp_path) -> None:
     assert "Execution Rules" not in identity
 
 
-def test_message_time_markers_in_bootstrap_docs(tmp_path) -> None:
-    """Message Time references appear in the AGENTS.md bootstrap docs."""
+def test_agents_framework_architecture_in_bootstrap_docs(tmp_path) -> None:
+    """Framework Architecture section appears in the AGENTS.md bootstrap docs."""
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)
 
     prompt = builder.build_system_prompt()
 
-    assert "Message Time" in prompt
+    assert "stateless per turn" in prompt
 
 
 def test_default_soul_template_contains_execution_rules() -> None:
