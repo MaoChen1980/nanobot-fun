@@ -6,6 +6,7 @@ import asyncio
 import os
 import re
 import shutil
+import urllib.parse
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -39,6 +40,24 @@ _SANITIZE_RE = re.compile(r"_+")
 def _sanitize_name(name: str) -> str:
     """Sanitize an MCP-derived name for model API compatibility."""
     return _SANITIZE_RE.sub("_", re.sub(r"[^a-zA-Z0-9_-]", "_", name))
+
+
+async def _probe_http_url(url: str, timeout: float = 3.0) -> bool:
+    """Quick TCP probe to check if an HTTP MCP server is reachable."""
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port
+    if not port:
+        port = 443 if parsed.scheme == "https" else 80
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except (OSError, asyncio.TimeoutError):
+        return False
 
 
 def _is_transient(exc: BaseException) -> bool:
@@ -409,6 +428,8 @@ async def connect_mcp_servers(
                 )
                 read, write = await server_stack.enter_async_context(stdio_client(params))
             elif transport_type == "sse":
+                if not await _probe_http_url(cfg.url):
+                    raise ConnectionError(f"MCP server '{name}' unreachable at {cfg.url}")
 
                 def httpx_client_factory(
                     headers: dict[str, str] | None = None,
@@ -431,6 +452,8 @@ async def connect_mcp_servers(
                     sse_client(cfg.url, httpx_client_factory=httpx_client_factory)
                 )
             elif transport_type == "streamableHttp":
+                if not await _probe_http_url(cfg.url):
+                    raise ConnectionError(f"MCP server '{name}' unreachable at {cfg.url}")
                 http_client = await server_stack.enter_async_context(
                     httpx.AsyncClient(
                         headers=cfg.headers or None,
@@ -548,19 +571,9 @@ async def connect_mcp_servers(
 
     server_stacks: dict[str, AsyncExitStack] = {}
 
-    tasks: list[asyncio.Task] = []
     for name, cfg in mcp_servers.items():
-        task = asyncio.create_task(connect_single_server(name, cfg))
-        tasks.append(task)
-
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    for i, result in enumerate(results):
-        name = list(mcp_servers.keys())[i]
-        if isinstance(result, BaseException):
-            if not isinstance(result, asyncio.CancelledError):
-                logger.error("MCP server '{}' connection task failed: {}", name, result)
-        elif result is not None and result[1] is not None:
-            server_stacks[result[0]] = result[1]
+        _, stack = await connect_single_server(name, cfg)
+        if stack is not None:
+            server_stacks[name] = stack
 
     return server_stacks
