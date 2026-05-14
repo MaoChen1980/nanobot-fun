@@ -1,4 +1,4 @@
-"""Observe toggles: /think, /tool, /opt."""
+"""Observe toggles: /think, /tool."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from nanobot.bus.events import OutboundMessage
 def register_observe_commands(router) -> None:
     router.exact("/think", cmd_think)
     router.exact("/tool", cmd_tool)
-    router.exact("/opt", cmd_opt)
 
 
 async def cmd_think(ctx) -> OutboundMessage:
@@ -40,23 +39,6 @@ async def cmd_tool(ctx) -> OutboundMessage:
         chat_id=ctx.msg.chat_id,
         content=(
             f"🔧 /tool {status} — Tool call events will{' ' if enabled else ' not '}be shown."
-        ),
-        metadata=dict(ctx.msg.metadata or {}),
-    )
-
-
-async def cmd_opt(ctx) -> OutboundMessage:
-    """Toggle context optimizer — two-stage context optimization."""
-    session_key = ctx.key
-    enabled = ctx.loop._session_observe["_observe_opt"].get(session_key, False)
-    enabled = not enabled
-    ctx.loop._session_observe["_observe_opt"][session_key] = enabled
-    status = "ON" if enabled else "OFF"
-    return OutboundMessage(
-        channel=ctx.msg.channel,
-        chat_id=ctx.msg.chat_id,
-        content=(
-            f"⚡ /opt {status} — Context optimizer will{' ' if enabled else ' not '}be applied."
         ),
         metadata=dict(ctx.msg.metadata or {}),
     )

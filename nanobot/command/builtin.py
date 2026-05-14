@@ -351,7 +351,6 @@ def build_help_text() -> str:
         "--- observe toggles (on/off):",
         "/think — Toggle LLM thinking blocks visibility",
         "/tool — Toggle tool call events visibility",
-        "/opt — Toggle context optimizer",
         "/rounds [N] — Show/set max conversation rounds kept as full messages (0 = all)",
         "/help — Show available commands",
     ]
