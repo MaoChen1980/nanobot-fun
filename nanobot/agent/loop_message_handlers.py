@@ -61,7 +61,8 @@ class SystemMessageHandler:
             message_timestamp=msg.timestamp.isoformat() if hasattr(msg, 'timestamp') else None,
         )
         final_content, _, all_msgs, stop_reason, _ = await self._loop._run_agent_loop(messages, session=session, channel=effective_channel, chat_id=chat_id, message_id=msg.metadata.get("message_id"), metadata=msg.metadata, session_key=key, pending_queue=pending_queue)
-        self._loop._record_turn(session, all_msgs, 1 + len(history))
+        msgs_count = len(messages)
+        self._loop._record_turn(session, all_msgs, msgs_count if is_subagent else msgs_count - 1)
         session.enforce_file_cap()
         self._loop._recovery.clear_runtime_checkpoint(session)
         self._loop.sessions.save(session)
@@ -114,6 +115,7 @@ class UserMessageHandler:
 
         # Stage 3: build initial messages
         initial_messages, pending_ask_id = self._build_initial_messages(msg, history, pending, session)
+        initial_msgs_count = len(initial_messages)
 
         # Stage 4: callbacks
         on_progress_final = on_progress or self._make_bus_progress_callback(msg)
@@ -156,7 +158,7 @@ class UserMessageHandler:
             self._loop._recovery.clear_runtime_checkpoint(session)
             self._loop.sessions.save(session)
         else:
-            self._finalize_turn(session, all_msgs, history, user_persisted_early, final_content)
+            self._finalize_turn(session, all_msgs, initial_msgs_count, user_persisted_early, final_content)
 
         # Stage 8: build outbound response
         return self._build_outbound(msg, final_content, stop_reason, all_msgs, had_injections, on_stream)
@@ -250,11 +252,13 @@ class UserMessageHandler:
             return True
         return False
 
-    def _finalize_turn(self, session, all_msgs, history, user_persisted_early, final_content):
+    def _finalize_turn(self, session, all_msgs, initial_msgs_count, user_persisted_early, final_content):
         """Save turn, enforce file cap, clear recovery state."""
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
-        save_skip = 1 + len(history) + (1 if user_persisted_early else 0)
+        # skip: system prompt (1) + retained_history + user message if already in session
+        # initial_msgs_count = 1 + len(retained_history) + 1
+        save_skip = initial_msgs_count if user_persisted_early else initial_msgs_count - 1
         self._loop._record_turn(session, all_msgs, save_skip)
         session.enforce_file_cap()
         self._loop._recovery.clear_pending_user_turn(session)
