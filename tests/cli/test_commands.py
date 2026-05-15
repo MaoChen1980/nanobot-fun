@@ -1328,10 +1328,8 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
     config = Config()
     config.gateway.port = 18999
 
-    class _FakeDream:
+    class _FakeExtractor:
         model = None
-        max_batch_size = 0
-        max_iterations = 0
 
         async def run(self) -> None:
             return None
@@ -1343,7 +1341,7 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
     class _FakeAgentLoop:
         def __init__(self, **_kwargs) -> None:
             self.model = "test-model"
-            self.dream = _FakeDream()
+            self.extractor = _FakeExtractor()
             self.sessions = _FakeSessionManager()
 
         async def run(self) -> None:

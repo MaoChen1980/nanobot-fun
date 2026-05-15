@@ -83,24 +83,24 @@ class TestResolveConfig:
         assert saved["channels"]["telegram"]["bots"][0]["token"] == "${MY_TOKEN}"
 
     def test_preserves_excluded_fields_when_no_env_refs(self, tmp_path):
-        """Regression: fields with ``exclude=True`` (e.g. DreamConfig.cron)
+        """Regression: fields with ``exclude=True`` (e.g. ExtractorConfig.cron)
         must survive ``resolve_config_env_vars`` when the config has no
         ``${VAR}`` references. Previously the unconditional dump→revalidate
         roundtrip silently dropped them."""
         config_path = tmp_path / "config.json"
         config_path.write_text(
             json.dumps(
-                {"agents": {"defaults": {"dream": {"cron": "5 11 * * *"}}}}
+                {"agents": {"defaults": {"extractor": {"cron": "5 11 * * *"}}}}
             ),
             encoding="utf-8",
         )
 
         raw = load_config(config_path)
-        assert raw.agents.defaults.dream.cron == "5 11 * * *"
+        assert raw.agents.defaults.extractor.cron == "5 11 * * *"
 
         resolved = resolve_config_env_vars(raw)
-        assert resolved.agents.defaults.dream.cron == "5 11 * * *"
-        assert resolved.agents.defaults.dream.describe_schedule() == (
+        assert resolved.agents.defaults.extractor.cron == "5 11 * * *"
+        assert resolved.agents.defaults.extractor.describe_schedule() == (
             "cron 5 11 * * * (legacy)"
         )
 
@@ -113,7 +113,7 @@ class TestResolveConfig:
         config_path.write_text(
             json.dumps(
                 {
-                    "agents": {"defaults": {"dream": {"cron": "5 11 * * *"}}},
+                    "agents": {"defaults": {"extractor": {"cron": "5 11 * * *"}}},
                     "providers": {"groq": {"apiKey": "${TEST_API_KEY}"}},
                 }
             ),
@@ -124,8 +124,8 @@ class TestResolveConfig:
         resolved = resolve_config_env_vars(raw)
 
         assert resolved.providers.groq.api_key == "resolved-key"
-        assert resolved.agents.defaults.dream.cron == "5 11 * * *"
-        assert resolved.agents.defaults.dream.describe_schedule() == (
+        assert resolved.agents.defaults.extractor.cron == "5 11 * * *"
+        assert resolved.agents.defaults.extractor.describe_schedule() == (
             "cron 5 11 * * * (legacy)"
         )
 

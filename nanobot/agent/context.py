@@ -112,10 +112,9 @@ class ContextBuilder:
         # ── DB-sourced context (previous sessions) ──
         _db_started = False
 
-        entries = self.memory.read_unprocessed_history(since_cursor=self.memory.get_last_dream_cursor())
+        cursor = self.memory.get_last_extractor_cursor()
+        entries = self.memory.read_unprocessed_history(since_cursor=cursor)
         if entries:
-            # Only show entries with a Dream summary — skip RAW archives that
-            # contain full message dumps including tool calls and system text.
             filtered = [e for e in entries if e.get("summary")]
             if filtered:
                 capped = filtered[-self._MAX_RECENT_HISTORY:]

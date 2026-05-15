@@ -43,7 +43,7 @@ def test_bootstrap_files_are_backed_by_templates() -> None:
 
 
 def test_system_prompt_stays_stable_when_clock_changes(tmp_path, monkeypatch) -> None:
-    """System prompt should not change just because wall clock minute changes."""
+    """System prompt should not change just because the wall clock minute changes."""
     monkeypatch.setattr(datetime_module, "datetime", _FakeDatetime)
 
     workspace = _make_workspace(tmp_path)
@@ -64,7 +64,7 @@ def test_system_prompt_reflects_current_dream_memory_contract(tmp_path) -> None:
 
     prompt = builder.build_system_prompt()
 
-    assert "automatically managed by Dream" in prompt
+    assert "automatically managed" in prompt
     assert "do not edit directly" in prompt
 
 
@@ -99,7 +99,7 @@ def test_runtime_context_is_in_user_message_not_system_prompt(tmp_path) -> None:
 
 
 def test_unprocessed_history_injected_into_system_prompt(tmp_path) -> None:
-    """Entries in history.jsonl not yet consumed by Dream appear with timestamps."""
+    """Entries in history.jsonl not yet consumed by Extractor appear with timestamps."""
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)
 
@@ -141,13 +141,13 @@ def test_recent_history_truncated_at_max_chars(tmp_path) -> None:
     assert len(history_section[1]) < builder._MAX_HISTORY_CHARS + 200
 
 
-def test_no_recent_history_when_dream_has_processed_all(tmp_path) -> None:
-    """If Dream has consumed everything, no Recent History section should appear."""
+def test_no_recent_history_when_extractor_has_processed_all(tmp_path) -> None:
+    """If Extractor has consumed everything, no Recent History section should appear."""
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)
 
     cursor = _add_with_summary(builder.memory, "already processed entry")
-    builder.memory.set_last_dream_cursor(cursor)
+    builder.memory.set_last_extractor_cursor(cursor)
 
     prompt = builder.build_system_prompt()
     # The dynamic # Recent History section header should not appear;
@@ -155,13 +155,13 @@ def test_no_recent_history_when_dream_has_processed_all(tmp_path) -> None:
     assert "# Recent History\n\n" not in prompt
 
 
-def test_partial_dream_processing_shows_only_remainder(tmp_path) -> None:
-    """When Dream has processed some entries, only the unprocessed ones appear."""
+def test_partial_extractor_processing_shows_only_remainder(tmp_path) -> None:
+    """When Extractor has processed some entries, only the unprocessed ones appear."""
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)
 
     cursor = _add_with_summary(builder.memory, "already processed entry")
-    builder.memory.set_last_dream_cursor(cursor)
+    builder.memory.set_last_extractor_cursor(cursor)
     _add_with_summary(builder.memory, "new user entry")
 
     prompt = builder.build_system_prompt()
@@ -175,7 +175,7 @@ def test_partial_dream_processing_shows_only_remainder(tmp_path) -> None:
     _add_with_summary(builder.memory, "recent question about Docker")
     _add_with_summary(builder.memory, "recent question about K8s")
 
-    builder.memory.set_last_dream_cursor(c2)
+    builder.memory.set_last_extractor_cursor(c2)
 
     prompt = builder.build_system_prompt()
     assert "# Recent History" in prompt

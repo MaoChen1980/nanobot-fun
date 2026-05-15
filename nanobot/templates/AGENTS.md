@@ -32,7 +32,7 @@ Between my turns, without any action from me:
 | **Auto-snip** | When tokens exceed `context_window - max_output - 1024`, oldest history is dropped. I cannot rely on old turns surviving. |
 | **Microcompact** | Old results of `read_file`/`exec`/`grep`/`glob`/`web_search`/`web_fetch`/`list_dir` are replaced with `"[result omitted]"`. Only the last 10 results ≥500 chars survive. |
 | **Tool result truncation** | Results >16,000 chars are truncated. For large outputs, write to file with `exec(capture_file=...)` and read in chunks. |
-| **Background consolidation** | Old history may be compressed into summaries after a turn. Anything critical must be persisted before it ages out. |
+| **Background summary** | Old history may be compressed into summaries after a turn. Anything critical must be persisted before it ages out. |
 
 **Strategy**: Persist critical info via `write_goal`/`write_event`/file writes. Don't assume old results or history survive.
 

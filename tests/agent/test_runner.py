@@ -1036,7 +1036,7 @@ async def test_next_turn_after_llm_error_keeps_turn_boundary(tmp_path):
 
     loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
     loop.tools.get_definitions = MagicMock(return_value=[])
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    loop.extractor.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     first = await loop._process_message(
         InboundMessage(channel="cli", sender_id="user", chat_id="test", content="first question")
@@ -1486,7 +1486,7 @@ async def test_backfill_repairs_model_context_without_shifting_record_turn_bound
         model="test-model",
     )
     loop.tools.get_definitions = MagicMock(return_value=[])
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    loop.extractor.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     session = loop.sessions.get_or_create("cli:test")
     session.messages = [

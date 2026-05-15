@@ -79,20 +79,20 @@ class GitStore:
 
             # Write .gitignore (merge with existing if present)
             gitignore = self._workspace / ".gitignore"
-            dream_entries = self._build_gitignore()
+            gitignore_content = self._build_gitignore()
             if gitignore.exists():
                 existing = gitignore.read_text(encoding="utf-8")
                 existing_lines = set(existing.splitlines())
                 new_lines = [
                     line
-                    for line in dream_entries.splitlines()
+                    for line in gitignore_content.splitlines()
                     if line not in existing_lines
                 ]
                 if new_lines:
                     merged = existing.rstrip("\n") + "\n" + "\n".join(new_lines) + "\n"
                     gitignore.write_text(merged, encoding="utf-8")
             else:
-                gitignore.write_text(dream_entries, encoding="utf-8")
+                gitignore.write_text(gitignore_content, encoding="utf-8")
 
             # Ensure tracked files exist (touch them if missing) so the initial
             # commit has something to track.
@@ -113,8 +113,8 @@ class GitStore:
             porcelain.commit(
                 str(self._workspace),
                 message=b"init: nanobot memory store",
-                author=b"nanobot <nanobot@dream>",
-                committer=b"nanobot <nanobot@dream>",
+                author=b"nanobot <nanobot@nanobot>",
+                committer=b"nanobot <nanobot@nanobot>",
             )
             logger.info("Git store initialized at {}", self._workspace)
             return True
@@ -151,8 +151,8 @@ class GitStore:
             sha_bytes = porcelain.commit(
                 str(self._workspace),
                 message=msg_bytes,
-                author=b"nanobot <nanobot@dream>",
-                committer=b"nanobot <nanobot@dream>",
+                author=b"nanobot <nanobot@nanobot>",
+                committer=b"nanobot <nanobot@nanobot>",
             )
             if sha_bytes is None:
                 return None

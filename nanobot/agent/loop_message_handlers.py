@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from nanobot.bus.events import InboundMessage, OutboundMessage
 
 from nanobot.agent.context import ContextState
+from nanobot.agent.memory import MemoryExtractor
 from nanobot.bus.events import OutboundMessage
 from nanobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 from nanobot.agent.tools.message import MessageTool
@@ -32,8 +33,7 @@ class SystemMessageHandler:
             self._loop.sessions.save(session)
         if self._loop._recovery.restore_pending_user_turn(session):
             self._loop.sessions.save(session)
-        session, pending = self._loop.auto_compact.prepare_session(session, key)
-        await self._loop.consolidator.maybe_consolidate_by_tokens(session, session_summary=pending)
+        pending = None
         is_subagent = msg.sender_id == "subagent"
         if is_subagent and self._loop._persist_subagent_followup(session, msg):
             self._loop.sessions.save(session)
@@ -62,10 +62,9 @@ class SystemMessageHandler:
         )
         final_content, _, all_msgs, stop_reason, _ = await self._loop._run_agent_loop(messages, session=session, channel=effective_channel, chat_id=chat_id, message_id=msg.metadata.get("message_id"), metadata=msg.metadata, session_key=key, pending_queue=pending_queue)
         self._loop._record_turn(session, all_msgs, 1 + len(history))
-        session.enforce_file_cap(on_archive=self._loop.context.memory.raw_archive)
+        session.enforce_file_cap()
         self._loop._recovery.clear_runtime_checkpoint(session)
         self._loop.sessions.save(session)
-        self._loop._schedule_background(self._loop.consolidator.maybe_consolidate_by_tokens(session))
         options = ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else []
         import re
         if final_content:
@@ -109,8 +108,7 @@ class UserMessageHandler:
         # Stage 1: session preparation
         session, pending, history, channel, chat_id, key = self._prepare_session(msg, session_key)
 
-        # Stage 2: consolidation + tool context
-        await self._loop.consolidator.maybe_consolidate_by_tokens(session, session_summary=pending)
+        # Stage 2: tool context
         self._loop._set_tool_context(msg.channel, chat_id, msg.metadata.get("message_id"), msg.metadata, session_key=key)
         self._maybe_start_message_tool()
 
@@ -125,6 +123,15 @@ class UserMessageHandler:
         user_persisted_early = False
         if not msg.ephemeral:
             user_persisted_early = self._persist_user_message_early(session, msg, pending_ask_id)
+
+        # Stage 5b: .pt save check — per-session M counter
+        if not msg.ephemeral and pending_ask_id is None:
+            loop = self._loop
+            counter = loop._pt_counters.get(key, 0) + 1
+            loop._pt_counters[key] = counter
+            if counter >= loop._pt_save_interval:
+                loop._pt_counters[key] = 0
+                MemoryExtractor.save_pt(initial_messages, loop.prompts_dir, key)
 
         # Stage 6: run agent loop
         final_content, _, all_msgs, stop_reason, had_injections = await self._loop._run_agent_loop(
@@ -160,7 +167,7 @@ class UserMessageHandler:
         session = self._loop.sessions.get_or_create(key)
         self._loop._recovery.restore_runtime_checkpoint(session)
         self._loop._recovery.restore_pending_user_turn(session)
-        session, pending = self._loop.auto_compact.prepare_session(session, key)
+        pending = None
         history = session.get_history(max_tokens=self._loop._replay_token_budget(), include_timestamps=True, timezone=self._loop.context.timezone)
         channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id))
         return session, pending, history, channel, chat_id, key
@@ -244,16 +251,15 @@ class UserMessageHandler:
         return False
 
     def _finalize_turn(self, session, all_msgs, history, user_persisted_early, final_content):
-        """Save turn, enforce file cap, clear recovery state, schedule consolidation."""
+        """Save turn, enforce file cap, clear recovery state."""
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
         save_skip = 1 + len(history) + (1 if user_persisted_early else 0)
         self._loop._record_turn(session, all_msgs, save_skip)
-        session.enforce_file_cap(on_archive=self._loop.context.memory.raw_archive)
+        session.enforce_file_cap()
         self._loop._recovery.clear_pending_user_turn(session)
         self._loop._recovery.clear_runtime_checkpoint(session)
         self._loop.sessions.save(session)
-        self._loop._schedule_background(self._loop.consolidator.maybe_consolidate_by_tokens(session))
 
     def _build_outbound(self, msg, final_content, stop_reason, all_msgs, had_injections, on_stream):
         """Format the final OutboundMessage for the user."""

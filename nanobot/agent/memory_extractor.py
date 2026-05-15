@@ -1,0 +1,578 @@
+"""MemoryExtractor — cron-scheduled memory extraction from saved prompts (.pt files).
+
+Replaces the old Consolidator + Dream two-stage pipeline.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
+
+from nanobot.utils.helpers import ensure_dir
+from nanobot.utils.prompt_templates import render_template
+
+if TYPE_CHECKING:
+    from nanobot.providers.base import LLMProvider
+    from nanobot.agent.memory_store import MemoryStore
+
+
+_SESSION_KEY_RE = re.compile(r"[^a-zA-Z0-9_.-]")
+_SANITIZE_MAX_LEN = 64
+
+_ANALYSIS_MAX_CHARS = 200_000  # Max chars of .pt content sent to analysis LLM
+_TOPIC_MAP_FILE = "topic-map.json"
+
+
+class MemoryExtractor:
+    """Two-step memory processor: extract findings from .pt files, then write + cleanup.
+
+    Step 1 — Extract: process saved prompts, call LLM to find new information.
+    Step 2 — Write + Cleanup: write findings to files, cleanup-check SOUL.md/USER.md,
+             git commit once, rebuild FAISS.
+    """
+
+    def __init__(
+        self,
+        store: MemoryStore,
+        provider: LLMProvider,
+        model: str,
+        max_tool_result_chars: int = 16_000,
+        timezone: str | None = None,
+    ):
+        self.store = store
+        self.provider = provider
+        self.model = model
+        self.max_tool_result_chars = max_tool_result_chars
+        self.timezone = timezone
+        self.prompts_dir = ensure_dir(store.workspace / "prompts")
+        self.failed_dir = ensure_dir(self.prompts_dir / "failed")
+
+    def set_provider(self, provider: LLMProvider, model: str) -> None:
+        self.provider = provider
+        self.model = model
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
+    async def run(self) -> bool:
+        """Step 1 → Step 2. Returns True if any work was done."""
+        all_findings: list[dict[str, Any]] = []
+
+        # ── Step 1: extract findings from .pt files ──
+        pt_files = sorted(self.prompts_dir.glob("*.pt"))
+        if not pt_files:
+            logger.debug("MemoryExtractor: no .pt files to process")
+            return False
+
+        existing_skills = self._list_existing_skills()
+
+        for pt_path in pt_files:
+            processing_path = pt_path.with_suffix(".pt.processing")
+            try:
+                pt_path.rename(processing_path)
+            except OSError:
+                logger.warning("MemoryExtractor: race on {}, skipping", pt_path)
+                continue
+
+            try:
+                content = json.loads(processing_path.read_text(encoding="utf-8"))
+                analysis = await self._analysis_llm(content, existing_skills)
+                if analysis:
+                    findings = analysis.get("findings", [])
+                    if findings:
+                        all_findings.extend(findings)
+                        logger.info(
+                            "MemoryExtractor: {} findings from {}",
+                            len(findings),
+                            processing_path.name,
+                        )
+                processing_path.unlink()
+            except Exception:
+                logger.exception("MemoryExtractor: failed to process {}", processing_path)
+                self.failed_dir.mkdir(parents=True, exist_ok=True)
+                failed_name = processing_path.name.replace(".pt.processing", ".pt")
+                processing_path.rename(self.failed_dir / failed_name)
+
+        if not all_findings:
+            logger.info("MemoryExtractor: Step 1 done, no findings; skipping Step 2")
+            return False
+
+        # ── Step 2: write findings + cleanup ──
+        await self._write_and_cleanup(all_findings)
+        return True
+
+    # ------------------------------------------------------------------
+    # Step 1 — LLM analysis
+    # ------------------------------------------------------------------
+
+    def _list_existing_skills(self) -> list[str]:
+        """List existing skills for analysis-LLM dedup."""
+        import re as _re
+        from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+
+        _DESC_RE = _re.compile(r"^description:\s*(.+)$", _re.MULTILINE | _re.IGNORECASE)
+        entries: dict[str, str] = {}
+        for base in (self.store.workspace / "skills", BUILTIN_SKILLS_DIR):
+            if not base.exists():
+                continue
+            for d in base.iterdir():
+                if not d.is_dir():
+                    continue
+                skill_md = d / "SKILL.md"
+                if not skill_md.exists():
+                    continue
+                if d.name in entries and base == BUILTIN_SKILLS_DIR:
+                    continue
+                content = skill_md.read_text(encoding="utf-8")[:500]
+                m = _DESC_RE.search(content)
+                desc = m.group(1).strip().strip('"').strip("'") if m else "(no description)"
+                entries[d.name] = desc
+        return [f"{name} — {desc}" for name, desc in sorted(entries.items())]
+
+    async def _analysis_llm(
+        self, pt_content: dict, existing_skills: list[str]
+    ) -> dict[str, Any] | None:
+        """Call LLM to analyze a saved prompt, return parsed JSON."""
+        skills_section = (
+            "\n".join(f"- {s}" for s in existing_skills)
+            if existing_skills
+            else "(none)"
+        )
+
+        # Serialize for LLM consumption. Truncate from front if too large.
+        pt_text = json.dumps(pt_content, ensure_ascii=False, indent=2)
+        if len(pt_text) > _ANALYSIS_MAX_CHARS:
+            pt_text = "... (conversation start truncated)\n" + pt_text[-_ANALYSIS_MAX_CHARS:]
+
+        prompt = render_template(
+            "agent/extractor_analysis.md",
+            existing_skills_section=skills_section,
+        )
+
+        try:
+            response = await self.provider.chat_with_retry(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": pt_text},
+                ],
+                tools=None,
+                tool_choice=None,
+            )
+        except Exception:
+            logger.exception("MemoryExtractor: analysis LLM call failed")
+            return None
+
+        raw = (response.content or "").strip()
+        if not raw:
+            return None
+
+        return self._parse_json_output(raw)
+
+    @staticmethod
+    def _parse_json_output(raw: str) -> dict[str, Any] | None:
+        """Parse and validate the LLM JSON response."""
+        # Try to extract JSON from markdown code block if present
+        match = re.search(r"```(?:json)?\s*\n(.*?)\n```", raw, re.DOTALL)
+        if match:
+            raw = match.group(1).strip()
+
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("MemoryExtractor: failed to parse LLM JSON output")
+            return None
+
+        if not isinstance(result, dict) or "findings" not in result:
+            return None
+
+        findings = result.get("findings", [])
+        if not isinstance(findings, list):
+            result["findings"] = []
+            return result
+
+        valid = []
+        for f in findings:
+            if isinstance(f, dict) and "type" in f and "content" in f:
+                valid.append(f)
+        result["findings"] = valid
+        return result
+
+    # ------------------------------------------------------------------
+    # Step 2 — Write findings + cleanup
+    # ------------------------------------------------------------------
+
+    async def _write_and_cleanup(self, findings: list[dict[str, Any]]) -> None:
+        """Write all findings to target files, then cleanup-check SOUL.md/USER.md, then commit and rebuild FAISS."""
+        topic_map = self._load_topic_map()
+
+        soul_additions: list[str] = []
+        user_additions: list[str] = []
+        topic_files: dict[str, list[str]] = {}  # rel_path → [content lines]
+        skills_to_create: list[dict[str, Any]] = []
+
+        for finding in findings:
+            ftype = finding.get("type", "skip")
+            if ftype == "skip":
+                continue
+
+            content = (finding.get("content") or "").strip()
+            if not content:
+                continue
+
+            if ftype == "soul_rule":
+                condition = (finding.get("condition") or "").strip()
+                action = (finding.get("action") or "").strip()
+                if condition and action:
+                    soul_additions.append(
+                        f"- **WHEN** {condition} **THEN** {action} — {content}"
+                    )
+                else:
+                    soul_additions.append(f"- {content}")
+
+            elif ftype == "user_preference":
+                user_additions.append(f"- {content}")
+
+            elif ftype in ("knowledge", "decision"):
+                topic = (finding.get("topic") or "").strip()
+                tags = finding.get("tags") or []
+                if not topic:
+                    continue
+                dir_name = self._resolve_topic_dir(topic_map, topic, tags)
+                rel_path = f"{dir_name}/{self._sanitize_filename(topic)}.md"
+                paragraph = content
+                if ftype == "decision" and finding.get("rationale"):
+                    paragraph += f"\n  > 理由：{finding['rationale']}"
+                topic_files.setdefault(rel_path, []).append(paragraph)
+
+            elif ftype == "reusable_pattern":
+                skills_to_create.append(finding)
+
+        # ── Flush additions to files ──
+        changed = bool(
+            soul_additions or user_additions or topic_files or skills_to_create
+        )
+
+        if soul_additions:
+            text = "\n" + "\n".join(soul_additions) + "\n"
+            with open(self.store.soul_file, "a", encoding="utf-8") as f:
+                f.write(text)
+            logger.info(
+                "MemoryExtractor: appended {} rule(s) to SOUL.md",
+                len(soul_additions),
+            )
+
+        if user_additions:
+            text = "\n" + "\n".join(user_additions) + "\n"
+            with open(self.store.user_file, "a", encoding="utf-8") as f:
+                f.write(text)
+            logger.info(
+                "MemoryExtractor: appended {} preference(s) to USER.md",
+                len(user_additions),
+            )
+
+        if topic_files:
+            for rel_path, paragraphs in topic_files.items():
+                full_path = self.store.memory_dir / rel_path
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if full_path.exists():
+                    with open(full_path, "a", encoding="utf-8") as f:
+                        for p in paragraphs:
+                            f.write(f"\n\n{p}\n")
+                else:
+                    lines = [f"# {full_path.stem}\n"]
+                    for p in paragraphs:
+                        lines.append(f"\n{p}\n")
+                    lines.append(f"\n---\n\n*创建: {date_str}*\n")
+                    full_path.write_text("".join(lines), encoding="utf-8")
+                logger.info(
+                    "MemoryExtractor: wrote {} paragraph(s) to {}",
+                    len(paragraphs),
+                    rel_path,
+                )
+
+        if skills_to_create:
+            await self._create_skills(skills_to_create)
+
+        self._save_topic_map(topic_map)
+
+        if not changed:
+            logger.info("MemoryExtractor: no actionable findings to write")
+            return
+
+        # ── Re-generate MEMORY.md index ──
+        self._generate_memory_index()
+
+        # ── Step 2b: cleanup check ──
+        await self._cleanup_check()
+
+        # ── Git commit ──
+        if self.store.git.is_initialized():
+            utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            msg = f"extractor: {utc_now} UTC, {len(findings)} finding(s)"
+            sha = self.store.git.auto_commit(msg)
+            if sha:
+                logger.info("MemoryExtractor: committed {}", sha)
+
+        # ── FAISS rebuild ──
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self.store.build_vector_index)
+
+    # ------------------------------------------------------------------
+    # Topic map management
+    # ------------------------------------------------------------------
+
+    def _load_topic_map(self) -> dict[str, str]:
+        path = self.store.memory_dir / _TOPIC_MAP_FILE
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            logger.warning(
+                "MemoryExtractor: corrupt topic-map.json, starting fresh"
+            )
+            return {}
+
+    def _save_topic_map(self, topic_map: dict[str, str]) -> None:
+        path = self.store.memory_dir / _TOPIC_MAP_FILE
+        path.write_text(
+            json.dumps(topic_map, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _resolve_topic_dir(
+        self, topic_map: dict[str, str], topic: str, tags: list[str]
+    ) -> str:
+        existing = topic_map.get(topic)
+        if existing:
+            return existing
+        dir_name = tags[0] if tags else "uncategorized"
+        topic_map[topic] = dir_name
+        return dir_name
+
+    # ------------------------------------------------------------------
+    # Skill creation
+    # ------------------------------------------------------------------
+
+    async def _create_skills(self, skills: list[dict[str, Any]]) -> None:
+        """Generate SKILL.md for each reusable_pattern via LLM using skill-manager template."""
+        from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+
+        sm_path = BUILTIN_SKILLS_DIR / "skill-manager" / "SKILL.md"
+        if not sm_path.exists():
+            logger.warning(
+                "MemoryExtractor: skill-manager SKILL.md not found, skipping skill creation"
+            )
+            return
+
+        manager_template = sm_path.read_text(encoding="utf-8")
+
+        for sk in skills:
+            name = (sk.get("name") or "").strip()
+            steps = sk.get("steps") or []
+            content = (sk.get("content") or "").strip()
+            if not name:
+                continue
+
+            steps_text = (
+                "\n".join(f"{i+1}. {s}" for i, s in enumerate(steps))
+                if steps
+                else content
+            )
+            prompt = (
+                f"Create a SKILL.md file for a new skill named '{name}'.\n\n"
+                f"## Pattern Description\n{content}\n\n"
+                f"## Steps\n{steps_text}\n\n"
+                f"Use the following template as reference for SKILL.md format:\n\n"
+                f"{manager_template}\n\n"
+                f"Output ONLY the content of SKILL.md — start with `---` frontmatter."
+            )
+
+            try:
+                response = await self.provider.chat_with_retry(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You generate SKILL.md files. Output only the SKILL.md content.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    tools=None,
+                    tool_choice=None,
+                )
+                skill_content = (response.content or "").strip()
+                if not skill_content:
+                    logger.warning(
+                        "MemoryExtractor: empty SKILL.md generation for {}", name
+                    )
+                    continue
+
+                skill_dir = ensure_dir(self.store.workspace / "skills" / name)
+                skill_path = skill_dir / "SKILL.md"
+                skill_path.write_text(skill_content, encoding="utf-8")
+                logger.info("MemoryExtractor: created skill '{}'", name)
+            except Exception:
+                logger.exception(
+                    "MemoryExtractor: failed to create skill '{}'", name
+                )
+
+    # ------------------------------------------------------------------
+    # MEMORY.md auto-generation
+    # ------------------------------------------------------------------
+
+    def _generate_memory_index(self) -> None:
+        """Scan memory/ directory and generate MEMORY.md index."""
+        exclude_names = {"MEMORY.md", _TOPIC_MAP_FILE}
+
+        files = sorted(
+            p.relative_to(self.store.memory_dir)
+            for p in self.store.memory_dir.rglob("*.md")
+            if ".vector_index" not in p.parts and p.name not in exclude_names
+        )
+
+        if not files:
+            return
+
+        lines = ["# Memory\n", ""]
+        category_index: dict[str, list[Path]] = {}
+        for rel in files:
+            cat = rel.parent if rel.parent.name != "." else "."
+            category_index.setdefault(cat, []).append(rel)
+
+        for cat in sorted(category_index, key=lambda c: (c == ".", c if isinstance(c, str) else str(c))):
+            cat_files = category_index[cat]
+            label = str(cat) if cat != "." else "misc"
+            lines.append(f"## {label}\n")
+            for rel in cat_files:
+                link = rel.as_posix()
+                lines.append(f"- [{rel.stem}]({link})")
+            lines.append("")
+
+        self.store.memory_file.write_text(
+            "\n".join(lines), encoding="utf-8"
+        )
+        logger.info(
+            "MemoryExtractor: re-generated MEMORY.md with {} file(s)", len(files)
+        )
+
+    # ------------------------------------------------------------------
+    # Cleanup check
+    # ------------------------------------------------------------------
+
+    async def _cleanup_check(self) -> None:
+        """Step 2b: LLM check SOUL.md/USER.md for contradictions, duplicates, stale content."""
+        soul = self.store.read_soul()
+        user = self.store.read_user()
+        if not soul and not user:
+            return
+
+        try:
+            response = await self.provider.chat_with_retry(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": render_template("agent/extractor_cleanup.md"),
+                    },
+                    {
+                        "role": "user",
+                        "content": f"## SOUL.md\n{soul or '(empty)'}\n\n## USER.md\n{user or '(empty)'}",
+                    },
+                ],
+                tools=None,
+                tool_choice=None,
+            )
+        except Exception:
+            logger.exception("MemoryExtractor: cleanup LLM call failed")
+            return
+
+        raw = (response.content or "").strip()
+        if not raw:
+            return
+
+        parsed = self._parse_json_output(raw)
+        if not parsed:
+            return
+
+        suggestions = parsed.get("suggestions", [])
+        if not suggestions:
+            return
+
+        for s in suggestions:
+            action = s.get("action", "keep")
+            if action == "keep":
+                continue
+            file_name = s.get("file", "")
+            target = s.get("target_text", "")
+            replacement = s.get("replacement")
+
+            if file_name == "SOUL.md":
+                file_path = self.store.soul_file
+            elif file_name == "USER.md":
+                file_path = self.store.user_file
+            else:
+                continue
+
+            try:
+                current = file_path.read_text(encoding="utf-8")
+                if target and target in current:
+                    if action == "remove":
+                        new_content = current.replace(target, "", 1)
+                    elif action == "rewrite" and replacement:
+                        new_content = current.replace(target, replacement, 1)
+                    else:
+                        continue
+                    file_path.write_text(new_content, encoding="utf-8")
+                    logger.info(
+                        "MemoryExtractor: {} in {}: {}",
+                        action,
+                        file_name,
+                        s.get("reason", ""),
+                    )
+            except OSError:
+                logger.warning(
+                    "MemoryExtractor: failed to apply cleanup to {}", file_name
+                )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sanitize_filename(name: str) -> str:
+        safe = _SESSION_KEY_RE.sub("_", name)
+        return safe[: _SANITIZE_MAX_LEN].strip("_")
+
+    @staticmethod
+    def save_pt(
+        messages: list[dict[str, Any]], prompts_dir: Path, session_key: str
+    ) -> None:
+        """Save a .pt snapshot of the messages array before LLM send.
+
+        Called from the message pipeline (not from MemoryExtractor itself).
+        """
+        safe_key = MemoryExtractor._sanitize_filename(session_key)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+        filename = f"{safe_key}-{ts}.pt"
+        path = prompts_dir / filename
+
+        payload = {
+            "session_key": session_key,
+            "saved_at": ts,
+            "messages": messages,
+        }
+
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        logger.debug("Saved .pt: {}", filename)

@@ -40,10 +40,5 @@ def test_provider_refresh_updates_all_model_dependents(tmp_path: Path) -> None:
     assert loop.subagents.provider is new_provider
     assert loop.subagents.model == "new-model"
     assert loop.subagents.runner.provider is new_provider
-    assert loop.consolidator.provider is new_provider
-    assert loop.consolidator.model == "new-model"
-    assert loop.consolidator.context_window_tokens == 2000
-    assert loop.consolidator.max_completion_tokens == 456
-    assert loop.dream.provider is new_provider
-    assert loop.dream.model == "new-model"
-    assert loop.dream._runner.provider is new_provider
+    assert loop.extractor.provider is new_provider
+    assert loop.extractor.model == "new-model"

@@ -34,7 +34,7 @@ def _make_mocked_app(config: Config | None = None) -> GatewayApplication:
     app.cron.on_job = None
     app.agent = MagicMock()
     app.agent.model = "test-model"
-    app.agent.dream = MagicMock()
+    app.agent.extractor = MagicMock()
     app.agent.close_mcp = AsyncMock()
     app.agent.stop = MagicMock()
     message_tool = MagicMock(spec=MessageTool)
@@ -397,34 +397,31 @@ class TestPrintStartupStatus:
 
 
 # ---------------------------------------------------------------------------
-# _register_dream_job
+# _register_extractor_job
 # ---------------------------------------------------------------------------
 
 
-class TestRegisterDreamJob:
-    def test_registers_dream_job(self, config: Config) -> None:
+class TestRegisterExtractorJob:
+    def test_registers_extractor_job(self, config: Config) -> None:
         app = _make_mocked_app(config)
-        app.agent.dream.model = "default-model"
-        app.agent.dream.max_batch_size = 10
-        app.agent.dream.max_iterations = 1
-        app.agent.dream.annotate_line_ages = False
+        app.agent.extractor.model = "default-model"
 
         with patch("nanobot.gateway.app.console.print"):
-            app._register_dream_job()
+            app._register_extractor_job()
 
         app.cron.register_system_job.assert_called_once()
         job = app.cron.register_system_job.call_args[0][0]
-        assert job.id == "dream"
-        assert job.name == "dream"
+        assert job.id == "extractor"
+        assert job.name == "extractor"
 
     def test_model_override(self, config: Config) -> None:
-        config.agents.defaults.dream.model_override = "claude-opus"
+        config.agents.defaults.extractor.model_override = "claude-opus"
         app = _make_mocked_app(config)
 
         with patch("nanobot.gateway.app.console.print"):
-            app._register_dream_job()
+            app._register_extractor_job()
 
-        assert app.agent.dream.model == "claude-opus"
+        assert app.agent.extractor.model == "claude-opus"
 
 
 # ---------------------------------------------------------------------------
@@ -708,7 +705,7 @@ class TestAsyncRun:
             patch.object(app, "_init_services") as init_svc,
             patch.object(app, "_wire_callbacks") as wire_cb,
             patch.object(app, "_print_startup_status") as print_st,
-            patch.object(app, "_register_dream_job") as reg_dream,
+            patch.object(app, "_register_extractor_job") as reg_extractor,
             patch.object(app, "_start_all") as start_all,
             patch.object(app, "_shutdown") as shutdown,
         ):
@@ -718,7 +715,7 @@ class TestAsyncRun:
         init_svc.assert_called_once()
         wire_cb.assert_called_once()
         print_st.assert_called_once()
-        reg_dream.assert_called_once()
+        reg_extractor.assert_called_once()
         start_all.assert_awaited_once()
         shutdown.assert_awaited_once()
 
@@ -759,27 +756,27 @@ class TestAsyncRun:
 class TestOnCronJob:
     """Tests for the on_cron_job closure defined inside _wire_callbacks."""
 
-    async def test_dream_job_success(self, config: Config) -> None:
+    async def test_extractor_job_success(self, config: Config) -> None:
         app = _make_mocked_app(config)
-        app.agent.dream.run = AsyncMock()
+        app.agent.extractor.run = AsyncMock()
         app._wire_callbacks()
-        job = CronJob(id="dream", name="dream")
+        job = CronJob(id="extractor", name="extractor")
 
         result = await app.cron.on_job(job)
 
         assert result is None
-        app.agent.dream.run.assert_awaited_once()
+        app.agent.extractor.run.assert_awaited_once()
 
-    async def test_dream_job_exception(self, config: Config) -> None:
+    async def test_extractor_job_exception(self, config: Config) -> None:
         app = _make_mocked_app(config)
-        app.agent.dream.run = AsyncMock(side_effect=ValueError("boom"))
+        app.agent.extractor.run = AsyncMock(side_effect=ValueError("boom"))
         app._wire_callbacks()
         with patch("nanobot.gateway.app.logger.exception") as log_exc:
-            job = CronJob(id="dream", name="dream")
+            job = CronJob(id="extractor", name="extractor")
             result = await app.cron.on_job(job)
 
         assert result is None
-        log_exc.assert_called_once_with("Dream cron job failed")
+        log_exc.assert_called_once_with("MemoryExtractor cron job failed")
 
     async def test_reminder_without_delivery(self, config: Config) -> None:
         app = _make_mocked_app(config)

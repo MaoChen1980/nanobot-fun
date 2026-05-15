@@ -379,7 +379,7 @@ def build_status_content(
     last_out = last_usage.get("completion_tokens", 0)
     cached = last_usage.get("cached_tokens", 0)
     ctx_total = max(context_window_tokens, 0)
-    # Budget mirrors Consolidator formula: ctx_window - max_completion - _SAFETY_BUFFER
+    # Budget: ctx_window - max_completion - _SAFETY_BUFFER
     ctx_budget = max(ctx_total - int(max_completion_tokens) - 1024, 1)
     ctx_pct = min(int((context_tokens_estimate / ctx_budget) * 100), 999) if ctx_budget > 0 else 0
     ctx_used_str = (

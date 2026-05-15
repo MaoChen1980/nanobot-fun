@@ -13,10 +13,9 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
-from nanobot.agent.autocompact import AutoCompact
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
-from nanobot.agent.memory import Consolidator, Dream
+from nanobot.agent.memory import MemoryExtractor
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.agent.subagent import SubagentManager
@@ -142,7 +141,6 @@ class AgentLoop:
         channels_config: ChannelsConfig | None = None,
         timezone: str | None = None,
         session_ttl_minutes: int = 0,
-        consolidation_ratio: float = 0.5,
         hooks: list[AgentHook] | None = None,
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
@@ -233,24 +231,11 @@ class AgentLoop:
         self._concurrency_gate: asyncio.Semaphore | None = (
             asyncio.Semaphore(_max) if _max > 0 else None
         )
-        self.consolidator = Consolidator(
-            store=self.context.memory,
-            provider=provider,
-            model=self.model,
-            sessions=self.sessions,
-            context_window_tokens=self.context_window_tokens,
-            build_messages=self.context.build_messages,
-            get_tool_definitions=self.tools.get_definitions,
-            max_completion_tokens=provider.generation.max_tokens,
-            consolidation_ratio=consolidation_ratio,
-            timezone=self.context.timezone,
-        )
-        self.auto_compact = AutoCompact(
-            sessions=self.sessions,
-            consolidator=self.consolidator,
-            session_ttl_minutes=session_ttl_minutes,
-        )
-        self.dream = Dream(
+        from nanobot.utils.helpers import ensure_dir
+        self.prompts_dir = ensure_dir(workspace / "prompts")
+        self._pt_counters: dict[str, int] = {}
+        self._pt_save_interval = 100  # default M, overridden via config
+        self.extractor = MemoryExtractor(
             store=self.context.memory,
             provider=provider,
             model=self.model,
@@ -335,8 +320,7 @@ class AgentLoop:
         self.context_window_tokens = context_window_tokens
         self.runner.provider = provider
         self.subagents.set_provider(provider, model)
-        self.consolidator.set_provider(provider, model, context_window_tokens)
-        self.dream.set_provider(provider, model)
+        self.extractor.set_provider(provider, model)
         self._provider_signature = snapshot.signature
         logger.info("Runtime model switched for next turn: {} -> {}", old_model, model)
 
@@ -689,10 +673,6 @@ class AgentLoop:
             try:
                 msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
             except asyncio.TimeoutError:
-                self.auto_compact.check_expired(
-                    self._schedule_background,
-                    active_session_keys=self._session_dispatch.keys(),
-                )
                 continue
             except asyncio.CancelledError:
                 # Preserve real task cancellation so shutdown can complete cleanly.

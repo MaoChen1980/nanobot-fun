@@ -82,7 +82,7 @@ class GatewayApplication:
         self._init_services()
         self._wire_callbacks()
         self._print_startup_status()
-        self._register_dream_job()
+        self._register_extractor_job()
         self._register_log_check_job()
 
         try:
@@ -162,7 +162,6 @@ class GatewayApplication:
             unified_session=self.config.agents.defaults.unified_session,
             disabled_skills=self.config.agents.defaults.disabled_skills,
             session_ttl_minutes=self.config.agents.defaults.session_ttl_minutes,
-            consolidation_ratio=self.config.agents.defaults.consolidation_ratio,
             tools_config=self.config.tools,
             provider_snapshot_loader=load_provider_snapshot,
             provider_signature=self.provider_snapshot.signature,
@@ -274,12 +273,12 @@ class GatewayApplication:
             from nanobot.agent.tools.message import MessageTool
             from nanobot.utils.evaluator import evaluate_response
 
-            if job.name == "dream":
+            if job.name == "extractor":
                 try:
-                    await self.agent.dream.run()
-                    logger.info("Dream cron job completed")
+                    await self.agent.extractor.run()
+                    logger.info("MemoryExtractor cron job completed")
                 except Exception:
-                    logger.exception("Dream cron job failed")
+                    logger.exception("MemoryExtractor cron job failed")
                 return None
 
             if job.name == "log_check":
@@ -430,29 +429,27 @@ class GatewayApplication:
             f"{self.config.gateway.heartbeat.interval_s}s"
         )
 
-    def _register_dream_job(self) -> None:
-        """Register the Dream system cron job."""
+    def _register_extractor_job(self) -> None:
+        """Register the MemoryExtractor system cron job."""
         from nanobot.cron.types import CronJob, CronPayload
 
-        dream_cfg = self.config.agents.defaults.dream
-        if dream_cfg.model_override:
-            self.agent.dream.model = dream_cfg.model_override
-        self.agent.dream.max_batch_size = dream_cfg.max_batch_size
-        self.agent.dream.max_iterations = dream_cfg.max_iterations
-        self.agent.dream.annotate_line_ages = dream_cfg.annotate_line_ages
+        extractor_cfg = self.config.agents.defaults.extractor
+        if extractor_cfg.model_override:
+            self.agent.extractor.model = extractor_cfg.model_override
+        self.agent._pt_save_interval = extractor_cfg.save_interval
 
         self.cron.register_system_job(
             CronJob(
-                id="dream",
-                name="dream",
-                schedule=dream_cfg.build_schedule(
+                id="extractor",
+                name="extractor",
+                schedule=extractor_cfg.build_schedule(
                     self.config.agents.defaults.timezone
                 ),
                 payload=CronPayload(kind="system_event"),
             )
         )
         console.print(
-            f"[green]✓[/green] Dream: {dream_cfg.describe_schedule()}"
+            f"[green]✓[/green] MemoryExtractor: {extractor_cfg.describe_schedule()}"
         )
 
     def _register_log_check_job(self) -> None:
@@ -728,22 +725,6 @@ class GatewayApplication:
         """Graceful shutdown of all services."""
         if self.agent is not None:
             await self.agent.close_mcp()
-            # Archive all sessions to history store before flush
-            if self.session_manager is not None:
-                for session_info in self.session_manager.list_sessions():
-                    key = session_info.get("key", "")
-                    try:
-                        session = self.session_manager.get_or_create(key)
-                        if session.messages:
-                            if session.last_consolidated > 0:
-                                self.agent.context.memory.raw_archive(
-                                    session.messages[:session.last_consolidated]
-                                )
-                            unconsolidated = session.messages[session.last_consolidated:]
-                            if unconsolidated:
-                                await self.agent.consolidator.archive(unconsolidated)
-                    except Exception:
-                        logger.exception("Failed to archive session {} on shutdown", key)
             self.agent.stop()
             flushed = self.agent.sessions.flush_all()
             if flushed:

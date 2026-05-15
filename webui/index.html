@@ -475,19 +475,17 @@ function renderAgent() {
     <div class="card">
       <div class="card-header">Session</div>
       ${field('session_ttl_minutes', 'Session TTL (min)', a.session_ttl_minutes ?? 0, 'number', 'agents.defaults.session_ttl_minutes')}
-      ${field('consolidation_ratio', 'Consolidation Ratio', a.consolidation_ratio ?? 0.5, 'number', 'agents.defaults.consolidation_ratio')}
       ${selectField('timezone', 'Timezone', a.timezone, 'agents.defaults.timezone', TIMEZONES.map(t => ({v:t,l:t})))}
       ${field('unified_session', 'Unified Session', a.unified_session, 'checkbox', 'agents.defaults.unified_session')}
       ${field('disabled_skills', 'Disabled Skills', Array.isArray(a.disabled_skills) ? a.disabled_skills.join(', ') : '', 'text', 'agents.defaults.disabled_skills')}
       <div class="row"><label></label><span class="hint">Comma-separated skill names</span></div>
     </div>
     <div class="card">
-      <div class="card-header">Dream</div>
-      ${field('model_override', 'Model Override', a.dream.model_override || '', 'text', 'agents.defaults.dream.model_override')}
-      ${field('interval_h', 'Interval (h)', a.dream.interval_h, 'number', 'agents.defaults.dream.interval_h')}
-      ${field('max_batch_size', 'Max Batch Size', a.dream.max_batch_size, 'number', 'agents.defaults.dream.max_batch_size')}
-      ${field('max_iterations', 'Max Iterations', a.dream.max_iterations, 'number', 'agents.defaults.dream.max_iterations')}
-      ${field('annotate_line_ages', 'Annotate Line Ages', a.dream.annotate_line_ages, 'checkbox', 'agents.defaults.dream.annotate_line_ages')}
+      <div class="card-header">Extractor</div>
+      ${field('model_override', 'Model Override', a.extractor.model_override || '', 'text', 'agents.defaults.extractor.model_override')}
+      ${field('interval_h', 'Interval (h)', a.extractor.interval_h, 'number', 'agents.defaults.extractor.interval_h')}
+      ${field('save_interval', 'Save Interval (turns)', a.extractor.save_interval, 'number', 'agents.defaults.extractor.save_interval')}
+      ${field('annotate_line_ages', 'Annotate Line Ages', a.extractor.annotate_line_ages, 'checkbox', 'agents.defaults.extractor.annotate_line_ages')}
     </div>
   `;
   loadModelsForProvider(a.provider, a.model);

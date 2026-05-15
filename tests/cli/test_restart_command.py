@@ -164,10 +164,7 @@ class TestRestartCommand:
         session.get_history.return_value = [{"role": "user"}] * 3
         loop.sessions.get_or_create.return_value = session
         loop._start_time = time.time() - 125
-        loop._last_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-        loop.consolidator.estimate_session_prompt_tokens = MagicMock(
-            return_value=(20500, "tiktoken")
-        )
+        loop._last_usage = {"prompt_tokens": 20500, "completion_tokens": 0}
         loop.subagents.get_running_count_by_session.return_value = 0
 
         msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/status")
@@ -176,7 +173,7 @@ class TestRestartCommand:
 
         assert response is not None
         assert "Model: test-model" in response.content
-        assert "Tokens: 0 in / 0 out" in response.content
+        assert "Tokens: 20500 in / 0 out" in response.content
         assert "Context: 20k/65k (31% of input budget)" in response.content
         assert "Session: 3 messages" in response.content
         assert "Uptime: 2m 5s" in response.content
@@ -189,9 +186,7 @@ class TestRestartCommand:
         session = MagicMock()
         session.get_history.return_value = [{"role": "user"}]
         loop.sessions.get_or_create.return_value = session
-        loop.consolidator.estimate_session_prompt_tokens = MagicMock(
-            return_value=(1000, "tiktoken")
-        )
+        loop._last_usage = {"prompt_tokens": 1000, "completion_tokens": 0}
 
         running_task = MagicMock()
         running_task.done.return_value = False
@@ -230,9 +225,6 @@ class TestRestartCommand:
         session.get_history.return_value = [{"role": "user"}]
         loop.sessions.get_or_create.return_value = session
         loop._last_usage = {"prompt_tokens": 1200, "completion_tokens": 34}
-        loop.consolidator.estimate_session_prompt_tokens = MagicMock(
-            return_value=(0, "none")
-        )
         loop.subagents.get_running_count_by_session.return_value = 0
 
         response = await loop._process_message(

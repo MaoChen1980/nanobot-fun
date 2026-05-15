@@ -142,11 +142,11 @@ class TestNestedRepoProtection:
         assert gitignore == expected
 
     def test_init_gitignore_merge_idempotent(self, tmp_path):
-        """init() should not duplicate Dream entries already in .gitignore."""
+        """init() should not duplicate Extractor entries already in .gitignore."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
-        # Pre-existing .gitignore that already has some Dream entries
+        # Pre-existing .gitignore that already has some Extractor entries
         existing = "*.pyc\n/*\n!MEMORY.md\n"
         (workspace / ".gitignore").write_text(existing, encoding="utf-8")
 
@@ -159,7 +159,7 @@ class TestNestedRepoProtection:
         lines = gitignore.splitlines()
         assert lines.count("/*") == 1
         assert lines.count("!MEMORY.md") == 1
-        # Existing entry preserved, new Dream entries appended
+        # Existing entry preserved, new Extractor entries appended
         assert "*.pyc" in gitignore
         assert "!.gitignore" in gitignore
 

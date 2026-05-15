@@ -27,7 +27,7 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `cron` | Schedule reminders and recurring tasks |
 | `github` | Interact with GitHub using the `gh` CLI |
 | `intent-alignment` | Intelligent intent detection and requirement clarification |
-| `memory` | Two-layer memory system with Dream-managed knowledge files |
+| `memory` | Two-layer memory system with auto-managed knowledge files |
 | `multi-question-answering` | Answer multiple choice questions directly |
 | `my` | Check and set the agent's own runtime state |
 | `skill-manager` | Full lifecycle skill management (create, validate, optimize, maintain) |

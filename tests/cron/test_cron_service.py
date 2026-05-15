@@ -499,14 +499,14 @@ def test_update_job_not_found(tmp_path) -> None:
 def test_update_job_rejects_system_job(tmp_path) -> None:
     service = CronService(tmp_path / "cron" / "jobs.json")
     service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
+        id="extractor",
+        name="extractor",
         schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
         payload=CronPayload(kind="system_event"),
     ))
-    result = service.update_job("dream", name="hacked")
+    result = service.update_job("extractor", name="hacked")
     assert result == "protected"
-    assert service.get_job("dream").name == "dream"
+    assert service.get_job("extractor").name == "extractor"
 
 
 def test_update_job_validates_schedule(tmp_path) -> None:

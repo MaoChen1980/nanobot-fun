@@ -87,7 +87,7 @@ def resolve_config_env_vars(config: Config) -> Config:
     """Return *config* with ``${VAR}`` env-var references resolved.
 
     Walks in place so fields declared with ``exclude=True`` (e.g.
-    ``DreamConfig.cron``) survive; returns the same instance when no
+    ``ExtractorConfig.cron``) survive; returns the same instance when no
     references are present. Raises ``ValueError`` if a referenced
     variable is not set.
     """

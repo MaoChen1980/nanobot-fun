@@ -23,4 +23,4 @@ Decision log — architectural and process choices with rationale.
 
 ## Recent Changes
 
-*New entries are appended here by Dream.*
+*New entries are appended here by the extractor.*

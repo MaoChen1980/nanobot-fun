@@ -219,14 +219,12 @@ def test_restore_runtime_checkpoint_dedupes_overlapping_tail() -> None:
 @pytest.mark.asyncio
 async def test_process_message_persists_user_message_before_turn_completes(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
     loop._run_agent_loop = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
 
     msg = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="persist me")
     with pytest.raises(RuntimeError, match="boom"):
         await loop._process_message(msg)
 
-    loop.sessions.invalidate("feishu:c1")
     persisted = loop.sessions.get_or_create("feishu:c1")
     assert [m["role"] for m in persisted.messages] == ["user"]
     assert persisted.messages[0]["content"] == "persist me"
@@ -262,7 +260,6 @@ async def test_process_message_persists_media_paths_on_user_turn(tmp_path: Path)
     img_b.write_bytes(_PNG_1X1)
 
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
     loop._run_agent_loop = AsyncMock(side_effect=RuntimeError("interrupt"))  # type: ignore[method-assign]
 
     msg = InboundMessage(
@@ -275,7 +272,6 @@ async def test_process_message_persists_media_paths_on_user_turn(tmp_path: Path)
     with pytest.raises(RuntimeError, match="interrupt"):
         await loop._process_message(msg)
 
-    loop.sessions.invalidate("websocket:c-media")
     persisted = loop.sessions.get_or_create("websocket:c-media")
     assert [m["role"] for m in persisted.messages] == ["user"]
     assert persisted.messages[0]["content"] == "look"
@@ -294,7 +290,6 @@ async def test_process_message_persists_media_only_turn_without_text(tmp_path: P
     img.write_bytes(_PNG_1X1)
 
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
     loop._run_agent_loop = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
 
     msg = InboundMessage(
@@ -307,7 +302,6 @@ async def test_process_message_persists_media_only_turn_without_text(tmp_path: P
     with pytest.raises(RuntimeError):
         await loop._process_message(msg)
 
-    loop.sessions.invalidate("websocket:c-images-only")
     persisted = loop.sessions.get_or_create("websocket:c-images-only")
     assert len(persisted.messages) == 1
     assert persisted.messages[0]["role"] == "user"
@@ -318,7 +312,6 @@ async def test_process_message_persists_media_only_turn_without_text(tmp_path: P
 @pytest.mark.asyncio
 async def test_process_message_does_not_duplicate_early_persisted_user_message(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
     loop._run_agent_loop = AsyncMock(return_value=(
         "done",
         None,
@@ -351,7 +344,6 @@ async def test_process_message_does_not_duplicate_early_persisted_user_message(t
 @pytest.mark.asyncio
 async def test_process_message_uses_context_chat_id_for_runtime_prompt(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
     loop.context.build_messages = MagicMock(  # type: ignore[method-assign]
         return_value=[
             {"role": "system", "content": "system"},
@@ -406,7 +398,6 @@ def test_set_tool_context_uses_effective_key_for_spawn_tool(tmp_path: Path) -> N
 @pytest.mark.asyncio
 async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
     loop.provider.chat_with_retry = AsyncMock(return_value=MagicMock())  # unused because _run_agent_loop is stubbed
 
     session = loop.sessions.get_or_create("feishu:c3")
@@ -453,7 +444,6 @@ async def test_stop_preserves_runtime_checkpoint_for_next_turn(tmp_path: Path) -
     from nanobot.command.router import CommandContext
 
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     checkpoint_saved = asyncio.Event()
 
@@ -512,7 +502,6 @@ async def test_stop_preserves_runtime_checkpoint_for_next_turn(tmp_path: Path) -
     assert "Stopped 1 task" in stop_result.content
     assert task.done()
 
-    loop.sessions.invalidate("feishu:c4")
     interrupted = loop.sessions.get_or_create("feishu:c4")
     assert interrupted.metadata.get(AgentLoop._PENDING_USER_TURN_KEY) is True
     assert interrupted.metadata.get(AgentLoop._RUNTIME_CHECKPOINT_KEY) is not None
@@ -558,7 +547,6 @@ async def test_stop_preserves_runtime_checkpoint_for_next_turn(tmp_path: Path) -
 @pytest.mark.asyncio
 async def test_system_subagent_followup_is_persisted_before_prompt_assembly(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     session = loop.sessions.get_or_create("cli:test")
     session.add_message("user", "question")
@@ -617,7 +605,6 @@ async def test_system_subagent_followup_is_persisted_before_prompt_assembly(tmp_
 @pytest.mark.asyncio
 async def test_multiple_subagent_followups_all_persist_as_standalone_history(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     async def fake_run_agent_loop(initial_messages, **_kwargs):
         return (
@@ -734,7 +721,6 @@ def test_set_tool_context_passes_thread_session_key_to_spawn(tmp_path: Path) -> 
 @pytest.mark.asyncio
 async def test_system_subagent_followup_uses_thread_session_and_slack_metadata(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
-    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     thread_session = loop.sessions.get_or_create("slack:C123:1700.42")
     thread_session.add_message("user", "thread question")

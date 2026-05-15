@@ -129,24 +129,19 @@ class ChannelsConfig(Base):
     transcription_language: Optional[str] = Field(default=None, pattern=r"^[a-z]{2,3}$")  # Optional ISO-639-1 hint for audio transcription
 
 
-class DreamConfig(Base):
-    """Dream memory consolidation configuration."""
+class ExtractorConfig(Base):
+    """MemoryExtractor configuration — replaces Consolidator + Dream."""
 
     _HOUR_MS = 3_600_000
 
-    interval_h: int = Field(default=2, ge=1)  # Every 2 hours by default
+    interval_h: int = Field(default=2, ge=1)  # Cron interval
     cron: Optional[str] = Field(default=None, exclude=True)  # Legacy compatibility override
     model_override: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("modelOverride", "model", "model_override"),
-    )  # Optional Dream-specific model override
-    max_batch_size: int = Field(default=20, ge=1)  # Max history entries per run
-    # Bumped from 10 to 15 in #3212 (exp002: +30% dedup, no accuracy loss; >15 plateaus).
-    max_iterations: int = Field(default=15, ge=1)  # Max tool calls per Phase 2
-    # Per-line git-blame age annotation in Phase 1 prompt (see #3212). Default
-    # on — set to False to feed MEMORY.md raw if a specific LLM reacts poorly
-    # to the `← Nd` suffix or you want deterministic, git-independent prompts.
-    annotate_line_ages: bool = True
+    )  # Optional extractor-specific model override
+    save_interval: int = Field(default=50, ge=1)  # M: save .pt every N turns per-session
+    annotate_line_ages: bool = True  # Per-line git-blame age annotation in cleanup prompt
 
     def build_schedule(self, timezone: str) -> CronSchedule:
         """Build the runtime schedule, preferring the legacy cron override if present."""
@@ -187,14 +182,7 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("idleCompactAfterMinutes", "sessionTtlMinutes"),
         serialization_alias="idleCompactAfterMinutes",
     )  # Auto-compact idle threshold in minutes (0 = disabled)
-    consolidation_ratio: float = Field(
-        default=0.5,
-        ge=0.1,
-        le=0.95,
-        validation_alias=AliasChoices("consolidationRatio"),
-        serialization_alias="consolidationRatio",
-    )  # Consolidation target ratio (0.5 = 50% of budget retained after compression)
-    dream: DreamConfig = Field(default_factory=DreamConfig)
+    extractor: ExtractorConfig = Field(default_factory=ExtractorConfig)
 
 
 class AgentsConfig(Base):

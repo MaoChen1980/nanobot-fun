@@ -483,20 +483,6 @@ def _run_gateway(
 # ============================================================================
 
 
-async def _archive_session(agent_loop: Any, session_id: str) -> None:
-    """Archive all session messages to history store on shutdown."""
-    try:
-        session = agent_loop.sessions.get_or_create(session_id)
-        if session.messages:
-            if session.last_consolidated > 0:
-                agent_loop.context.memory.raw_archive(session.messages[:session.last_consolidated])
-            unconsolidated = session.messages[session.last_consolidated:]
-            if unconsolidated:
-                await agent_loop.consolidator.archive(unconsolidated)
-    except Exception:
-        logger.exception("Failed to archive session on shutdown")
-
-
 @app.command()
 def agent(
     message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
@@ -552,7 +538,6 @@ def agent(
         unified_session=config.agents.defaults.unified_session,
         disabled_skills=config.agents.defaults.disabled_skills,
         session_ttl_minutes=config.agents.defaults.session_ttl_minutes,
-        consolidation_ratio=config.agents.defaults.consolidation_ratio,
         tools_config=config.tools,
     )
     restart_notice = consume_restart_notice_from_env()
@@ -590,7 +575,6 @@ def agent(
                     render_markdown=markdown,
                     metadata=response.metadata if response else None,
                 )
-            await _archive_session(agent_loop, session_id)
             await agent_loop.close_mcp()
 
         asyncio.run(run_once())
@@ -607,12 +591,6 @@ def agent(
 
         # Wire cron handler for interactive mode
         async def _cli_cron_handler(job: Any) -> str | None:
-            if job.name == "dream":
-                try:
-                    await agent_loop.dream.run()
-                except Exception:
-                    logger.exception("Dream cron job failed")
-                return None
             from nanobot.agent.tools.cron import CronTool
             cron_tool = agent_loop.tools.get("cron")
             cron_token = None

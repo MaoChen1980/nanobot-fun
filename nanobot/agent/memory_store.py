@@ -17,8 +17,6 @@ if TYPE_CHECKING:
     from nanobot.agent.db import NanobotDB
 
 
-_RAW_ARCHIVE_MAX_CHARS = 16_000
-_ARCHIVE_SUMMARY_MAX_CHARS = 8_000
 _HISTORY_ENTRY_HARD_CAP = 64_000
 
 
@@ -143,46 +141,15 @@ class MemoryStore:
             return
         self._db.compact_history(self.max_history_entries)
 
-    def get_last_dream_cursor(self) -> int:
-        if self._db is None:
-            return 0
-        return self._db.get_dream_cursor()
-
-    def set_last_dream_cursor(self, cursor: int) -> None:
-        if self._db is not None:
-            self._db.set_dream_cursor(cursor)
-
-    @staticmethod
-    def _format_messages(messages: list[dict]) -> str:
-        lines = []
-        for message in messages:
-            if not message.get("content"):
-                continue
-            tools = f" [tools: {', '.join(message['tools_used'])}]" if message.get("tools_used") else ""
-            lines.append(
-                f"[{message.get('timestamp', '?')[:16]}] {message['role'].upper()}{tools}: {message['content']}"
-            )
-        return "\n".join(lines)
-
-    def raw_archive(self, messages: list[dict], *, max_chars: int | None = None) -> None:
-        from nanobot.agent.memory_consolidator import Consolidator
-        msgs = Consolidator._filter_archive_messages(messages)
-        if not msgs:
-            return
-        limit = max_chars if max_chars is not None else _RAW_ARCHIVE_MAX_CHARS
-        formatted = truncate_text(self._format_messages(msgs), limit)
-        first_ts = msgs[0].get("timestamp", "unknown") if msgs else "unknown"
-        last_ts = msgs[-1].get("timestamp", "unknown") if msgs else "unknown"
-        record_ts = first_ts[:16] if first_ts != "unknown" else None
-        self.append_history(
-            f"[{first_ts} → {last_ts}] [RAW] {len(msgs)} messages\n"
-            f"{formatted}",
-            timestamp=record_ts,
-        )
-        logger.warning(
-            "Memory consolidation degraded: raw-archived {} messages", len(msgs)
-        )
-
     def update_summary(self, cursor: int, summary: str) -> None:
         if self._db is not None:
             self._db.update_summary(cursor, summary)
+
+    def get_last_extractor_cursor(self) -> int:
+        if self._db is None:
+            return 0
+        return self._db.get_extractor_cursor()
+
+    def set_last_extractor_cursor(self, cursor: int) -> None:
+        if self._db is not None:
+            self._db.set_extractor_cursor(cursor)

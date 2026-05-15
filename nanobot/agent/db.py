@@ -169,12 +169,12 @@ class NanobotDB:
     def set_cursor(self, cursor: int) -> None:
         self.set_metadata("cursor", str(cursor))
 
-    def get_dream_cursor(self) -> int:
-        val = self.get_metadata("dream_cursor")
+    def get_extractor_cursor(self) -> int:
+        val = self.get_metadata("extractor_cursor")
         return int(val) if val else 0
 
-    def set_dream_cursor(self, cursor: int) -> None:
-        self.set_metadata("dream_cursor", str(cursor))
+    def set_extractor_cursor(self, cursor: int) -> None:
+        self.set_metadata("extractor_cursor", str(cursor))
 
     def read_entries(self) -> list[dict[str, Any]]:
         cols = ["cursor", "timestamp", "content", "summary"]

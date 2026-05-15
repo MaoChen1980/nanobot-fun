@@ -170,7 +170,7 @@ class CronTool(Tool):
             "- action='remove'/'update'/'test' 需 job_id\n"
             "- action='test' 执行完整流程，实时显示执行步骤（不会实际发送消息给用户）\n"
             "- dry_run=true 只执行不发送，dry_run=false 会发送执行结果给用户\n"
-            "- 系统任务（如 dream）不可删除/修改\n"
+            "- 系统任务（如 extractor）不可删除/修改\n"
             "- 无调度参数 → 返回错误\n\n"
             "**极简案例**: cron(action='add', message='每小时检查状态', every_seconds=3600)\n"
             "→ 创建每小时执行的任务"
@@ -315,8 +315,6 @@ class CronTool(Tool):
 
     @staticmethod
     def _system_job_purpose(job: CronJob) -> str:
-        if job.name == "dream":
-            return "Dream memory consolidation for long-term memory."
         return "System-managed internal job."
 
     def _list_jobs(self) -> str:
@@ -342,10 +340,9 @@ class CronTool(Tool):
             return f"Removed job {job_id}"
         if result == "protected":
             job = self._cron.get_job(job_id)
-            if job and job.name == "dream":
+            if job:
                 return (
-                    "Cannot remove job `dream`.\n"
-                    "This is a system-managed Dream memory consolidation job for long-term memory.\n"
+                    "Cannot remove system job.\n"
                     "It remains visible so you can inspect it, but it cannot be removed."
                 )
             return (
@@ -431,9 +428,6 @@ class CronTool(Tool):
         job = self._cron.get_job(job_id)
         if not job:
             return f"Error: job '{job_id}' not found"
-
-        if job.name == "dream":
-            return "Error: cannot test system job 'dream'"
 
         if not self._cron.on_job:
             return "Error: cron service has no on_job handler (test not available in this context)"
