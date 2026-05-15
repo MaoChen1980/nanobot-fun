@@ -140,7 +140,7 @@ class ExtractorConfig(Base):
         default=None,
         validation_alias=AliasChoices("modelOverride", "model", "model_override"),
     )  # Optional extractor-specific model override
-    save_interval: int = Field(default=50, ge=1)  # M: save .pt every N turns per-session
+    save_interval: int = Field(default=30, ge=1)  # M: save .pt every N turns per-session
     annotate_line_ages: bool = True  # Per-line git-blame age annotation in cleanup prompt
 
     def build_schedule(self, timezone: str) -> CronSchedule:
