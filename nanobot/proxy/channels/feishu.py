@@ -308,9 +308,16 @@ class FeishuProxyChannel(BaseProxyChannel):
             if not line:
                 continue
             if "||" in line:
-                label, reply = (s.strip() for s in line.split("||", 1))
-                text = label if len(label) >= len(reply) else reply
-                quick_replies.append({"label": text, "reply": text})
+                parts = [p.strip() for p in line.split("||")]
+                if len(parts) == 2:
+                    # label || reply: use the longer text for both
+                    text = parts[0] if len(parts[0]) >= len(parts[1]) else parts[1]
+                    quick_replies.append({"label": text, "reply": text})
+                else:
+                    # N > 2: each part is its own button (LLM tends to
+                    # put all options on one line with || separators)
+                    for part in parts:
+                        quick_replies.append({"label": part, "reply": part})
             else:
                 quick_replies.append({"label": line, "reply": line})
 
