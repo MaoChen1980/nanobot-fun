@@ -388,17 +388,17 @@ def build_status_content(
         else str(context_tokens_estimate)
     )
     ctx_total_str = f"{ctx_total // 1000}k" if ctx_total > 0 else "n/a"
-    token_line = f"\U0001f4ca Tokens: {last_in} in / {last_out} out"
+    token_line = f"**Tokens:** {last_in} in / {last_out} out"
     if cached and last_in:
         token_line += f" ({cached * 100 // last_in}% cached)"
     lines = [
-        f"\U0001f408 nanobot v{version}",
-        f"\U0001f9e0 Model: {model}",
+        f"## \U0001f408 nanobot v{version}",
+        f"**Model:** {model}",
         token_line,
-        f"\U0001f4da Context: {ctx_used_str}/{ctx_total_str} ({ctx_pct}% of input budget)",
-        f"\U0001f4ac Session: {session_msg_count} messages",
-        f"\u23f1 Uptime: {uptime}",
-        f"\u26a1 Tasks: {active_task_count} active",
+        f"**Context:** {ctx_used_str}/{ctx_total_str} ({ctx_pct}% of input budget)",
+        f"**Session:** {session_msg_count} messages",
+        f"**Uptime:** {uptime}",
+        f"**Tasks:** {active_task_count} active",
     ]
     if search_usage_text:
         lines.append(search_usage_text)

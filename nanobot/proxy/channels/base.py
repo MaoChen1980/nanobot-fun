@@ -484,6 +484,7 @@ class BaseProxyChannel:
         chat_id: str,
         content: str,
         message_id: str = "",
+        media: list[str] | None = None,
     ) -> dict[str, Any]:
         """Build a standard message dict for sending to Hub."""
         return {
@@ -493,6 +494,7 @@ class BaseProxyChannel:
             "chat_id": chat_id,
             "content": content,
             "message_id": message_id,
+            "media": media or [],
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
 

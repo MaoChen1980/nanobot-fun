@@ -87,7 +87,7 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
                 getattr(loop.provider, "generation", None), "max_tokens", 8192
             ),
         ),
-        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+        metadata={**dict(ctx.msg.metadata or {})},
     )
 
 
@@ -125,29 +125,33 @@ async def cmd_help(ctx: CommandContext) -> OutboundMessage:
         channel=ctx.msg.channel,
         chat_id=ctx.msg.chat_id,
         content=build_help_text(),
-        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+        metadata={**dict(ctx.msg.metadata or {})},
     )
 
 
 def build_help_text() -> str:
     """Build canonical help text shared across channels."""
-    lines = [
-        "🐈 nanobot commands:",
-        "/new /clear /reset — Stop current task and start a new conversation",
-        "/stop — Stop the current task",
-        "/restart — Restart the bot",
-        "/status — Show bot status",
-        "/goal <id> — Execute a goal by ID",
-        "/list_goals [--project=<p>] [--scope=<s>] [--status=<s>] — List goals",
-        "/resume_goal <id> — Resume a blocked or paused goal",
-        "/sub — Show subagent status",
-        "--- observe toggles (on/off):",
-        "/think — Toggle LLM thinking blocks visibility",
-        "/tool — Toggle tool call events visibility",
-        "/rounds [N] — Show/set max conversation rounds kept as full messages (0 = all)",
-        "/help — Show available commands",
-    ]
-    return "\n".join(lines)
+    return """# 🐈 Nanobot Commands
+
+## Session
+- **/new /clear /reset** — Stop task & start new conversation
+- **/stop** — Stop current task
+- **/restart** — Restart the bot
+- **/status** — Show bot status
+
+## Goals
+- **/goal <id>** — Execute a goal by ID
+- **/list_goals [--project=<p>] [--scope=<s>] [--status=<s>]** — List goals
+- **/resume_goal <id>** — Resume a blocked or paused goal
+- **/sub** — Show subagent status
+
+## Observe Toggles
+- **/think** — Toggle LLM thinking blocks visibility
+- **/tool** — Toggle tool call events visibility
+- **/rounds [N]** — Show/set max conversation rounds (0 = all)
+
+## Info
+- **/help** — Show this message"""
 
 
 def _format_subagent_status(statuses: dict[str, "SubagentStatus"], running: dict[str, asyncio.Task[None]]) -> str:
@@ -185,7 +189,7 @@ async def cmd_sub(ctx: CommandContext) -> OutboundMessage:
         channel=ctx.msg.channel,
         chat_id=ctx.msg.chat_id,
         content=content,
-        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+        metadata={**dict(ctx.msg.metadata or {})},
     )
 
 

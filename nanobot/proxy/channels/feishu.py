@@ -93,9 +93,13 @@ class FeishuProxyChannel(BaseProxyChannel):
                 return
 
             content = getattr(message, "content", "")
+            msg_type = getattr(message, "msg_type", "text") or "text"
+            file_key = None
             try:
                 content_obj = json.loads(content)
                 text = content_obj.get("text", "") if isinstance(content_obj, dict) else str(content_obj)
+                if msg_type in ("image", "file", "audio", "video") and isinstance(content_obj, dict):
+                    file_key = content_obj.get("file_key") or content_obj.get("key") or content_obj.get("token") or content_obj.get("file_key")
             except Exception:
                 text = content
 
@@ -120,10 +124,22 @@ class FeishuProxyChannel(BaseProxyChannel):
                     if quoted_text:
                         msg_data["metadata"] = {"quoted_message": quoted_text}
 
+                    # ── Download inbound media (image/file/audio/video) ───────
+                    if file_key and msg_type in ("image", "file", "audio", "video"):
+                        local_path = self._download_media(file_key, msg_type)
+                        if local_path:
+                            msg_data["media"] = [local_path]
+                            logger.info("Feishu inbound media: type={}, key={} → {}", msg_type, file_key, local_path)
+
                     response = self.send_to_hub(msg_data)
-                    if response and response.success and response.content:
-                        logger.info("Feishu enqueue response: {}:{}", chat_id[:20], response.content[:60])
-                        self._enqueue_send({"chat_id": chat_id, "root_id": message_id, "content": response.content})
+                    if response and response.success:
+                        item: dict[str, Any] = {"chat_id": chat_id, "root_id": message_id}
+                        if response.content:
+                            item["content"] = response.content
+                        if response.media:
+                            item["media"] = response.media
+                        logger.info("Feishu enqueue response: {}:{}", chat_id[:20], response.content[:60] if response.content else "(media only)")
+                        self._enqueue_send(item)
                     if response and response.success and response.metadata.get("done_emoji"):
                         self._add_reaction(message_id, response.metadata["done_emoji"])
                     elif response:
@@ -239,11 +255,180 @@ class FeishuProxyChannel(BaseProxyChannel):
 
     def _process_send(self, item: dict) -> None:
         """Send queued message to Feishu."""
-        self._send_text_reply(
-            chat_id=item["chat_id"],
-            root_id=item.get("root_id"),
-            content=item["content"],
-        )
+        content = item.get("content", "")
+        # If item contains media paths, handle via _send_media
+        if item.get("media") and item["media"]:
+            self._send_media(item["chat_id"], item.get("root_id"), item["media"],
+                             msg_type="image" if any(p.lower().endswith((".png",".jpg",".jpeg",".gif",".webp",".bmp")) for p in item["media"]) else "file")
+        if content:
+            self._send_text_reply(
+                chat_id=item["chat_id"],
+                root_id=item.get("root_id"),
+                content=content,
+            )
+
+    # ------------------------------------------------------------------
+    # Media download (inbound: Feishu → local file)
+    # ------------------------------------------------------------------
+
+    def _download_media(self, file_key: str, msg_type: str) -> str | None:
+        """Download a media resource from Feishu and return the local file path.
+
+        Args:
+            file_key: Feishu file key / token for the resource.
+            msg_type: Feishu message type (image, file, audio, video).
+
+        Returns:
+            Local file path on success, ``None`` on failure.
+        """
+        try:
+            import tempfile, os, pathlib, time
+
+            # Download the resource
+            resp = self._client.im.v1.message_resource.get(
+                file_key=file_key,
+                image_type=msg_type if msg_type == "image" else None,
+            )
+            # lark-oapi raises on non-2xx; the raw response body is in resp.data
+            data_bytes: bytes = resp.data
+            if not data_bytes:
+                logger.warning("Feishu media download got empty data for key={}", file_key)
+                return None
+
+            # Determine extension from Content-Disposition header if available
+            ext = self._guess_ext_from_resp(resp, msg_type, file_key)
+            tmp_dir = pathlib.Path(tempfile.gettempdir()) / "feishu_media"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            local_path = tmp_dir / f"{int(time.time() * 1000)}_{file_key[:16]}{ext}"
+
+            with open(local_path, "wb") as f:
+                f.write(data_bytes)
+            logger.info("Feishu media downloaded: {} bytes → {}", len(data_bytes), local_path)
+            return str(local_path)
+        except Exception as e:
+            logger.error("Feishu media download failed for key={}: {}", file_key, e)
+            return None
+
+    def _guess_ext_from_resp(self, resp, msg_type: str, file_key: str) -> str:
+        """Extract file extension from HTTP response headers or msg_type."""
+        try:
+            headers = dict(resp.headers or {})
+            cd = headers.get("content-disposition", "") or headers.get("Content-Disposition", "")
+            import re
+            m = re.search(r"filename[^*]*\*?=['\"]?(?:UTF-8'')?(.+?)(?:;|$)", cd, re.IGNORECASE)
+            if m:
+                name = m.group(1)
+                if "." in name:
+                    return "." + name.rsplit(".", 1)[-1]
+        except Exception:
+            pass
+        # Fallback by type
+        ext_map = {"image": ".jpg", "audio": ".m4a", "video": ".mp4", "file": ".bin"}
+        return ext_map.get(msg_type, ".bin")
+
+    # ------------------------------------------------------------------
+    # Media upload (outbound: local file → Feishu)
+    # ------------------------------------------------------------------
+
+    def _upload_media_to_feishu(self, local_path: str, msg_type: str) -> str | None:
+        """Upload a local file to Feishu and return the ``file_key`` / ``image_key`` token.
+
+        Args:
+            local_path: Absolute path to the local file.
+            msg_type: Feishu message type — ``image`` or ``file``.
+
+        Returns:
+            Feishu token (``image_key`` for images, ``file_key`` for files) on success,
+            ``None`` on failure.
+        """
+        try:
+            from lark_oapi.api.im.v1 import (
+                CreateImageRequest, CreateImageRequestBody,
+                CreateFileRequest, CreateFileRequestBody,
+            )
+
+            with open(local_path, "rb") as f:
+                file_data = f.read()
+
+            is_image = msg_type == "image"
+            if is_image:
+                request = (
+                    CreateImageRequest.builder()
+                    .request_body(CreateImageRequestBody.builder().image_type("message").build())
+                    .build()
+                )
+                resp = self._client.im.v1.image.create(request, file_data)
+            else:
+                request = (
+                    CreateFileRequest.builder()
+                    .request_body(
+                        CreateFileRequestBody.builder()
+                        .file_name(os.path.basename(local_path))
+                        .file_type(msg_type)
+                        .build()
+                    )
+                    .build()
+                )
+                resp = self._client.im.v1.file.create(request, file_data)
+
+            if resp.code != 0:
+                logger.error("Feishu media upload failed: code={} msg={}", resp.code, resp.msg)
+                return None
+
+            # SDK unpacks the response; image_key / file_key lives in resp.data
+            key = getattr(resp.data, "image_key", None) or getattr(resp.data, "file_key", None) or str(resp.data or "")
+            logger.info("Feishu media uploaded: key={}", key)
+            return str(key) if key else None
+        except Exception as e:
+            logger.error("Feishu media upload error: {}", e)
+            return None
+
+    def _send_media(self, chat_id: str, root_id: str | None, media_paths: list[str], msg_type: str = "file") -> None:
+        """Send one or more media files to a Feishu chat.
+
+        Args:
+            chat_id: Feishu chat ID.
+            root_id: Message ID to reply to (thread root). Pass ``None`` for a standalone message.
+            media_paths: List of local file paths.
+            msg_type: Feishu message type — ``image`` or ``file``.
+        """
+        with self._api_lock:
+            for path in media_paths:
+                path = path.strip()
+                if not os.path.exists(path):
+                    logger.warning("Feishu media send: file not found: {}", path)
+                    continue
+                file_key = self._upload_media_to_feishu(path, msg_type)
+                if not file_key:
+                    logger.error("Feishu media send failed: could not upload {}", path)
+                    continue
+
+                try:
+                    from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+                    receive_id_type = self.config.get("receiveIdType", "chat_id")
+                    key_field = "image_key" if msg_type == "image" else "file_key"
+                    request = (
+                        CreateMessageRequest.builder()
+                        .receive_id_type(receive_id_type)
+                        .request_body(
+                            CreateMessageRequestBody.builder()
+                            .receive_id(chat_id)
+                            .msg_type(msg_type)
+                            .content(json.dumps({key_field: file_key}))
+                            .build()
+                        )
+                        .build()
+                    )
+                    if root_id:
+                        request.builder().root_id(root_id)
+                    resp = self._client.im.v1.message.create(request)
+                    if resp.code != 0:
+                        logger.error("Feishu send media failed: code={} msg={}", resp.code, resp.msg)
+                    else:
+                        logger.info("Feishu media sent: {} → chat={}", os.path.basename(path), chat_id)
+                except Exception as e:
+                    logger.error("Feishu media send error: {}", e)
 
     # ------------------------------------------------------------------
     # Reply / reaction helpers
