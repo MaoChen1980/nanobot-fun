@@ -43,6 +43,7 @@ class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"]
+    _SKIP_IF_DEFAULT = {"USER.md", "TOOLS.md"}  # skip these when user hasn't customized
     _SECTION_SEPARATOR = "\n\n" + "═" * 72 + "\n\n"
     _RUNTIME_CONTEXT_TAG = "## Runtime Context"
     _RUNTIME_CONTEXT_END = "## /Runtime Context"
@@ -453,12 +454,15 @@ class ContextBuilder:
         """Load all bootstrap files from workspace (cached by file mtime).
 
         Falls back to the bundled template when the workspace file doesn't exist.
+        Files in _SKIP_IF_DEFAULT that haven't been customized are omitted.
         """
         parts = []
 
         for filename in self.BOOTSTRAP_FILES:
             file_path = self.workspace / filename
             if not file_path.exists():
+                if filename in self._SKIP_IF_DEFAULT:
+                    continue  # no bundled fallback for placeholder forms
                 # Fallback to bundled template
                 from importlib.resources import files as pkg_files
                 try:
@@ -478,8 +482,15 @@ class ContextBuilder:
             cached = self._bootstrap_cache.get(filename)
             if cached is None or cached[0] != mtime:
                 content = file_path.read_text(encoding="utf-8")
+                # Skip if user hasn't customized this file (still default template)
+                if filename in self._SKIP_IF_DEFAULT and self._is_template_content(content, filename):
+                    self._bootstrap_cache[filename] = (mtime, None)  # sentinel: skipped
+                    continue
                 self._bootstrap_cache[filename] = (mtime, content)
                 cached = (mtime, content)
+            else:
+                if cached[1] is None:
+                    continue  # cached as skipped, still default
 
             parts.append(f"## {filename}\n\n{self._adjust_headings(cached[1], offset=1)}")
 

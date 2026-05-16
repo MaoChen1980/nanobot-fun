@@ -114,31 +114,31 @@ def test_unprocessed_history_injected_into_system_prompt(tmp_path) -> None:
 
 
 def test_recent_history_capped_at_max(tmp_path) -> None:
-    """Only the most recent _MAX_RECENT_HISTORY entries are injected."""
+    """Only the most recent max_recent_history entries are injected."""
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)
 
-    for i in range(builder._MAX_RECENT_HISTORY + 20):
+    for i in range(builder.max_recent_history + 20):
         _add_with_summary(builder.memory, f"entry-{i}")
 
     prompt = builder.build_system_prompt()
     assert "entry-0" not in prompt
     assert "entry-19" not in prompt
-    assert f"entry-{builder._MAX_RECENT_HISTORY + 19}" in prompt
+    assert f"entry-{builder.max_recent_history + 19}" in prompt
 
 
 def test_recent_history_truncated_at_max_chars(tmp_path) -> None:
-    """Recent History section must be truncated at _MAX_HISTORY_CHARS."""
+    """Recent History section must be truncated at max_history_chars."""
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)
 
-    big_entry = "x" * (builder._MAX_HISTORY_CHARS + 5_000)
+    big_entry = "x" * (builder.max_history_chars + 5_000)
     _add_with_summary(builder.memory, big_entry)
 
     prompt = builder.build_system_prompt()
     history_section = prompt.split("# Recent History\n\n", 1)
     assert len(history_section) == 2
-    assert len(history_section[1]) < builder._MAX_HISTORY_CHARS + 200
+    assert len(history_section[1]) < builder.max_history_chars + 200
 
 
 def test_no_recent_history_when_extractor_has_processed_all(tmp_path) -> None:
