@@ -224,6 +224,47 @@ class Session:
             len(self.messages),
         )
 
+    def trim_old_turns(self, max_turns: int = 100, trim_batch: int = 20) -> list[dict]:
+        """When total turn count exceeds *max_turns*, remove oldest *trim_batch* turns.
+
+        Returns the removed messages (flat) for the caller to archive to history.
+        """
+        # Split messages into turns
+        turns: list[list[dict]] = []
+        current: list[dict] = []
+        for msg in self.messages:
+            if msg.get("role") == "user" and current:
+                turns.append(current)
+                current = []
+            current.append(msg)
+        if current:
+            turns.append(current)
+
+        if len(turns) <= max_turns:
+            return []
+
+        trim_count = min(trim_batch, len(turns) - 1)  # keep at least 1 turn
+        trim_turns = turns[:trim_count]
+        keep = turns[trim_count:]
+
+        trim_msg_count = sum(len(t) for t in trim_turns)
+        keep_msg_count = sum(len(t) for t in keep)
+        before_consolidated = self.last_consolidated
+
+        self.messages = [m for turn in keep for m in turn]
+        self.last_consolidated = max(0, self.last_consolidated - trim_msg_count)
+        self.updated_at = datetime.now(timezone.utc)
+
+        logger.info(
+            "Session {} turn-trim: archiving {} turns ({} msgs), keeping {} turns ({} msgs), "
+            "last_consolidated {} -> {}",
+            self.key, trim_count, trim_msg_count,
+            len(keep), keep_msg_count,
+            before_consolidated, self.last_consolidated,
+        )
+
+        return [m for turn in trim_turns for m in turn]
+
 
 class SessionManager:
     """

@@ -122,6 +122,79 @@ class MemoryStore:
             self.vector_index.build_from_files(file_texts)
             self.vector_index.save()
 
+    def archive_session(self, messages: list[dict]) -> int:
+        """Archive session messages into history, grouped by turns.
+
+        Each turn is condensed to: user input -> thinking/tool_names -> final
+        response.  Tool results are excluded (large and already digested).
+        Returns number of turns archived.
+        """
+        if not messages or self._db is None:
+            return 0
+
+        # Group consecutive messages into user-started turns
+        turns: list[list[dict]] = []
+        current: list[dict] = []
+        for msg in messages:
+            if msg.get("role") == "user" and current:
+                turns.append(current)
+                current = []
+            current.append(msg)
+        if current:
+            turns.append(current)
+
+        archived = 0
+        for turn_msgs in turns:
+            user_msg = turn_msgs[0]
+            if user_msg.get("role") != "user":
+                continue
+
+            parts: list[str] = []
+            user_text = (user_msg.get("content") or "").strip()
+            if user_text:
+                parts.append(f"User: {user_text}")
+
+            thinking: list[str] = []
+            tool_names: list[str] = []
+            final_response = ""
+            for msg in turn_msgs:
+                if msg.get("role") != "assistant":
+                    continue
+                for b in (msg.get("thinking_blocks") or []):
+                    if isinstance(b, dict) and b.get("thinking"):
+                        thinking.append(b["thinking"])
+                rc = msg.get("reasoning_content")
+                if isinstance(rc, str) and rc:
+                    thinking.append(rc)
+                for tc in (msg.get("tool_calls") or []):
+                    if isinstance(tc, dict):
+                        name = tc.get("function", {}).get("name", "")
+                        if name and name not in tool_names:
+                            tool_names.append(name)
+                c = (msg.get("content") or "").strip()
+                if c:
+                    final_response = c
+
+            if thinking:
+                joined = " ".join(thinking)
+                if len(joined) > 500:
+                    joined = joined[:500] + "..."
+                parts.append(f"Thinking: {joined}")
+            if tool_names:
+                parts.append(f"Tools: {', '.join(tool_names)}")
+            if final_response:
+                parts.append(f"Assistant: {final_response}")
+
+            content = "\n\n".join(parts)
+            if content.strip():
+                self.append_history(content, timestamp=user_msg.get("timestamp"))
+                archived += 1
+
+        if archived:
+            total_msgs = len(messages)
+            logger.info("history: archived {} turns ({} msgs) from session — consider N=100/M=20 trim", archived, total_msgs)
+        return archived
+
     def append_history(self, entry: str, *, max_chars: int | None = None, timestamp: str | None = None) -> int:
         if self._db is None:
             return 0

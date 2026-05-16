@@ -260,6 +260,15 @@ class UserMessageHandler:
         # initial_msgs_count = 1 + len(retained_history) + 1
         save_skip = initial_msgs_count if user_persisted_early else initial_msgs_count - 1
         self._loop._record_turn(session, all_msgs, save_skip)
+
+        # Turn-based archive: when session exceeds N turns, archive oldest M turns to history
+        max_turns = session.metadata.get("max_turns", 100)
+        trim_batch = session.metadata.get("trim_batch", 20)
+        trimmed = session.trim_old_turns(max_turns, trim_batch)
+        if trimmed:
+            archived = self._loop.context.memory.archive_session(trimmed)
+            logger.info("_finalize_turn: archived {} oldest turns (N={}, M={})", archived, max_turns, trim_batch)
+
         session.enforce_file_cap()
         self._loop._recovery.clear_pending_user_turn(session)
         self._loop._recovery.clear_runtime_checkpoint(session)

@@ -98,6 +98,14 @@ async def cmd_new(ctx: CommandContext) -> OutboundMessage:
     cancelled = await loop._cancel_active_tasks(ctx.key)
 
     session = ctx.session or loop.sessions.get_or_create(ctx.key)
+
+    # Archive session messages to history before clearing
+    if session.messages:
+        try:
+            loop.context.memory.archive_session(session.messages)
+        except Exception:
+            logger.exception("Failed to archive session to history")
+
     session.clear()
     loop.sessions.save(session)
     loop.sessions.invalidate(session.key)
