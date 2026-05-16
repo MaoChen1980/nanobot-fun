@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Awaitable
 
 from loguru import logger
@@ -81,12 +82,34 @@ class UserMessageHandler:
         self._loop = loop
 
     async def handle(self, msg, session_key, on_progress, on_stream, on_stream_end, on_reasoning=None, on_reasoning_end=None, pending_queue=None):
-        from nanobot.utils.document import extract_documents
         from nanobot.agent.tools.ask import pending_ask_user_id, ask_user_tool_result_messages
 
         if msg.media:
-            new_content, image_only = extract_documents(msg.content, msg.media)
-            msg = dataclasses.replace(msg, content=new_content, media=image_only)
+            # All media (images, files, etc.) → save to workspace, no auto-processing
+            import shutil
+            from nanobot.config.paths import get_workspace_path
+            ws = get_workspace_path()
+            ws.mkdir(parents=True, exist_ok=True)
+            labels: list[str] = []
+            for p in msg.media:
+                pa = Path(p)
+                if not pa.is_file():
+                    continue
+                dest = ws / pa.name
+                if dest.exists():
+                    stem = dest.stem
+                    suffix = dest.suffix
+                    counter = 1
+                    while dest.exists():
+                        dest = ws / f"{stem}_{counter}{suffix}"
+                        counter += 1
+                shutil.copy2(str(pa), str(dest))
+                labels.append(pa.name)
+
+            # Inform LLM what was received, no content/vision extraction
+            ref = f"[用户发送了: {'、'.join(labels)}]"
+            new_content = f"{msg.content}\n\n{ref}" if msg.content else ref
+            msg = dataclasses.replace(msg, content=new_content, media=[])
 
         # Inject quoted message context into content
         quoted = msg.metadata.get("quoted_message", "")

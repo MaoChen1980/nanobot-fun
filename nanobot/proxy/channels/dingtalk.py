@@ -117,7 +117,7 @@ class DingTalkProxyChannel(BaseProxyChannel):
         }
         return mime_map.get(ext.lower(), "application/octet-stream")
 
-    def _download_media(self, download_code: str, media_type: str = "image") -> str | None:
+    def _download_media(self, download_code: str, media_type: str = "image", file_name: str = "") -> str | None:
         """Download media from DingTalk using downloadCode.
 
         The DingTalk Robot API ``/v1.0/robot/messageFiles/download`` returns a
@@ -128,6 +128,7 @@ class DingTalkProxyChannel(BaseProxyChannel):
         Args:
             download_code: The download code from the message
             media_type: 'image' or 'file'
+            file_name: Original filename from message content (fallback if Content-Disposition lacks one)
 
         Returns:
             Local file path on success, None on failure
@@ -176,7 +177,22 @@ class DingTalkProxyChannel(BaseProxyChannel):
 
             temp_dir = Path.home() / ".nanobot" / "media" / "incoming"
             temp_dir.mkdir(parents=True, exist_ok=True)
-            filename = f"{uuid.uuid4().hex[:12]}{ext}"
+
+            # Try original filename from Content-Disposition header first,
+            # then fall back to fileName from message content, then generate one.
+            cd = file_resp.headers.get("Content-Disposition", "")
+            orig_name = ""
+            if cd:
+                import re as _re
+                m = _re.search(r'filename[^;=\n]*=((["\']).*?\2|[^;\n]*)', cd, _re.IGNORECASE)
+                if m:
+                    orig_name = m.group(1).strip('"\'')
+            if orig_name:
+                filename = orig_name
+            elif file_name:
+                filename = file_name
+            else:
+                filename = f"{uuid.uuid4().hex[:12]}{ext}"
             dest = temp_dir / filename
             dest.write_bytes(file_resp.content)
 
@@ -465,9 +481,10 @@ class DingTalkProxyChannel(BaseProxyChannel):
                 # so read downloadCode from ``data.content`` directly.
                 content_data = self._get_content_field(data)
                 download_code = content_data.get("downloadCode")
+                file_name = content_data.get("fileName") or content_data.get("name", "")
                 if download_code:
                     content = "[用户发送了文件]"
-                    local_path = self._download_media(download_code, "file")
+                    local_path = self._download_media(download_code, "file", file_name)
                     if local_path:
                         content = f"[用户发送了文件: {os.path.basename(local_path)}]"
                         media.append(local_path)

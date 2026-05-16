@@ -92,8 +92,17 @@ class FeishuProxyChannel(BaseProxyChannel):
             if not message_id or self.check_duplicate(message_id):
                 return
 
-            content = getattr(message, "content", "")
-            msg_type = getattr(message, "msg_type", "text") or "text"
+            # DEBUG: dump raw message structure to diagnose empty content
+            msg_attrs = {a: getattr(message, a) for a in ['message_id', 'message_type', 'content', 'chat_id', 'root_id', 'parent_id', 'chat_type']
+                         if hasattr(message, a)}
+            logger.debug("Feishu message attrs: {}", msg_attrs)
+            body = getattr(message, "body", None)
+            content = getattr(body, "content", "") if body else getattr(message, "content", "")
+            logger.debug("Feishu content extraction: has_body={}, has_content={}, content_len={}, content_preview={!r}",
+                         body is not None, hasattr(message, "content"),
+                         len(content) if content else 0, (content or "")[:200])
+            # WS event: EventMessage uses "message_type"; REST API: Message uses "msg_type"
+            msg_type = getattr(message, "msg_type", None) or getattr(message, "message_type", None) or "text"
             file_key = None
             try:
                 content_obj = json.loads(content)
@@ -125,9 +134,12 @@ class FeishuProxyChannel(BaseProxyChannel):
                     if quoted_text:
                         msg_data["metadata"] = {"quoted_message": quoted_text}
 
+                    logger.debug("Feishu sending to hub: text={!r}, file_key={}, msg_type={}",
+                                 text[:100] if text else "", file_key, msg_type)
+
                     # ── Download inbound media (image/file/audio/video) ───────
                     if file_key and msg_type in ("image", "file", "audio", "video"):
-                        local_path = self._download_media(file_key, msg_type)
+                        local_path = self._download_media(file_key, msg_type, message_id)
                         if local_path:
                             msg_data["media"] = [local_path]
                             logger.info("Feishu inbound media: type={}, key={} → {}", msg_type, file_key, local_path)
@@ -286,26 +298,33 @@ class FeishuProxyChannel(BaseProxyChannel):
     # Media download (inbound: Feishu → local file)
     # ------------------------------------------------------------------
 
-    def _download_media(self, file_key: str, msg_type: str) -> str | None:
+    def _download_media(self, file_key: str, msg_type: str, message_id: str) -> str | None:
         """Download a media resource from Feishu and return the local file path.
+
+        Uses ``GetMessageResource`` API (``/im/v1/messages/:message_id/resources/:file_key``)
+        because ``GetImage`` / ``GetFile`` only work for resources the bot itself uploaded.
+        User-sent images/files require the message-scoped resource API.
 
         Args:
             file_key: Feishu file key / image_key for the resource.
             msg_type: Feishu message type (image, file, audio, video).
+            message_id: The Feishu message_id containing the resource.
 
         Returns:
             Local file path on success, ``None`` on failure.
         """
         try:
             import io, pathlib, tempfile, time
-            from lark_oapi.api.im.v1 import GetFileRequest, GetImageRequest
+            from lark_oapi.api.im.v1 import GetMessageResourceRequest
 
-            if msg_type == "image":
-                request = GetImageRequest.builder().image_key(file_key).build()
-                resp = self._client.im.v1.image.get(request)
-            else:
-                request = GetFileRequest.builder().file_key(file_key).build()
-                resp = self._client.im.v1.file.get(request)
+            request = (
+                GetMessageResourceRequest.builder()
+                .message_id(message_id)
+                .file_key(file_key)
+                .type("image" if msg_type == "image" else "file")
+                .build()
+            )
+            resp = self._client.im.v1.message_resource.get(request)
 
             if not resp.success():
                 logger.warning("Feishu media download failed: code={} msg={}", resp.code, resp.msg)
@@ -326,7 +345,20 @@ class FeishuProxyChannel(BaseProxyChannel):
             ext = self._guess_ext_from_resp(resp, msg_type, file_key)
             tmp_dir = pathlib.Path(tempfile.gettempdir()) / "feishu_media"
             tmp_dir.mkdir(parents=True, exist_ok=True)
-            local_path = tmp_dir / f"{int(time.time() * 1000)}_{file_key[:16]}{ext}"
+
+            original_name = getattr(resp, "file_name", None) or ""
+            if original_name:
+                local_path = tmp_dir / original_name
+                # deduplicate: append counter if filename already exists
+                if local_path.exists():
+                    stem = local_path.stem
+                    suffix = local_path.suffix
+                    counter = 1
+                    while local_path.exists():
+                        local_path = tmp_dir / f"{stem}_{counter}{suffix}"
+                        counter += 1
+            else:
+                local_path = tmp_dir / f"{int(time.time() * 1000)}_{file_key[:16]}{ext}"
 
             with open(local_path, "wb") as f:
                 f.write(data_bytes)
