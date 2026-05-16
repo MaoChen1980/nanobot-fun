@@ -18,8 +18,6 @@ from nanobot.config.paths import get_workspace_path
 @tool_parameters(
     tool_parameters_schema(
         content=p("string", "The message content to send"),
-        channel=p("string", "Optional: target channel (telegram, discord, etc.)"),
-        chat_id=p("string", "Optional: target chat/user ID"),
         media=p("array",
             "Optional: list of file paths to attach (images, video, audio, documents)",
             items=p("string", ""),
@@ -106,7 +104,6 @@ class MessageTool(Tool):
         "- media 参数需要本地文件路径\n"
         "- buttons: 最多 4 行，每行最多 3 个按钮，每个按钮最多 20 字符\n\n"
         "**错误应对**:\n"
-        "- channel/chat_id 无效 → 返回错误\n"
         "- media 路径不存在 → 返回错误\n"
         "- buttons 格式不对 → 返回错误提示\n\n"
         "**边界条件**:\n"

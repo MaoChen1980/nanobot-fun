@@ -263,10 +263,17 @@ class FeishuProxyChannel(BaseProxyChannel):
     def _process_send(self, item: dict) -> None:
         """Send queued message to Feishu."""
         content = item.get("content", "")
-        # If item contains media paths, handle via _send_media
-        if item.get("media") and item["media"]:
-            self._send_media(item["chat_id"], item.get("root_id"), item["media"],
-                             msg_type="image" if any(p.lower().endswith((".png",".jpg",".jpeg",".gif",".webp",".bmp")) for p in item["media"]) else "file")
+        # Send each media item individually with its own msg_type.
+        # Grouping by type would be more efficient but the Feishu upload API
+        # is strict about file format (rejects a .md file when msg_type is image).
+        media_list = item.get("media")
+        if media_list:
+            logger.info("Feishu _process_send: sending {} media items to chat {}",
+                        len(media_list), item["chat_id"])
+            for path in media_list:
+                is_image = path.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))
+                self._send_media(item["chat_id"], item.get("root_id"), [path],
+                                 msg_type="image" if is_image else "file")
         if content:
             self._send_text_reply(
                 chat_id=item["chat_id"],
@@ -338,57 +345,106 @@ class FeishuProxyChannel(BaseProxyChannel):
     # ------------------------------------------------------------------
 
     def _upload_media_to_feishu(self, local_path: str, msg_type: str) -> str | None:
-        """Upload a local file to Feishu and return the ``file_key`` / ``image_key`` token.
+        """Upload a local file to Feishu using the direct HTTP API.
 
-        Args:
-            local_path: Absolute path to the local file.
-            msg_type: Feishu message type — ``image`` or ``file``.
+        We use httpx directly rather than ``lark_oapi`` because the SDK's sync
+        ``image.create()`` / ``file.create()`` do not handle multipart file
+        uploads — only the async ``acreate()`` variants do, and the send worker
+        thread has no event loop.
 
         Returns:
             Feishu token (``image_key`` for images, ``file_key`` for files) on success,
             ``None`` on failure.
         """
         try:
-            from lark_oapi.api.im.v1 import (
-                CreateImageRequest, CreateImageRequestBody,
-                CreateFileRequest, CreateFileRequestBody,
-            )
+            import httpx
+
+            token = self._get_tenant_access_token()
+            if not token:
+                return None
 
             with open(local_path, "rb") as f:
                 file_data = f.read()
 
+            headers = {"Authorization": f"Bearer {token}"}
             is_image = msg_type == "image"
-            if is_image:
-                request = (
-                    CreateImageRequest.builder()
-                    .request_body(CreateImageRequestBody.builder().image_type("message").build())
-                    .build()
-                )
-                resp = self._client.im.v1.image.create(request, file_data)
-            else:
-                request = (
-                    CreateFileRequest.builder()
-                    .request_body(
-                        CreateFileRequestBody.builder()
-                        .file_name(os.path.basename(local_path))
-                        .file_type(msg_type)
-                        .build()
-                    )
-                    .build()
-                )
-                resp = self._client.im.v1.file.create(request, file_data)
 
-            if resp.code != 0:
-                logger.error("Feishu media upload failed: code={} msg={}", resp.code, resp.msg)
+            if is_image:
+                url = f"{self._domain}/open-apis/im/v1/images"
+                data = {"image_type": "message"}
+            else:
+                url = f"{self._domain}/open-apis/im/v1/files"
+                data = {
+                    "file_type": self._feishu_file_type(local_path),
+                    "file_name": os.path.basename(local_path),
+                }
+
+            # Use ``files`` for the binary and ``data`` for the form fields.
+            # The field name differs: "image" for images, "file" for files.
+            field = "image" if is_image else "file"
+            files = {field: (os.path.basename(local_path), file_data)}
+
+            with httpx.Client(timeout=60) as client:
+                resp = client.post(url, data=data, files=files, headers=headers)
+
+            if resp.status_code != 200:
+                logger.error("Feishu media upload HTTP {}: {}", resp.status_code, resp.text[:300])
                 return None
 
-            # SDK unpacks the response; image_key / file_key lives in resp.data
-            key = getattr(resp.data, "image_key", None) or getattr(resp.data, "file_key", None) or str(resp.data or "")
-            logger.info("Feishu media uploaded: key={}", key)
-            return str(key) if key else None
+            body = resp.json()
+            if body.get("code") != 0:
+                logger.error("Feishu media upload failed: code={} msg={}", body.get("code"), body.get("msg"))
+                return None
+
+            data_obj = body.get("data", {}) or {}
+            key = data_obj.get("image_key", "") or data_obj.get("file_key", "")
+            if key:
+                logger.info("Feishu media uploaded: key={}", key)
+                return key
+
+            logger.error("Feishu media upload: no key in response: {}", body)
+            return None
         except Exception as e:
             logger.error("Feishu media upload error: {}", e)
             return None
+
+    def _get_tenant_access_token(self) -> str | None:
+        """Get a Feishu tenant access token via the internal app auth endpoint."""
+        try:
+            import httpx
+            url = f"{self._domain}/open-apis/auth/v3/tenant_access_token/internal"
+            payload = {
+                "app_id": self.config.get("appId", ""),
+                "app_secret": self.config.get("appSecret", ""),
+            }
+            with httpx.Client(timeout=30) as client:
+                resp = client.post(url, json=payload)
+                if resp.status_code == 200:
+                    return resp.json().get("tenant_access_token")
+                logger.error("Feishu tenant token failed: {} - {}", resp.status_code, resp.text[:200])
+        except Exception as e:
+            logger.error("Feishu tenant token error: {}", e)
+        return None
+
+    @staticmethod
+    def _feishu_file_type(file_path: str) -> str:
+        """Map file extension to Feishu ``file_type`` parameter.
+
+        Feishu's ``/open-apis/im/v1/files`` endpoint requires a concrete
+        *file_type* — ``"stream"`` is the catch-all for unknown types.
+        """
+        ext = os.path.splitext(file_path)[1].lower()
+        mapping = {
+            ".pdf": "pdf",
+            ".doc": "doc",
+            ".docx": "docx",
+            ".xls": "xls",
+            ".xlsx": "xlsx",
+            ".ppt": "ppt",
+            ".pptx": "pptx",
+            ".mp4": "mp4",
+        }
+        return mapping.get(ext, "stream")
 
     def _send_media(self, chat_id: str, root_id: str | None, media_paths: list[str], msg_type: str = "file") -> None:
         """Send one or more media files to a Feishu chat.

@@ -230,7 +230,9 @@ class BaseProxyChannel:
         """Handle a push delivery from hub. Override in subclasses to send messages."""
         chat_id = data.get("chat_id", "")
         content = data.get("content", "")
-        logger.info("Push delivery to {}: {}", chat_id, content[:80])
+        media = data.get("media", [])
+        logger.info("Base _handle_deliver: chat={} content_len={} media_count={}",
+                    chat_id, len(content) if content else 0, len(media))
 
     # ------------------------------------------------------------------
     # FIFO send queue infrastructure

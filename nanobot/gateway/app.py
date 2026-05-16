@@ -268,13 +268,29 @@ class GatewayApplication:
                 self.session_manager.save(session)
 
             # Proxy channels: deliver via proxy TCP connection
+            proxy_key: str | None = None
             if msg.channel.startswith("proxy:"):
                 proxy_key = msg.channel[len("proxy:"):]
-                deliver_msg = {
+            elif self.proxy_manager.has_proxy(msg.channel):
+                # Short form without "proxy:" prefix, e.g. "feishu:feishu1"
+                proxy_key = msg.channel
+            elif self.proxy_manager.has_proxy(f"proxy:{msg.channel}"):
+                proxy_key = f"proxy:{msg.channel}"
+
+            if proxy_key:
+                deliver_msg: dict[str, Any] = {
                     "type": "deliver",
                     "chat_id": msg.chat_id,
                     "content": msg.content,
                 }
+                if msg.media:
+                    deliver_msg["media"] = msg.media
+                if msg.buttons:
+                    deliver_msg["buttons"] = msg.buttons
+                logger.info("Delivering to proxy {}: chat={} content={} media_count={} has_buttons={}",
+                            proxy_key, msg.chat_id, msg.content[:60] if msg.content else "",
+                            len(msg.media) if msg.media else 0,
+                            "yes" if msg.buttons else "no")
                 if not await self.proxy_manager.deliver_to_proxy(
                     proxy_key, deliver_msg
                 ):

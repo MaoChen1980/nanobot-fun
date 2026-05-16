@@ -237,7 +237,7 @@ class ProxyManager:
             try:
                 for line in process.stdout:
                     proxy_output.write(line)
-                    logger.debug("[proxy {}] {}".format(channel, line.decode().rstrip()))
+                    logger.info("[proxy {}] {}".format(channel, line.decode().rstrip()))
             except Exception:
                 logger.warning("Error capturing proxy {} output", channel)
 
@@ -380,7 +380,10 @@ class ProxyManager:
             try:
                 proxy.writer.write((json.dumps(data) + "\n").encode())
                 await proxy.writer.drain()
-                logger.debug("Delivered to proxy {}", proxy_key)
+                logger.info("Delivered to proxy {}: type={} has_media={} size={}",
+                            proxy_key, data.get("type", "?"),
+                            "yes" if data.get("media") else "no",
+                            len(json.dumps(data)))
                 return True
             except Exception as e:
                 logger.error("Failed to deliver to proxy {}: {}", proxy_key, e)
@@ -578,6 +581,10 @@ class ProxyManager:
 
     def get_proxy_keys(self) -> list[str]:
         return list(self._proxies.keys())
+
+    def has_proxy(self, key: str) -> bool:
+        """Check if a proxy with the given key is registered."""
+        return key in self._proxies
 
     async def stop_proxy(self, key: str) -> None:
         """Stop a single proxy process and remove it from tracking."""

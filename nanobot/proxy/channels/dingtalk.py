@@ -69,21 +69,18 @@ class DingTalkProxyChannel(BaseProxyChannel):
                 logger.warning(f"File too large: {file_path} ({file_size} bytes)")
                 return None
 
-            # Upload via DingTalk media API
+            # Upload via DingTalk OAPI media endpoint
             import httpx
 
-            url = "https://api.dingtalk.com/v1.0/robot/media/upload"
-            headers = {
-                "x-acs-dingtalk-access-token": token,
-            }
+            url = f"https://oapi.dingtalk.com/media/upload?access_token={token}"
 
             files = {
                 "media": (os.path.basename(file_path), file_data, self._get_mime_type(ext)),
             }
-            data = {"file_type": api_type}
+            data = {"type": api_type}
 
             with httpx.Client(timeout=60) as client:
-                resp = client.post(url, files=files, data=data, headers=headers)
+                resp = client.post(url, files=files, data=data)
 
             if resp.status_code == 200:
                 result = resp.json()
@@ -191,13 +188,15 @@ class DingTalkProxyChannel(BaseProxyChannel):
     # Content parsing and media detection
     # ------------------------------------------------------------------
 
-    def _detect_and_upload_media(self, content: str) -> tuple[str, list[str]]:
-        """Parse content for local media paths, upload them, and return cleaned content + media_ids.
+    def _detect_and_upload_media(self, content: str) -> tuple[str, list[tuple[str, str, str, str]]]:
+        """Parse content for local media paths, upload them, and return cleaned content + media items.
 
         Returns:
-            (cleaned_content, list of media_id strings)
+            (cleaned_content, list of (media_id, media_type, file_ext, file_name) tuples)
+            where media_type is 'image' or 'file', file_ext is the lower-case extension
+            (e.g. '.pdf', '.docx') or '' for images, file_name is the original basename.
         """
-        media_ids: list[str] = []
+        media_items: list[tuple[str, str, str, str]] = []
         cleaned = content
 
         # Pattern 1: Markdown image syntax ![alt](path)
@@ -206,20 +205,18 @@ class DingTalkProxyChannel(BaseProxyChannel):
         def upload_md_image(match):
             alt_text = match.group(1) or "image"
             path = match.group(2)
-            # Skip HTTP URLs
             if path.startswith("http://") or path.startswith("https://"):
                 return match.group(0)
-            # Upload local file
             media_id = self._upload_media(path, "image")
             if media_id:
-                media_ids.append(media_id)
+                media_items.append((media_id, "image", "", os.path.basename(path)))
                 return f"![{alt_text}]({media_id})"
             logger.warning(f"Failed to upload image: {path}")
             return match.group(0)
 
         cleaned = re.sub(md_image_pattern, upload_md_image, cleaned)
 
-        # Pattern 2: File markers [DINGTALK_FILE]{"path": "...", "name": "..."}[/DINGTALK_FILE]
+        # Pattern 2: File markers [DINGTALK_FILE]{json}[/DINGTALK_FILE]
         file_marker_pattern = r"\[DINGTALK_FILE\]\s*(\{[^}]+\})\s*\[/DINGTALK_FILE\]"
 
         def upload_file_marker(match):
@@ -230,9 +227,9 @@ class DingTalkProxyChannel(BaseProxyChannel):
                     return match.group(0)
                 media_id = self._upload_media(file_path, "file")
                 if media_id:
-                    media_ids.append(media_id)
-                    # Replace with just the marker text (file will be sent separately)
+                    ext = Path(file_path).suffix.lower()
                     file_name = file_info.get("name", os.path.basename(file_path))
+                    media_items.append((media_id, "file", ext, file_name))
                     return f"[文件: {file_name}]"
             except json.JSONDecodeError:
                 pass
@@ -240,34 +237,31 @@ class DingTalkProxyChannel(BaseProxyChannel):
 
         cleaned = re.sub(file_marker_pattern, upload_file_marker, cleaned)
 
-        # Pattern 3: Bare local file paths (detect common patterns)
-        # Match paths that look like local files (not URLs)
+        # Pattern 3: Bare local file paths
         bare_path_pattern = r"(?<!\w)([A-Za-z]:\\[^\s\\]+|/[^\s]+(?:\.[a-zA-Z0-9]+))(?!\w)"
 
         def process_bare_path(match):
             path = match.group(1)
-            # Skip if it looks like a URL
             if "://" in path or path.startswith("http"):
                 return match.group(0)
-            # Skip if it's likely a command or path with special chars
             if any(c in path for c in ["&&", "||", "|", "`", "$"]):
                 return match.group(0)
             ext = Path(path).suffix.lower()
             if ext in IMAGE_EXTENSIONS:
                 media_id = self._upload_media(path, "image")
                 if media_id:
-                    media_ids.append(media_id)
+                    media_items.append((media_id, "image", "", os.path.basename(path)))
                     return f"![image]({media_id})"
             elif ext:
                 media_id = self._upload_media(path, "file")
                 if media_id:
-                    media_ids.append(media_id)
+                    media_items.append((media_id, "file", ext, os.path.basename(path)))
                     return f"[文件: {os.path.basename(path)}]"
             return match.group(0)
 
         cleaned = re.sub(bare_path_pattern, process_bare_path, cleaned)
 
-        return cleaned, media_ids
+        return cleaned, media_items
 
     # ------------------------------------------------------------------
     # Send logic
@@ -287,11 +281,13 @@ class DingTalkProxyChannel(BaseProxyChannel):
             sender_id = item.get("sender_id", "")
             is_group = item["is_group"]
             content = item["content"]
-            media_ids = item.get("media_ids", [])  # Pre-uploaded media_ids from hub
+            media_items = item.get("media_items", [])  # Pre-detected media from hub
 
-            # Detect and upload local media files (if not already uploaded)
-            if not media_ids:
-                content, media_ids = self._detect_and_upload_media(content)
+            # Detect and upload local media files (if not already detected)
+            if not media_items:
+                content, media_items = self._detect_and_upload_media(content)
+                logger.info("DingTalk media detection: found {} media items, content_len={}",
+                            len(media_items), len(content))
 
             # Build API URL and payload
             if is_group:
@@ -309,7 +305,8 @@ class DingTalkProxyChannel(BaseProxyChannel):
 
             headers = {"x-acs-dingtalk-access-token": token}
 
-            # First, send the text message (if any)
+            # Send as a single markdown message.  Images are embedded via
+            # ``![image](media_id)`` and files as ``[文件: name]`` text.
             if content.strip():
                 payload = {
                     **payload_base,
@@ -322,35 +319,65 @@ class DingTalkProxyChannel(BaseProxyChannel):
                 with httpx.Client(timeout=30) as client:
                     resp = client.post(url, json=payload, headers=headers)
                     if resp.status_code >= 400:
-                        logger.warning("DingTalk text send failed: {} - {}", resp.status_code, resp.text[:200])
+                        logger.warning("DingTalk markdown send failed: {} - {}", resp.status_code, resp.text[:200])
 
-            # Then send each media item
-            for media_id in media_ids:
-                self._send_media(chat_id, is_group, media_id, headers, url, payload_base)
+            # Send each media item as a native DingTalk message:
+            #   - images -> sampleImage  with photoURL=media_id
+            #   - files  -> sampleFile   with mediaId + fileName + fileType
+            for media_id, media_type, file_ext, file_name in media_items:
+                self._send_media(chat_id, is_group, media_id, media_type, file_ext, file_name, headers, url, payload_base)
 
         except Exception as e:
             logger.error("DingTalk send error: {}", e)
 
-    def _send_media(self, chat_id: str, is_group: bool, media_id: str, headers: dict, url: str, payload_base: dict) -> None:
-        """Send a media message (image or file) via DingTalk API."""
+    def _send_media(self, chat_id: str, is_group: bool, media_id: str, media_type: str, file_ext: str, file_name: str, headers: dict, url: str, payload_base: dict) -> None:
+        """Send a media item via DingTalk Robot API.
+
+        For images (``media_type="image"``) tries ``sampleImage`` first, falls
+        back to ``sampleFile`` when that fails (the Robot API does not support
+        ``sampleImage`` in many environments).  For files uses ``sampleFile``
+        with the original ``fileName``.
+        """
         import httpx
 
         try:
+            if media_type == "image":
+                # Try sampleImage first (photoURL accepts a media_id)
+                payload = {
+                    **payload_base,
+                    "msgKey": "sampleImage",
+                    "msgParam": json.dumps({
+                        "photoURL": media_id,
+                    }, ensure_ascii=False),
+                }
+                with httpx.Client(timeout=30) as client:
+                    resp = client.post(url, json=payload, headers=headers)
+                    if resp.status_code < 400:
+                        logger.info(f"Sent image {media_id} to {chat_id}")
+                        return
+                    # Fallback: send image as sampleFile
+                    logger.info("sampleImage not supported, falling back to sampleFile for {}", file_name or media_id)
+
+            # sampleFile for files (or image fallback)
+            file_type = file_ext.lstrip(".") if file_ext else "file"
             payload = {
                 **payload_base,
-                "msgKey": "sampleImage",
-                "msgParam": json.dumps({"imageId": media_id}, ensure_ascii=False),
+                "msgKey": "sampleFile",
+                "msgParam": json.dumps({
+                    "mediaId": media_id,
+                    "fileName": file_name or f"file.{file_type}",
+                    "fileType": file_type,
+                }, ensure_ascii=False),
             }
-
             with httpx.Client(timeout=30) as client:
                 resp = client.post(url, json=payload, headers=headers)
                 if resp.status_code >= 400:
-                    logger.warning("DingTalk media send failed: {} - {}", resp.status_code, resp.text[:200])
+                    logger.warning("DingTalk media send failed ({}): {} - {}", media_type, resp.status_code, resp.text[:200])
                 else:
-                    logger.info(f"Sent media {media_id} to {chat_id}")
+                    logger.info(f"Sent {media_type} {media_id} to {chat_id} ({file_name})")
 
         except Exception as e:
-            logger.error("DingTalk media send error: {}", e)
+            logger.error("DingTalk media send error ({}): {}", media_type, e)
 
     # ------------------------------------------------------------------
     # Inbound message handling
@@ -452,7 +479,7 @@ class DingTalkProxyChannel(BaseProxyChannel):
                     media_text += f"\n![image]({path})"
                 else:
                     name = os.path.basename(path)
-                    media_text += f"\n[DINGTALK_FILE]{{\"path\": \"{path}\", \"name\": \"{name}\"}}[/DINGTALK_FILE]"
+                    media_text += "\n[DINGTALK_FILE]" + json.dumps({"path": path, "name": name}, ensure_ascii=False) + "[/DINGTALK_FILE]"
             content = (content or "") + media_text
         actual_id = chat_id[len("group:"):] if is_group else chat_id
         self._enqueue_send({
@@ -472,6 +499,8 @@ class DingTalkProxyChannel(BaseProxyChannel):
         chat_id = data.get("chat_id", "")
         content = data.get("content", "")
         media = data.get("media", [])
+        logger.info("DingTalk _handle_deliver: chat={} content_len={} media_count={}",
+                    chat_id, len(content) if content else 0, len(media))
         if not chat_id or (not content and not media):
             return
         is_group = chat_id.startswith("group:")
@@ -492,7 +521,7 @@ class DingTalkProxyChannel(BaseProxyChannel):
                     media_text += f"\n![image]({path})"
                 else:
                     name = os.path.basename(path)
-                    media_text += f"\n[DINGTALK_FILE]{{\"path\": \"{path}\", \"name\": \"{name}\"}}[/DINGTALK_FILE]"
+                    media_text += "\n[DINGTALK_FILE]" + json.dumps({"path": path, "name": name}, ensure_ascii=False) + "[/DINGTALK_FILE]"
             item["content"] = (content or "") + media_text
         self._enqueue_send(item)
 
