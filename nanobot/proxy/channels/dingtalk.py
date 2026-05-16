@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import queue
+import re
 import sys
+import threading
 import time
 from typing import Any
 
@@ -21,6 +24,60 @@ class DingTalkProxyChannel(BaseProxyChannel):
 
     def __init__(self, config: dict, hub_tcp_host: str, hub_tcp_port: int, channel: str, bot: str):
         super().__init__(config, hub_tcp_host, hub_tcp_port, channel, bot)
+        self._send_queue: queue.Queue = queue.Queue()
+        threading.Thread(target=self._send_worker, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Send queue — linearizes all outbound messages in FIFO order so
+    # tool/think events always arrive before the reply.
+    # ------------------------------------------------------------------
+
+    def _send_worker(self) -> None:
+        """Background worker that sends queued messages to DingTalk in order."""
+        import httpx
+
+        while True:
+            item = self._send_queue.get()
+            if item is None:
+                break
+            try:
+                token = self._get_access_token()
+                if not token:
+                    continue
+
+                chat_id = item["chat_id"]
+                sender_id = item.get("sender_id", "")
+                is_group = item["is_group"]
+                content = item["content"]
+
+                if is_group:
+                    url = "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
+                    payload = {
+                        "robotCode": self.config.get("clientId", ""),
+                        "openConversationId": chat_id,
+                        "msgKey": "sampleMarkdown",
+                        "msgParam": json.dumps({"text": content}, ensure_ascii=False),
+                    }
+                else:
+                    url = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
+                    payload = {
+                        "robotCode": self.config.get("clientId", ""),
+                        "userIds": [sender_id],
+                        "msgKey": "sampleMarkdown",
+                        "msgParam": json.dumps({"text": content}, ensure_ascii=False),
+                    }
+
+                headers = {"x-acs-dingtalk-access-token": token}
+                with httpx.Client(timeout=30) as client:
+                    resp = client.post(url, json=payload, headers=headers)
+                    if resp.status_code >= 400:
+                        logger.warning("DingTalk send failed: {} - {}", resp.status_code, resp.text[:200])
+            except Exception as e:
+                logger.error("DingTalk send error: {}", e)
+
+    # ------------------------------------------------------------------
+    # Inbound message handling
+    # ------------------------------------------------------------------
 
     def on_message(self, data: Any) -> None:
         """Sync callback from DingTalk SDK - forward message to Hub."""
@@ -63,49 +120,40 @@ class DingTalkProxyChannel(BaseProxyChannel):
             logger.error("DingTalk proxy message handler error: {}", e)
 
     def _send_reply(self, chat_id: str, sender_id: str, is_group: bool, content: str) -> None:
-        """Send a reply via DingTalk. Passes markdown content directly, no extra wrapping."""
-        try:
-            import httpx
+        """Queue a reply for ordered delivery."""
+        content = re.sub(
+            r"^\*\*Nanobot Reply\*\*\s*\n+",
+            "",
+            content,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+        actual_id = chat_id[len("group:"):] if is_group else chat_id
+        self._send_queue.put({
+            "chat_id": actual_id,
+            "sender_id": sender_id,
+            "is_group": is_group,
+            "content": content,
+        })
 
-            # Strip the "Nanobot Reply" title wrapper if present
-            import re
+    # ------------------------------------------------------------------
+    # Push delivery from Hub (tool events, thinking, reminders, etc.)
+    # ------------------------------------------------------------------
 
-            content = re.sub(
-                r"^\*\*Nanobot Reply\*\*\s*\n+",
-                "",
-                content,
-                count=1,
-                flags=re.IGNORECASE,
-            ).strip()
-
-            token = self._get_access_token()
-            if not token:
-                return
-
-            if is_group:
-                url = "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
-                payload = {
-                    "robotCode": self.config.get("clientId", ""),
-                    "openConversationId": chat_id,
-                    "msgKey": "sampleMarkdown",
-                    "msgParam": json.dumps({"text": content}, ensure_ascii=False),
-                }
-            else:
-                url = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
-                payload = {
-                    "robotCode": self.config.get("clientId", ""),
-                    "userIds": [sender_id],
-                    "msgKey": "sampleMarkdown",
-                    "msgParam": json.dumps({"text": content}, ensure_ascii=False),
-                }
-
-            headers = {"x-acs-dingtalk-access-token": token}
-            with httpx.Client(timeout=30) as client:
-                resp = client.post(url, json=payload, headers=headers)
-                if resp.status_code >= 400:
-                    logger.warning("DingTalk reply failed: {} - {}", resp.status_code, resp.text[:200])
-        except Exception as e:
-            logger.error("DingTalk reply error: {}", e)
+    async def _handle_deliver(self, data: dict[str, Any]) -> None:
+        """Queue push delivery (non-blocking) so the background reader stays
+        responsive while the send worker preserves FIFO ordering."""
+        chat_id = data.get("chat_id", "")
+        content = data.get("content", "")
+        if chat_id and content:
+            is_group = chat_id.startswith("group:")
+            actual_id = chat_id[len("group:"):] if is_group else chat_id
+            self._send_queue.put({
+                "chat_id": actual_id,
+                "sender_id": actual_id if not is_group else "",
+                "is_group": is_group,
+                "content": content,
+            })
 
     def _get_access_token(self) -> str | None:
         """Get DingTalk access token."""
@@ -124,59 +172,8 @@ class DingTalkProxyChannel(BaseProxyChannel):
             logger.exception("Failed to get DingTalk access token")
         return None
 
-    # ------------------------------------------------------------------
-    # Push delivery from Hub (tool events, thinking, reminders, etc.)
-    # ------------------------------------------------------------------
-
-    async def _handle_deliver(self, data: dict[str, Any]) -> None:
-        """Send push delivery from hub to DingTalk chat, blocking the
-        background reader so tool/think events arrive before the reply."""
-        chat_id = data.get("chat_id", "")
-        content = data.get("content", "")
-        if chat_id and content:
-            self._send_deliver(chat_id, content)
-
-    def _send_deliver(self, chat_id: str, content: str) -> None:
-        """Sync helper to send a push delivery message."""
-        is_group = chat_id.startswith("group:")
-        actual_chat_id = chat_id[len("group:"):] if is_group else chat_id
-        sender_id = actual_chat_id  # for O2O, chat_id is the sender_id
-
-        token = self._get_access_token()
-        if not token:
-            return
-
-        import httpx
-
-        if is_group:
-            url = "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
-            payload = {
-                "robotCode": self.config.get("clientId", ""),
-                "openConversationId": actual_chat_id,
-                "msgKey": "sampleMarkdown",
-                "msgParam": json.dumps({"text": content}, ensure_ascii=False),
-            }
-        else:
-            url = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
-            payload = {
-                "robotCode": self.config.get("clientId", ""),
-                "userIds": [sender_id],
-                "msgKey": "sampleMarkdown",
-                "msgParam": json.dumps({"text": content}, ensure_ascii=False),
-            }
-
-        headers = {"x-acs-dingtalk-access-token": token}
-        try:
-            with httpx.Client(timeout=30) as client:
-                resp = client.post(url, json=payload, headers=headers)
-                if resp.status_code >= 400:
-                    logger.warning("DingTalk deliver failed: {} - {}", resp.status_code, resp.text[:200])
-        except Exception as e:
-            logger.error("DingTalk deliver error: {}", e)
-
     def start(self) -> None:
         """Run the DingTalk Stream connection in its own event loop."""
-        import threading
         from dingtalk_stream import CallbackHandler, DingTalkStreamClient, Credential
         from dingtalk_stream.chatbot import ChatbotMessage
 
