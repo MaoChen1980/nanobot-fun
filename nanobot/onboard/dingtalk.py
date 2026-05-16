@@ -10,6 +10,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -201,13 +202,13 @@ def write_config(
     for bot in bots:
         if bot.get("clientId") == app_id:
             logger.warning("Bot {} already registered, updating secret", app_id)
-            bot["appSecret"] = app_secret
+            bot["clientSecret"] = app_secret
             break
     else:
         bot_entry: dict[str, Any] = {
             "name": bot_name,
             "clientId": app_id,
-            "appSecret": app_secret,
+            "clientSecret": app_secret,
             **_BOT_CONFIG_TEMPLATE,
         }
         bots.append(bot_entry)
@@ -263,6 +264,12 @@ def run_onboard_dingtalk(
 
     print_fn("")
     print_fn(f"Or open this URL in your browser: {url}")
+    print_fn("")
+
+    if webbrowser.open(url):
+        print_fn("Browser opened automatically.")
+    else:
+        print_fn("(Could not open browser automatically — use the URL above.)")
     print_fn("")
 
     # Step 3 — poll for completion

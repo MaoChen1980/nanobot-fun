@@ -476,7 +476,7 @@ class ProxyManager:
                             logger.warning("Proxy {} (pid={}) is disabled, removing", key, proxy.process.pid)
                             del self._proxies[key]
                             continue
-                        self._restart_proxy(proxy)
+                        await self._restart_proxy(proxy)
                 # Check if TCP connection is dead (connection closed by proxy)
                 elif not proxy.is_connected:
                     if not enabled:

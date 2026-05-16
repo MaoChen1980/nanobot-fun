@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -58,12 +59,25 @@ class RegistrationResult:
 
 
 def _post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
-    """POST ``application/x-www-form-urlencoded``, return parsed JSON."""
+    """POST ``application/x-www-form-urlencoded``, return parsed JSON.
+
+    Unlike standard OAuth device flow, Feishu returns HTTP 400 with
+    ``authorization_pending`` during polling instead of HTTP 200.
+    To support this, HTTP errors are returned as-is rather than raised,
+    letting callers inspect the response body for error codes.
+    """
     body = urllib.parse.urlencode(data).encode("utf-8")
     req = urllib.request.Request(url, data=body, method="POST")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    with urllib.request.urlopen(req) as resp:
-        return dict(json.loads(resp.read().decode("utf-8")))
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return dict(json.loads(resp.read().decode("utf-8")))
+    except urllib.error.HTTPError as exc:
+        resp_body = exc.read().decode("utf-8", errors="replace")
+        try:
+            return dict(json.loads(resp_body))
+        except (json.JSONDecodeError, TypeError):
+            raise RuntimeError(f"Feishu API error {exc.code}: {resp_body}") from exc
 
 
 def _post_json(url: str, data: dict[str, Any], token: str | None = None) -> dict[str, Any]:
@@ -73,8 +87,12 @@ def _post_json(url: str, data: dict[str, Any], token: str | None = None) -> dict
     req.add_header("Content-Type", "application/json; charset=utf-8")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req) as resp:
-        return dict(json.loads(resp.read().decode("utf-8")))
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return dict(json.loads(resp.read().decode("utf-8")))
+    except urllib.error.HTTPError as exc:
+        resp_body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Feishu API error {exc.code}: {resp_body}") from exc
 
 
 def _patch_json(url: str, data: dict[str, Any], token: str) -> dict[str, Any]:
@@ -83,8 +101,12 @@ def _patch_json(url: str, data: dict[str, Any], token: str) -> dict[str, Any]:
     req = urllib.request.Request(url, data=body, method="PATCH")
     req.add_header("Content-Type", "application/json; charset=utf-8")
     req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req) as resp:
-        return dict(json.loads(resp.read().decode("utf-8")))
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return dict(json.loads(resp.read().decode("utf-8")))
+    except urllib.error.HTTPError as exc:
+        resp_body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Feishu API error {exc.code}: {resp_body}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +323,12 @@ def run_onboard_feishu(
 
     print_fn("")
     print_fn(f"Or open this URL in your browser: {verification_url}")
+    print_fn("")
+
+    if webbrowser.open(verification_url):
+        print_fn("Browser opened automatically.")
+    else:
+        print_fn("(Could not open browser automatically — use the URL above.)")
     print_fn("")
 
     # Step 3 — poll for completion

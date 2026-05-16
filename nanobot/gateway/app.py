@@ -80,10 +80,16 @@ class GatewayApplication:
         sync_workspace_templates(self.config.workspace_path)
 
         self._init_services()
-        self._wire_callbacks()
-        self._print_startup_status()
-        self._register_extractor_job()
-        self._register_log_check_job()
+        if self.agent is not None:
+            self._wire_callbacks()
+            self._print_startup_status()
+            self._register_extractor_job()
+            self._register_log_check_job()
+        else:
+            console.print(
+                "[yellow]Running in setup mode — configure an API key in the "
+                "WebUI Providers tab, then restart.[/yellow]"
+            )
 
         try:
             await self._start_all()
@@ -122,9 +128,25 @@ class GatewayApplication:
             self.provider_snapshot = build_provider_snapshot(self.config)
         except ValueError as exc:
             logger.error("Provider init failed: {}", exc)
-            console.print(f"[red]Error: {exc}[/red]")
-            raise SystemExit(1) from exc
-        self.provider = self.provider_snapshot.provider
+            console.print(f"[red]Warning: {exc}[/red]")
+            console.print(
+                "[yellow]The WebUI is available for configuration. "
+                "Configure an API key in the Providers tab, then restart.[/yellow]"
+            )
+            self.provider_snapshot = None
+        else:
+            self.provider = self.provider_snapshot.provider
+
+        if self.provider_snapshot is None:
+            # Start in setup mode — no agent, just the WebUI
+            self.nanobot_db = None
+            self.session_manager = None
+            self.cron = None
+            self.agent = None
+            self.channels = None
+            self.proxy_manager = None
+            self.heartbeat = None
+            return
 
         self.nanobot_db = NanobotDB(
             Path.home() / ".nanobot" / "nanobot.db",
@@ -632,6 +654,27 @@ class GatewayApplication:
 
     async def _start_all(self) -> None:
         """Start all services and block until one exits."""
+        if self.agent is None:
+            # Setup mode — only the API server
+            import uvicorn
+            from nanobot.api.server import create_app as make_api_app
+
+            webui_index = (
+                Path(__file__).parent.parent.parent / "webui" / "index.html"
+            ).resolve()
+            api_app = make_api_app(webui_index, proxy_manager=None)
+
+            config = uvicorn.Config(
+                api_app,
+                host=self.config.gateway.host,
+                port=self.port,
+                log_level="info",
+            )
+            server = uvicorn.Server(config)
+            server.install_signal_handlers = lambda: None
+            await server.serve()
+            return
+
         await self.cron.start()
         await self.heartbeat.start()
 
