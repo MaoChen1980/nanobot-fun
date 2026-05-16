@@ -106,43 +106,45 @@ class DiagnoseTool(_FsTool):
 
         for term in terms[:3]:
             try:
-                cmd = self._grep_cmd(term, str(search_root))
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-                if result.returncode == 0:
-                    files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
-                    for f in files[:max_results]:
-                        key = f.lower()
-                        if key not in seen:
-                            seen.add(key)
-                            if len(hits) < max_results:
-                                first_match = self._first_match_line(f, term)
-                                rel = Path(f).relative_to(search_root).as_posix() if search_root in Path(f).parents else f
-                                hits.append(f"  {rel}{first_match}")
-            except (subprocess.TimeoutExpired, OSError):
+                matches = self._grep_files(term, str(search_root))
+                for f in matches[:max_results]:
+                    key = f.lower()
+                    if key not in seen:
+                        seen.add(key)
+                        if len(hits) < max_results:
+                            first_match = self._first_match_line(f, term)
+                            rel = Path(f).relative_to(search_root).as_posix() if search_root in Path(f).parents else f
+                            hits.append(f"  {rel}{first_match}")
+            except OSError:
                 continue
         return hits
 
     @staticmethod
-    def _grep_cmd(term: str, search_root: str) -> list[str]:
-        return [
-            "grep", "-rn", "--include=*.py", "--include=*.js", "--include=*.ts",
-            "--include=*.go", "--include=*.rs", "--include=*.java", "--include=*.kt",
-            "-l", term, search_root,
-        ]
+    def _grep_files(term: str, search_root: str) -> list[str]:
+        """Pure-Python grep: return sorted file paths containing term."""
+        _EXTENSIONS = frozenset({".py", ".js", ".ts", ".go", ".rs", ".java", ".kt"})
+        root = Path(search_root).resolve()
+        if not root.is_dir():
+            return []
+        matches: list[str] = []
+        for path in root.rglob("*"):
+            if path.suffix not in _EXTENSIONS or path.is_dir() or path.name.startswith("."):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                if term in text:
+                    matches.append(str(path))
+            except (OSError, UnicodeDecodeError):
+                continue
+        return matches
 
     @staticmethod
     def _first_match_line(filepath: str, term: str) -> str:
         try:
-            ctx = subprocess.run(
-                ["grep", "-n", term, filepath],
-                capture_output=True, text=True, timeout=5,
-            )
-            if ctx.stdout.strip():
-                first = ctx.stdout.strip().split("\n")[0]
-                parts = first.split(":", 2)
-                if len(parts) >= 3:
-                    return f"  L{parts[1]}: {parts[2][:120]}"
-                return ""
+            text = Path(filepath).read_text(encoding="utf-8", errors="replace")
+            for lineno, line in enumerate(text.splitlines(), 1):
+                if term in line:
+                    return f"  L{lineno}: {line.strip()[:120]}"
         except Exception:
             return ""
         return ""

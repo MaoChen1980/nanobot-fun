@@ -12,6 +12,10 @@ from nanobot.config.paths import get_media_dir
 
 
 def _bwrap(command: str, workspace: str, cwd: str) -> str:
+    if sys.platform != "linux":
+        raise RuntimeError(
+            f"Sandbox (bwrap) requires Linux. Current platform: {sys.platform}"
+        )
     """Wrap command in a bubblewrap sandbox (requires bwrap in container).
 
     Only the workspace is bind-mounted read-write; its parent dir (which holds

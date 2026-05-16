@@ -109,6 +109,22 @@ def _restore_terminal() -> None:
     """Restore terminal to its original state (echo, line buffering, etc.)."""
     if _SAVED_TERM_ATTRS is None:
         return
+
+    # Windows console mode saved as ("windows_console_mode", mode_value)
+    if isinstance(_SAVED_TERM_ATTRS, tuple) and _SAVED_TERM_ATTRS[0] == "windows_console_mode":
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                kernel32 = ctypes.windll.kernel32
+                h = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+                if h and h != -1:
+                    kernel32.SetConsoleMode(h, _SAVED_TERM_ATTRS[1])
+            except Exception:
+                pass
+        return
+
     try:
         import termios
 
@@ -127,7 +143,19 @@ def _init_prompt_session() -> None:
 
         _SAVED_TERM_ATTRS = termios.tcgetattr(sys.stdin.fileno())
     except Exception:
-        pass
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                kernel32 = ctypes.windll.kernel32
+                h = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+                if h and h != -1:
+                    mode = wintypes.DWORD()
+                    if kernel32.GetConsoleMode(h, ctypes.byref(mode)):
+                        _SAVED_TERM_ATTRS = ("windows_console_mode", mode.value)
+            except Exception:
+                pass
 
     from nanobot.config.paths import get_cli_history_path
 

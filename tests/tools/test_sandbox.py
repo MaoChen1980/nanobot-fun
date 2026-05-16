@@ -1,10 +1,16 @@
 """Tests for nanobot.agent.tools.sandbox."""
 
 import shlex
+import sys
 
 import pytest
 
 from nanobot.agent.tools.sandbox import wrap_command
+
+skip_unless_linux = pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="bwrap sandbox is Linux-only",
+)
 
 
 def _parse(cmd: str) -> list[str]:
@@ -12,6 +18,7 @@ def _parse(cmd: str) -> list[str]:
     return shlex.split(cmd)
 
 
+@skip_unless_linux
 class TestBwrapBackend:
     def test_basic_structure(self, tmp_path):
         ws = str(tmp_path / "project")

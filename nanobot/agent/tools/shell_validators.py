@@ -86,7 +86,7 @@ def _check_workspace_boundary(
     posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command)
     home_paths = re.findall(r"(?:^|[\s|>'\"])(~[^\s\"'>;|<]*)", command)
 
-    media_path = Path(os.environ.get("MEDIA_DIR", "/tmp")).resolve()
+    media_path = Path(os.environ.get("MEDIA_DIR", tempfile.gettempdir())).resolve()
 
     for raw in win_paths + posix_paths + home_paths:
         try:

@@ -38,7 +38,12 @@ async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
 
     async def _do_restart():
         await asyncio.sleep(1)
-        os.execv(sys.executable, [sys.executable, "-m", "nanobot"] + sys.argv[1:])
+        args = [sys.executable, "-m", "nanobot"] + sys.argv[1:]
+        if sys.platform == "win32":
+            subprocess.Popen(args)
+            sys.exit(0)
+        else:
+            os.execv(sys.executable, args)
 
     asyncio.create_task(_do_restart())
     return OutboundMessage(

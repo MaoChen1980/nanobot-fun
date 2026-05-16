@@ -128,6 +128,18 @@ def _is_blocked_device(path: str | Path) -> bool:
     # Check if resolved path starts with /dev/ (covers symlinks to devices)
     if resolved.startswith("/dev/"):
         return True
+
+    # Windows reserved device names (CON, NUL, etc.) and NT namespace paths
+    if sys.platform == "win32":
+        name = Path(raw).name.upper()
+        if name in {"CON", "NUL", "AUX", "PRN", "CONIN$", "CONOUT$"}:
+            return True
+        import re
+        if re.match(r"(COM|LPT)[1-9]$", name):
+            return True
+        if raw.startswith("\\\\.\\"):
+            return True
+
     return False
 
 

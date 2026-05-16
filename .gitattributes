@@ -1,2 +1,14 @@
-# Ensure shell scripts always use LF line endings (Docker/Linux compat)
+* text=auto
+*.py text
+*.md text
+*.yml text
+*.json text
+*.toml text
 *.sh text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff2 binary
