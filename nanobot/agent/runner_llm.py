@@ -31,15 +31,15 @@ async def request_model(
 
     kwargs = _build_request_kwargs(provider, spec, messages, tools=spec.tools.get_definitions())
 
-    if hook.wants_streaming():
-        async def _stream(delta: str) -> None:
-            await hook.on_stream(context, delta)
-        coro = provider.chat_stream_with_retry(
-            **kwargs,
-            on_content_delta=_stream,
-        )
-    else:
-        coro = provider.chat_with_retry(**kwargs)
+    async def _stream(delta: str) -> None:
+        await hook.on_stream(context, delta)
+    async def _reasoning(delta: str) -> None:
+        await hook.on_reasoning(context, delta)
+    coro = provider.chat_stream_with_retry(
+        **kwargs,
+        on_content_delta=_stream,
+        on_reasoning_delta=_reasoning,
+    )
 
     if timeout_s is None:
         return await coro

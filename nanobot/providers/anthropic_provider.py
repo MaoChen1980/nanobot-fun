@@ -573,6 +573,7 @@ class AnthropicProvider(LLMProvider):
         reasoning_effort: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         kwargs = self._build_kwargs(
             messages, tools, model, max_tokens, temperature,
@@ -596,7 +597,14 @@ class AnthropicProvider(LLMProvider):
                     stream.get_final_message(),
                     timeout=idle_timeout_s,
                 )
-            return self._parse_response(response)
+            parsed = self._parse_response(response)
+            if on_reasoning_delta and parsed.thinking_blocks:
+                for tb in parsed.thinking_blocks:
+                    if isinstance(tb, dict) and tb.get("type") == "thinking":
+                        thinking_text = tb.get("thinking", "")
+                        if thinking_text:
+                            await on_reasoning_delta(thinking_text)
+            return parsed
         except asyncio.TimeoutError:
             logger.warning("Anthropic stream timed out after {}s", idle_timeout_s)
             return LLMResponse(

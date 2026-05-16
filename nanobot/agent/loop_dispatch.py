@@ -33,9 +33,10 @@ class DispatchManager:
         async with self._gate():
             try:
                 try:
-                    on_stream, on_stream_end = self._maybe_streaming(msg)
+                    on_stream, on_stream_end, on_reasoning, on_reasoning_end = self._maybe_streaming(msg)
                     response = await self._loop._process_message(
                         msg, on_stream=on_stream, on_stream_end=on_stream_end,
+                        on_reasoning=on_reasoning, on_reasoning_end=on_reasoning_end,
                         pending_queue=pending,
                     )
                     if response is not None:
@@ -70,11 +71,8 @@ class DispatchManager:
 
     def _maybe_streaming(
         self, msg: InboundMessage,
-    ) -> tuple[Any | None, Any | None]:
-        """Build streaming callbacks if wanted, otherwise None."""
-        if not msg.metadata.get("_wants_stream"):
-            return None, None
-
+    ) -> tuple[Any | None, Any | None, Any | None, Any | None]:
+        """Build streaming callbacks. Always active."""
         stream_base_id = f"{msg.session_key}:{time.time_ns()}"
         stream_segment = 0
 
@@ -84,6 +82,16 @@ class DispatchManager:
         async def on_stream(delta: str) -> None:
             meta = dict(msg.metadata or {})
             meta["_stream_delta"] = True
+            meta["_stream_id"] = _current_stream_id()
+            await self._loop.bus.publish_outbound(OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=delta,
+                metadata=meta,
+            ))
+
+        async def on_reasoning(delta: str) -> None:
+            meta = dict(msg.metadata or {})
+            meta["_reasoning_delta"] = True
             meta["_stream_id"] = _current_stream_id()
             await self._loop.bus.publish_outbound(OutboundMessage(
                 channel=msg.channel, chat_id=msg.chat_id,
@@ -104,7 +112,10 @@ class DispatchManager:
             ))
             stream_segment += 1
 
-        return on_stream, on_stream_end
+        async def on_reasoning_end() -> None:
+            pass
+
+        return on_stream, on_stream_end, on_reasoning, on_reasoning_end
 
     async def _handle_cancellation(
         self, msg: InboundMessage, session_key: str,

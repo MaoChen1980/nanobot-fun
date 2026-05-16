@@ -18,7 +18,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import ExecToolConfig, WebToolsConfig
 from nanobot.providers.base import LLMProvider
 
-from .subagent_status import SubagentStatus, format_partial_progress
+from .subagent_status import SubagentStatus, SubagentResult, format_partial_progress
 from .subagent_tools import build_subagent_tools
 from .subagent_prompt import build_subagent_prompt
 
@@ -171,24 +171,41 @@ class SubagentManager:
             ))
             status.phase = "done"
             status.stop_reason = result.stop_reason
+            status.completed_at = time.monotonic()
+            status.tools_ran = list(result.tools_used)
+
+            duration_s = status.completed_at - status.started_at
+            token_usage = dict(result.usage or {})
+
+            sub_result = SubagentResult(
+                task_id=task_id,
+                label=label,
+                status="ok" if result.stop_reason in ("completed", "stop", "empty_final_response") else "error",
+                final_content=result.final_content,
+                tools_used=list(result.tools_used),
+                duration_s=duration_s,
+                iteration_count=status.iteration,
+                token_usage=token_usage,
+                errors=[result.error] if result.error else [],
+            )
 
             if result.stop_reason == "tool_error":
                 status.tool_events = list(result.tool_events)
                 await self._announce_result(
                     task_id, label, task,
                     format_partial_progress(result),
-                    origin, "error",
+                    origin, "error", sub_result=sub_result,
                 )
             elif result.stop_reason == "error":
                 await self._announce_result(
                     task_id, label, task,
                     result.error or "Error: subagent execution failed.",
-                    origin, "error",
+                    origin, "error", sub_result=sub_result,
                 )
             else:
                 final_result = result.final_content or "Task completed but no final response was generated."
                 logger.info("Subagent [{}] completed successfully", task_id)
-                await self._announce_result(task_id, label, task, final_result, origin, "ok")
+                await self._announce_result(task_id, label, task, final_result, origin, "ok", sub_result=sub_result)
 
         except Exception as e:
             status.phase = "error"
@@ -204,6 +221,7 @@ class SubagentManager:
         result: str,
         origin: dict[str, str],
         status: str,
+        sub_result: SubagentResult | None = None,
     ) -> None:
         """Announce the subagent result to the main agent via the message bus."""
         from nanobot.utils.prompt_templates import render_template
@@ -216,6 +234,9 @@ class SubagentManager:
             status_text=status_text,
             task=task,
             result=result,
+            duration_s=sub_result.duration_s if sub_result else 0,
+            tools_used=", ".join(sub_result.tools_used) if sub_result and sub_result.tools_used else "",
+            iteration_count=sub_result.iteration_count if sub_result else 0,
         )
 
         # Inject as system message to trigger main agent.
@@ -248,6 +269,10 @@ class SubagentManager:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         return len(tasks)
+
+    def get_status(self, task_id: str) -> SubagentStatus | None:
+        """Return the current status of a subagent task, or None if unknown."""
+        return self._task_statuses.get(task_id)
 
     def get_running_count(self) -> int:
         """Return the number of currently running subagents."""

@@ -46,6 +46,14 @@ class AgentHook:
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         pass
 
+    async def on_reasoning(self, context: AgentHookContext, delta: str) -> None:
+        """Called with reasoning/thinking deltas during streaming."""
+        pass
+
+    async def on_reasoning_end(self, context: AgentHookContext) -> None:
+        """Called when reasoning content streaming ends."""
+        pass
+
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         pass
 
@@ -54,6 +62,26 @@ class AgentHook:
 
     def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
         return content
+
+    def before_llm_call(
+        self, context: AgentHookContext, messages: list[dict]
+    ) -> list[dict]:
+        """Inspect or modify the message list before LLM call.
+
+        Pipeline method: each hook's output feeds the next hook's input.
+        Return the (possibly modified) list.
+        """
+        return messages
+
+    def filter_tool_calls(
+        self, context: AgentHookContext, tool_calls: list[ToolCallRequest]
+    ) -> list[ToolCallRequest]:
+        """Filter or modify tool calls before execution.
+
+        Pipeline method: each hook's output feeds the next hook's input.
+        Return the (possibly modified/filtered) list.
+        """
+        return tool_calls
 
 
 class CompositeHook(AgentHook):
@@ -93,6 +121,12 @@ class CompositeHook(AgentHook):
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         await self._for_each_hook_safe("on_stream_end", context, resuming=resuming)
 
+    async def on_reasoning(self, context: AgentHookContext, delta: str) -> None:
+        await self._for_each_hook_safe("on_reasoning", context, delta)
+
+    async def on_reasoning_end(self, context: AgentHookContext) -> None:
+        await self._for_each_hook_safe("on_reasoning_end", context)
+
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         await self._for_each_hook_safe("before_execute_tools", context)
 
@@ -103,3 +137,17 @@ class CompositeHook(AgentHook):
         for h in self._hooks:
             content = h.finalize_content(context, content)
         return content
+
+    def before_llm_call(
+        self, context: AgentHookContext, messages: list[dict]
+    ) -> list[dict]:
+        for h in self._hooks:
+            messages = h.before_llm_call(context, messages)
+        return messages
+
+    def filter_tool_calls(
+        self, context: AgentHookContext, tool_calls: list[ToolCallRequest]
+    ) -> list[ToolCallRequest]:
+        for h in self._hooks:
+            tool_calls = h.filter_tool_calls(context, tool_calls)
+        return tool_calls

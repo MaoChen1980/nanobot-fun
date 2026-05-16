@@ -35,6 +35,7 @@ from nanobot.agent.tools.search import GlobTool, GrepTool
 from nanobot.agent.tools.self import MyTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
+from nanobot.agent.tools.check_subagent import CheckSubagentTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.session_manage import SessionManageTool
 from nanobot.agent.tools.recall import RecallTool
@@ -375,6 +376,7 @@ class AgentLoop:
             from nanobot.agent.tools.tool_call_log import ToolCallLogTool
             self.tools.register(ToolCallLogTool(db=self._db))
         self.tools.register(SpawnTool(manager=self.subagents))
+        self.tools.register(CheckSubagentTool(manager=self.subagents))
         from nanobot.agent.tools.goal_event import register as register_goal_event
         for tool in register_goal_event(self.context.memory):
             self.tools.register(tool)
@@ -510,6 +512,8 @@ class AgentLoop:
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_end: Callable[..., Awaitable[None]] | None = None,
         on_retry_wait: Callable[[str], Awaitable[None]] | None = None,
         *,
         session: Session | None = None,
@@ -536,6 +540,8 @@ class AgentLoop:
             on_progress=on_progress,
             on_stream=on_stream,
             on_stream_end=on_stream_end,
+            on_reasoning=on_reasoning,
+            on_reasoning_end=on_reasoning_end,
             channel=channel,
             chat_id=chat_id,
             message_id=message_id,
@@ -774,16 +780,19 @@ class AgentLoop:
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_end: Callable[..., Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         self._refresh_provider_snapshot()
         if msg.channel == "system":
             return await self._system_handler.handle(
-                msg, on_stream, on_stream_end, pending_queue,
+                msg, on_stream, on_stream_end, on_reasoning, on_reasoning_end, pending_queue,
             )
         return await self._user_handler.handle(
-            msg, session_key, on_progress, on_stream, on_stream_end, pending_queue,
+            msg, session_key, on_progress, on_stream, on_stream_end,
+            on_reasoning, on_reasoning_end, pending_queue,
         )
 
     def _sanitize_persisted_blocks(

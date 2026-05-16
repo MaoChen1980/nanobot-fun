@@ -20,6 +20,23 @@ class SubagentStatus:
     usage: dict = field(default_factory=dict)          # token usage
     stop_reason: str | None = None
     error: str | None = None
+    tools_ran: list[str] = field(default_factory=list)
+    completed_at: float | None = None
+
+
+@dataclass(slots=True)
+class SubagentResult:
+    """Structured result of a completed subagent execution."""
+
+    task_id: str
+    label: str
+    status: str  # "ok" | "error"
+    final_content: str | None
+    tools_used: list[str]
+    duration_s: float
+    iteration_count: int
+    token_usage: dict
+    errors: list[str]
 
 
 def format_partial_progress(result) -> str:

@@ -23,7 +23,7 @@ class SystemMessageHandler:
     def __init__(self, loop):
         self._loop = loop
 
-    async def handle(self, msg, on_stream, on_stream_end, pending_queue):
+    async def handle(self, msg, on_stream, on_stream_end, on_reasoning=None, on_reasoning_end=None, pending_queue=None):
         from nanobot.agent.tools.ask import ask_user_options_from_messages, ask_user_outbound
         channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id))
         logger.info("Processing system message from {}", msg.sender_id)
@@ -59,7 +59,7 @@ class SystemMessageHandler:
             context_state=cs,
             message_timestamp=msg.timestamp.isoformat() if hasattr(msg, 'timestamp') else None,
         )
-        final_content, _, all_msgs, stop_reason, _ = await self._loop._run_agent_loop(messages, session=session, channel=effective_channel, chat_id=chat_id, message_id=msg.metadata.get("message_id"), metadata=msg.metadata, session_key=key, pending_queue=pending_queue)
+        final_content, _, all_msgs, stop_reason, _ = await self._loop._run_agent_loop(messages, on_stream=on_stream, on_stream_end=on_stream_end, on_reasoning=on_reasoning, on_reasoning_end=on_reasoning_end, session=session, channel=effective_channel, chat_id=chat_id, message_id=msg.metadata.get("message_id"), metadata=msg.metadata, session_key=key, pending_queue=pending_queue)
         msgs_count = len(messages)
         self._loop._record_turn(session, all_msgs, msgs_count if is_subagent else msgs_count - 1)
         session.enforce_file_cap()
@@ -80,7 +80,7 @@ class UserMessageHandler:
     def __init__(self, loop):
         self._loop = loop
 
-    async def handle(self, msg, session_key, on_progress, on_stream, on_stream_end, pending_queue):
+    async def handle(self, msg, session_key, on_progress, on_stream, on_stream_end, on_reasoning=None, on_reasoning_end=None, pending_queue=None):
         from nanobot.utils.document import extract_documents
         from nanobot.agent.tools.ask import pending_ask_user_id, ask_user_tool_result_messages
 
@@ -140,6 +140,8 @@ class UserMessageHandler:
             on_progress=on_progress_final,
             on_stream=on_stream,
             on_stream_end=on_stream_end,
+            on_reasoning=on_reasoning,
+            on_reasoning_end=on_reasoning_end,
             on_retry_wait=on_retry_wait,
             session=session,
             channel=msg.channel,

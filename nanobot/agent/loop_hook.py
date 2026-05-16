@@ -27,6 +27,8 @@ class _LoopHook(AgentHook):
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_end: Callable[..., Awaitable[None]] | None = None,
         *,
         channel: str = "cli",
         chat_id: str = "direct",
@@ -41,32 +43,54 @@ class _LoopHook(AgentHook):
         self._on_progress = on_progress
         self._on_stream = on_stream
         self._on_stream_end = on_stream_end
+        self._on_reasoning = on_reasoning
+        self._on_reasoning_end = on_reasoning_end
         self._channel = channel
         self._chat_id = chat_id
         self._message_id = message_id
         self._metadata = metadata or {}
         self._session_key = session_key
         self._stream_buf = ""
+        self._reasoning_buf = ""
         self._observe_think = observe_think
         self._observe_tool = observe_tool
 
     def wants_streaming(self) -> bool:
-        return self._on_stream is not None
+        return True
+
+    @staticmethod
+    def _extract_think_content(text: str) -> str:
+        """Extract content inside <think> tags."""
+        import re
+        matches = re.findall(r'<think>(.*?)</think>', text, re.DOTALL)
+        return "\n".join(matches)
 
     async def on_stream(self, context: AgentHookContext, delta: str) -> None:
         from nanobot.agent.loop_utils import strip_think
 
-        prev_clean = strip_think(self._stream_buf)
+        prev_clean = strip_think(self._stream_buf) or ""
+        prev_think = self._extract_think_content(self._stream_buf)
         self._stream_buf += delta
-        new_clean = strip_think(self._stream_buf)
-        incremental = new_clean[len(prev_clean) :]
-        if incremental and self._on_stream:
-            await self._on_stream(incremental)
+        new_clean = strip_think(self._stream_buf) or ""
+        new_think = self._extract_think_content(self._stream_buf)
+
+        # Forward incremental non-think text
+        text_incremental = new_clean[len(prev_clean):]
+        if text_incremental and self._on_stream:
+            await self._on_stream(text_incremental)
+
+        # Forward incremental think/reasoning content
+        think_incremental = new_think[len(prev_think):]
+        if think_incremental and self._on_reasoning:
+            await self._on_reasoning(think_incremental)
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
+        if self._on_reasoning_end:
+            await self._on_reasoning_end()
         if self._on_stream_end:
             await self._on_stream_end(resuming=resuming)
         self._stream_buf = ""
+        self._reasoning_buf = ""
 
     async def before_iteration(self, context: AgentHookContext) -> None:
         self._loop._current_iteration = context.iteration
@@ -99,21 +123,19 @@ class _LoopHook(AgentHook):
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         self._loop._current_iteration = context.iteration
 
-        # Send LLM thinking when /think is on and not streaming
-        if self._observe_think and not self._on_stream:
-            # Prefer explicit reasoning_content (DeepSeek-R1 etc.)
+        # Send LLM thinking via reasoning stream when /think is on
+        if self._observe_think:
             reasoning = (context.response.reasoning_content
                          if context.response and context.response.reasoning_content
                          else None)
-            if reasoning:
-                await self._on_progress(reasoning)
+            if reasoning and self._on_reasoning:
+                await self._on_reasoning(reasoning)
             else:
-                # Fall back to text outside think tags as a "preview"
                 thought = self._loop._strip_think(
                     context.response.content if context.response else None
                 )
-                if thought:
-                    await self._on_progress(thought)
+                if thought and self._on_reasoning:
+                    await self._on_reasoning(thought)
 
         # Send tool start events when /tool is on
         if self._observe_tool:
@@ -134,8 +156,8 @@ class _LoopHook(AgentHook):
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         # Send LLM reasoning when /think is on and no tool calls (before_execute_tools
-        # handles the tool-call path) and not streaming.
-        if self._observe_think and not self._on_stream and not context.tool_calls:
+        # handles the tool-call path).
+        if self._observe_think and not context.tool_calls:
             reasoning = (context.response.reasoning_content
                          if context.response and context.response.reasoning_content
                          else None)
@@ -162,4 +184,14 @@ class _LoopHook(AgentHook):
 
     def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
         return self._loop._strip_think(content)
+
+    def before_llm_call(
+        self, context: AgentHookContext, messages: list[dict]
+    ) -> list[dict]:
+        return messages
+
+    def filter_tool_calls(
+        self, context: AgentHookContext, tool_calls: list[ToolCallRequest]
+    ) -> list[ToolCallRequest]:
+        return tool_calls
 

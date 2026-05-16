@@ -235,6 +235,7 @@ class AgentRunner:
 
             context = AgentHookContext(iteration=iteration, messages=messages, workspace=spec.workspace)
             await hook.before_iteration(context)
+            messages_for_model = hook.before_llm_call(context, messages_for_model)
             response = await request_model(self.provider, spec, messages_for_model, hook, context)
             raw_usage = usage_dict(response.usage)
             context.response = response
@@ -248,10 +249,9 @@ class AgentRunner:
                 if ask_index is not None:
                     tool_calls = tool_calls[:ask_index + 1]
                 context.tool_calls = list(tool_calls)
-                if hook.wants_streaming():
-                    if response.content:
-                        await hook.on_stream(context, response.content)
-                    await hook.on_stream_end(context, resuming=True)
+                if response.content:
+                    await hook.on_stream(context, response.content)
+                await hook.on_stream_end(context, resuming=True)
 
                 assistant_message = build_assistant_message(
                     response.content or "",
@@ -274,6 +274,10 @@ class AgentRunner:
                 )
 
                 await hook.before_execute_tools(context)
+                tool_calls = hook.filter_tool_calls(context, tool_calls)
+                if not tool_calls:
+                    messages.append(build_assistant_message(response.content or ""))
+                    continue
 
                 (results, new_events, fatal_error, was_interrupted,
                  injection_cycles, executed_count, saved_injections) = await execute_tools(
@@ -334,8 +338,7 @@ class AgentRunner:
                         stop_reason = "ask_user"
                         context.final_content = final_content
                         context.stop_reason = stop_reason
-                        if hook.wants_streaming():
-                            await hook.on_stream_end(context, resuming=False)
+                        await hook.on_stream_end(context, resuming=False)
                         await hook.after_iteration(context)
                         break
                     error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
@@ -385,16 +388,14 @@ class AgentRunner:
                         iteration, spec.session_key or "default",
                         empty_content_retries, _MAX_EMPTY_RETRIES,
                     )
-                    if hook.wants_streaming():
-                        await hook.on_stream_end(context, resuming=False)
+                    await hook.on_stream_end(context, resuming=False)
                     await hook.after_iteration(context)
                     continue
                 logger.warning(
                     "Empty response on turn {} for {} after {} retries; attempting finalization",
                     iteration, spec.session_key or "default", empty_content_retries,
                 )
-                if hook.wants_streaming():
-                    await hook.on_stream_end(context, resuming=False)
+                await hook.on_stream_end(context, resuming=False)
                 response = await request_finalization_retry(self.provider, spec, messages_for_model)
                 retry_usage = usage_dict(response.usage)
                 accumulate_usage(usage, retry_usage)
@@ -412,8 +413,7 @@ class AgentRunner:
                         iteration, spec.session_key or "default",
                         length_recovery_count, _MAX_LENGTH_RECOVERIES,
                     )
-                    if hook.wants_streaming():
-                        await hook.on_stream_end(context, resuming=True)
+                    await hook.on_stream_end(context, resuming=True)
                     messages.append(build_assistant_message(
                         clean,
                         reasoning_content=response.reasoning_content,
@@ -438,8 +438,7 @@ class AgentRunner:
             if should_continue:
                 had_injections = True
 
-            if hook.wants_streaming():
-                await hook.on_stream_end(context, resuming=should_continue)
+            await hook.on_stream_end(context, resuming=should_continue)
 
             if should_continue:
                 await hook.after_iteration(context)
