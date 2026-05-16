@@ -46,5 +46,6 @@ class OutboundMessage:
             content=self.content,
             media=self.media,
             metadata=self.metadata,
+            buttons=self.buttons,
         )
 

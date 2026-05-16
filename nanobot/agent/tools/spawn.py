@@ -10,7 +10,7 @@ from loguru import logger
 
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import p, tool_parameters_schema
-from nanobot.agent.context_vars import _current_messages_for_subagent
+from nanobot.agent.context_vars import _current_messages_for_subagent, _in_subagent
 
 if TYPE_CHECKING:
     from nanobot.agent.subagent import SubagentManager
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     tool_parameters_schema(
         task=p("string", "The task for the subagent to complete"),
         label=p("string", "Optional short label for the task (for display)"),
+        max_iterations=p("integer", "Maximum tool call iterations (default 100)"),
         required=["task"],
     )
 )
@@ -43,28 +44,48 @@ class SpawnTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "**用途**: 生成子 agent 在后台执行独立任务，完成后报告结果。\n\n"
-            "**限制**:\n"
-            "- 子 agent 有独立隔离的会话，无法访问主对话\n"
-            "- 最多 30 次工具调用迭代\n"
-            "- 子 agent 不能嵌套 spawn\n"
-            "- 子 agent 没有 skills 访问权限\n"
-            "- 没有 skills 参数 — 子 agent 不继承主 agent 的 skills\n"
-            "- 可用工具：read_file, list_dir, glob, grep, write_file, edit_file, web_search, web_fetch, exec\n"
-            "- 选择标准：基础文件/网络操作工具，不依赖 nanobot 内部状态或主 agent 内存\n\n"
-            "**错误应对**:\n"
-            "- 任务失败 → 子 agent 返回错误信息\n"
-            "- 结果为空 → 子 agent 报告无结果\n\n"
-            "**边界条件**:\n"
-            "- 任务需要你的中间决策 → 不要用 spawn（子 agent 无法咨询你）\n"
-            "- 后续步骤依赖结果 → 不要用 spawn，直接做\n"
-            "- 创建外部资源/账户 → 不要用 spawn（子 agent 无权）\n\n"
-            "**极简案例**: spawn(task='搜索所有包含 \"TODO\" 的文件', label='find-todos')\n"
-            "→ 后台搜索 TODO，完成后报告结果"
+            "**用途**: 启动子任务在后台独立执行，不阻塞当前对话，完成后异步通知结果。\n\n"
+            "## ⚠️ 重要：接受不确定性\n\n"
+            "spawn 是 fire-and-forget 模式。发起时必须接受：\n"
+            "- **结果异步到达** — 不保证在当前对话的这个 turn 回来，可能在后续任意 turn 注入\n"
+            "- **不保证顺序** — 多个 spawn 的完成顺序不确定\n"
+            "- **可能打断当前话题** — 用户已经聊到别的事，结果突然插入\n"
+            "- **子任务可能失败** — 失败的 spawn 同样会通知，接受失败是 spawn 的正常语义\n\n"
+            "如果你需要**同步结果**、需要**顺序执行**、需要**零打断风险** → **不要用 spawn，自己做**\n\n"
+            "## 工作机制\n\n"
+            "- spawn 立即返回，不阻塞当前任务\n"
+            "- 子任务在后台独立运行，有独立的 session 和上下文\n"
+            "- 子任务完成后，结果以系统消息注入到后续对话中\n"
+            "- 可以用 check_subagent 主动查询进度\n\n"
+            "## 什么时候用\n\n"
+            "- 有独立、可并行的子任务需要处理，且不依赖你的中间决策\n"
+            "- 子任务涉及单独的文件/搜索/执行工作，用独立上下文更清晰\n"
+            "- 子任务可能耗时较长，你不想让用户干等\n"
+            "- **愿意接受不确定性**\n\n"
+            "## 什么时候不用\n\n"
+            "- 后续步骤依赖子任务的结果 → 直接自己做，不要 spawn\n"
+            "- 需要你的中间决策 → 子任务无法咨询你\n"
+            "- 不能接受结果异步到达 → 自己做\n"
+            "- 只是简单的文件读/写 → 自己做就行，spawn 有额外开销\n\n"
+            "## 限制\n\n"
+            "- 子任务最多 100 次工具调用迭代（可通过 max_iterations 参数调整）\n"
+            "- 可以阅读和执行 skills\n"
+            "- 不能嵌套 spawn\n"
+            "- 不可用 spawn 工具自身\n"
+            "- 子任务只有 spawn 时刻的上下文快照，看不到后续对话\n\n"
+            "## 结果处理\n\n"
+            "- 成功 → 系统消息通知结果内容\n"
+            "- 失败 → 系统消息通知错误信息\n"
+            "- 可以用 check_subagent(task_id=...) 主动查询\n\n"
+            "## 极简案例\n\n"
+            "spawn(task='搜索所有包含 TODO 的文件', label='find-todos')\n"
+            "→ 后台搜索 TODO，完成后系统消息通知你结果"
         )
 
-    async def execute(self, task: str, label: str | None = None, **kwargs: Any) -> str:
+    async def execute(self, task: str, label: str | None = None, max_iterations: int | None = None, **kwargs: Any) -> str:
         """Spawn a subagent to execute the given task."""
+        if _in_subagent.get():
+            return "Error: subagent cannot spawn sub-subagents."
         context = self._build_context_block()
         return await self._manager.spawn(
             task=task,
@@ -73,6 +94,7 @@ class SpawnTool(Tool):
             origin_channel=self._origin_channel.get(),
             origin_chat_id=self._origin_chat_id.get(),
             session_key=self._session_key.get(),
+            max_iterations=max_iterations,
         )
 
     def _build_context_block(self) -> str:

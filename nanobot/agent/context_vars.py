@@ -18,3 +18,6 @@ _current_inbound: ContextVar[Any] = ContextVar("_current_inbound", default=None)
 _current_messages_for_subagent: ContextVar[list[dict] | None] = ContextVar(
     "_current_messages_for_subagent", default=None
 )
+
+# Flag: True during subagent execution. Used by SpawnTool to block nested spawn.
+_in_subagent: ContextVar[bool] = ContextVar("_in_subagent", default=False)

@@ -70,9 +70,10 @@ class HubResponse:
     media: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     error: str = ""
+    buttons: list[list[str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "success": self.success,
             "reply_to": self.reply_to,
             "content": self.content,
@@ -80,6 +81,9 @@ class HubResponse:
             "metadata": self.metadata,
             "error": self.error,
         }
+        if self.buttons:
+            d["buttons"] = self.buttons
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "HubResponse":

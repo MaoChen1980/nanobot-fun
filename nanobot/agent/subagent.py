@@ -13,6 +13,7 @@ from loguru import logger
 
 from nanobot.agent.hook import AgentHook, AgentHookContext
 from nanobot.agent.runner import AgentRunSpec, AgentRunner
+from nanobot.agent.context_vars import _in_subagent
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import ExecToolConfig, WebToolsConfig
@@ -76,6 +77,7 @@ class SubagentManager:
         self.restrict_to_workspace = restrict_to_workspace
         self.disabled_skills = set(disabled_skills or [])
         self.timezone = timezone
+        self.db = db
         self.runner = AgentRunner(provider, db=db)
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_statuses: dict[str, SubagentStatus] = {}
@@ -94,6 +96,7 @@ class SubagentManager:
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
+        max_iterations: int | None = None,
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
         task_id = str(uuid.uuid4())[:8]
@@ -109,7 +112,7 @@ class SubagentManager:
         self._task_statuses[task_id] = status
 
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin, status, context)
+            self._run_subagent(task_id, task, display_label, origin, status, context, max_iterations)
         )
         self._running_tasks[task_id] = bg_task
         if session_key:
@@ -136,6 +139,7 @@ class SubagentManager:
         origin: dict[str, str],
         status: SubagentStatus,
         context: str = "",
+        max_iterations: int | None = None,
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
@@ -146,66 +150,74 @@ class SubagentManager:
 
         try:
             tools = build_subagent_tools(self.workspace, self.web_config, self.exec_config, self.restrict_to_workspace)
-            system_prompt = build_subagent_prompt(self.workspace, self.disabled_skills, timezone=getattr(self, 'timezone', None))
-            from nanobot.agent.context import ContextBuilder
-            runtime_ctx = ContextBuilder._build_runtime_context(None, None, timezone=getattr(self, 'timezone', None))
-            task_content = f"{runtime_ctx}\n\n{task}" if runtime_ctx else task
+            system_prompt = build_subagent_prompt(
+                self.workspace,
+                self.disabled_skills,
+                timezone=getattr(self, 'timezone', None),
+                db=self.db,
+                tool_definitions=tools.get_definitions(),
+            )
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": task_content},
+                {"role": "user", "content": task},
             ]
 
-            result = await self.runner.run(AgentRunSpec(
-                initial_messages=messages,
-                tools=tools,
-                model=self.model,
-                max_iterations=30,
-                max_tool_result_chars=self.max_tool_result_chars,
-                hook=_SubagentHook(task_id, status),
-                max_iterations_message="Task completed but no final response was generated.",
-                error_message=None,
-                fail_on_tool_error=True,
-                checkpoint_callback=_on_checkpoint,
-                reasoning_effort=self.runner.provider.generation.reasoning_effort,
-                session_key=origin["session_key"],
-            ))
-            status.phase = "done"
-            status.stop_reason = result.stop_reason
-            status.completed_at = time.monotonic()
-            status.tools_ran = list(result.tools_used)
+            # Mark execution as subagent context — blocks nested spawn at tool level
+            token = _in_subagent.set(True)
+            try:
+                result = await self.runner.run(AgentRunSpec(
+                    initial_messages=messages,
+                    tools=tools,
+                    model=self.model,
+                    max_iterations=max_iterations or 100,
+                    max_tool_result_chars=self.max_tool_result_chars,
+                    hook=_SubagentHook(task_id, status),
+                    max_iterations_message="Task completed but no final response was generated.",
+                    error_message=None,
+                    fail_on_tool_error=True,
+                    checkpoint_callback=_on_checkpoint,
+                    reasoning_effort=self.runner.provider.generation.reasoning_effort,
+                    session_key=origin["session_key"],
+                ))
+                status.phase = "done"
+                status.stop_reason = result.stop_reason
+                status.completed_at = time.monotonic()
+                status.tools_ran = list(result.tools_used)
 
-            duration_s = status.completed_at - status.started_at
-            token_usage = dict(result.usage or {})
+                duration_s = status.completed_at - status.started_at
+                token_usage = dict(result.usage or {})
 
-            sub_result = SubagentResult(
-                task_id=task_id,
-                label=label,
-                status="ok" if result.stop_reason in ("completed", "stop", "empty_final_response") else "error",
-                final_content=result.final_content,
-                tools_used=list(result.tools_used),
-                duration_s=duration_s,
-                iteration_count=status.iteration,
-                token_usage=token_usage,
-                errors=[result.error] if result.error else [],
-            )
-
-            if result.stop_reason == "tool_error":
-                status.tool_events = list(result.tool_events)
-                await self._announce_result(
-                    task_id, label, task,
-                    format_partial_progress(result),
-                    origin, "error", sub_result=sub_result,
+                sub_result = SubagentResult(
+                    task_id=task_id,
+                    label=label,
+                    status="ok" if result.stop_reason in ("completed", "stop", "empty_final_response") else "error",
+                    final_content=result.final_content,
+                    tools_used=list(result.tools_used),
+                    duration_s=duration_s,
+                    iteration_count=status.iteration,
+                    token_usage=token_usage,
+                    errors=[result.error] if result.error else [],
                 )
-            elif result.stop_reason == "error":
-                await self._announce_result(
-                    task_id, label, task,
-                    result.error or "Error: subagent execution failed.",
-                    origin, "error", sub_result=sub_result,
-                )
-            else:
-                final_result = result.final_content or "Task completed but no final response was generated."
-                logger.info("Subagent [{}] completed successfully", task_id)
-                await self._announce_result(task_id, label, task, final_result, origin, "ok", sub_result=sub_result)
+
+                if result.stop_reason == "tool_error":
+                    status.tool_events = list(result.tool_events)
+                    await self._announce_result(
+                        task_id, label, task,
+                        format_partial_progress(result),
+                        origin, "error", sub_result=sub_result,
+                    )
+                elif result.stop_reason == "error":
+                    await self._announce_result(
+                        task_id, label, task,
+                        result.error or "Error: subagent execution failed.",
+                        origin, "error", sub_result=sub_result,
+                    )
+                else:
+                    final_result = result.final_content or "Task completed but no final response was generated."
+                    logger.info("Subagent [{}] completed successfully", task_id)
+                    await self._announce_result(task_id, label, task, final_result, origin, "ok", sub_result=sub_result)
+            finally:
+                _in_subagent.reset(token)
 
         except Exception as e:
             status.phase = "error"
@@ -237,6 +249,7 @@ class SubagentManager:
             duration_s=sub_result.duration_s if sub_result else 0,
             tools_used=", ".join(sub_result.tools_used) if sub_result and sub_result.tools_used else "",
             iteration_count=sub_result.iteration_count if sub_result else 0,
+            status=status,
         )
 
         # Inject as system message to trigger main agent.
@@ -285,3 +298,7 @@ class SubagentManager:
             1 for tid in tids
             if tid in self._running_tasks and not self._running_tasks[tid].done()
         )
+
+    def list_statuses(self) -> list[SubagentStatus]:
+        """Return statuses of all currently running subagents."""
+        return [s for s in self._task_statuses.values() if s.phase not in ("done", "error")]

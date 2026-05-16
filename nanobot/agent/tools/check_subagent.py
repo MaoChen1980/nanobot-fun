@@ -28,15 +28,15 @@ class CheckSubagentTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "**用途**: 检查后台子 agent 的执行进度和结果。\n\n"
+            "**用途**: 查询后台子任务（spawn 启动的）的执行进度和结果。\n\n"
             "**使用时机**:\n"
-            "- spawn 返回后，想要了解子任务执行进展\n"
-            "- 子任务执行时间较长，想确认是否卡住\n\n"
+            "- spawn 启动子任务后，主动查询完成情况\n"
+            "- 想确认子任务进度而不等通知\n\n"
             "**参数**:\n"
-            "- task_id: 子 agent 的任务 ID（spawn 返回信息中会包含）\n\n"
-            "**返回**: 当前阶段、迭代次数、已执行工具、错误信息等\n\n"
+            "- task_id: 子任务 ID（spawn 返回信息中会包含）\n\n"
+            "**返回**: 当前阶段、迭代次数、已执行工具、完成结果或错误信息\n\n"
             "**极简案例**: check_subagent(task_id='abc12345')\n"
-            "→ 返回子 agent 的状态和进度"
+            "→ 返回子任务的当前状态"
         )
 
     async def execute(self, task_id: str, **kwargs: Any) -> str:

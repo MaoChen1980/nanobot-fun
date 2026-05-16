@@ -36,6 +36,7 @@ from nanobot.agent.tools.self import MyTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.check_subagent import CheckSubagentTool
+from nanobot.agent.tools.list_subagents import ListSubagentsTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.session_manage import SessionManageTool
 from nanobot.agent.tools.recall import RecallTool
@@ -377,6 +378,7 @@ class AgentLoop:
             self.tools.register(ToolCallLogTool(db=self._db))
         self.tools.register(SpawnTool(manager=self.subagents))
         self.tools.register(CheckSubagentTool(manager=self.subagents))
+        self.tools.register(ListSubagentsTool(manager=self.subagents))
         from nanobot.agent.tools.goal_event import register as register_goal_event
         for tool in register_goal_event(self.context.memory):
             self.tools.register(tool)
@@ -595,27 +597,6 @@ class AgentLoop:
                     items.append(_to_user_message(pending_queue.get_nowait()))
                 except asyncio.QueueEmpty:
                     break
-
-            # Block if nothing drained but sub-agents spawned in this dispatch
-            # are still running.  Keeps the runner loop alive so subsequent
-            # completions are injected in-order rather than dispatched separately.
-            if (not items
-                    and session is not None
-                    and self.subagents.get_running_count_by_session(session.key) > 0):
-                try:
-                    msg = await asyncio.wait_for(pending_queue.get(), timeout=300)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Timeout waiting for sub-agent completion in session {}",
-                        session.key,
-                    )
-                    return items
-                items.append(_to_user_message(msg))
-                while len(items) < limit:
-                    try:
-                        items.append(_to_user_message(pending_queue.get_nowait()))
-                    except asyncio.QueueEmpty:
-                        break
 
             # Merge multiple drained messages into a single user message
             # to keep the conversation focused on the user's latest intent
