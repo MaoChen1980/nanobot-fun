@@ -1,4 +1,4 @@
-"""Tests for RecallTool — memory search tool."""
+"""Tests for RecallTool — memory search tool (history + knowledge modes)."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def _make_tool(store: MemoryStore) -> RecallTool:
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Basic properties
 # ---------------------------------------------------------------------------
 
 class TestRecallToolBasic:
@@ -41,75 +41,142 @@ class TestRecallToolBasic:
 
     def test_tool_description(self, tmp_path: Path):
         tool = _make_tool(_make_store(tmp_path))
-        assert "回忆" in tool.description
+        assert "recall" in tool.description or "召回" in tool.description
 
     def test_tool_is_read_only(self, tmp_path: Path):
         tool = _make_tool(_make_store(tmp_path))
         assert tool.read_only is True
 
-    def test_parameters_has_query_start_end_keyword(self, tmp_path: Path):
+    def test_parameters_have_mode_and_query(self, tmp_path: Path):
         tool = _make_tool(_make_store(tmp_path))
         params = tool.parameters
+        assert "mode" in params["properties"]
         assert "query" in params["properties"]
-        assert "start" in params["properties"]
-        assert "end" in params["properties"]
-        assert "keyword" in params["properties"]
+        assert "history" in params["properties"]["mode"]["enum"]
+        assert "knowledge" in params["properties"]["mode"]["enum"]
 
 
-class TestRecallToolExecute:
-    """RecallTool.execute() behavior."""
+# ---------------------------------------------------------------------------
+# history mode
+# ---------------------------------------------------------------------------
+
+class TestRecallToolHistoryMode:
+    """RecallTool.execute(mode='history') behavior."""
 
     @pytest.mark.asyncio
-    async def test_execute_no_params_returns_all(self, tmp_path: Path):
-        """With no date filter, returns all memories."""
+    async def test_with_query_only(self, tmp_path: Path):
+        """Query text matches content."""
         store = _make_store(tmp_path)
         tool = _make_tool(store)
-        result = await tool.execute()
+        result = await tool.execute(mode="history", query="Python")
         assert "Python" in result
         assert "Java" in result
 
     @pytest.mark.asyncio
-    async def test_execute_with_keyword_filters(self, tmp_path: Path):
-        """Keyword filter reduces results."""
+    async def test_with_keyword_filters(self, tmp_path: Path):
+        """Keyword filter narrows results."""
         store = _make_store(tmp_path)
         tool = _make_tool(store)
-        result = await tool.execute(keyword="Python")
+        result = await tool.execute(mode="history", query="Python", keyword="Python")
         assert "Python" in result
         assert "No memories found" not in result
 
     @pytest.mark.asyncio
-    async def test_execute_with_non_matching_keyword(self, tmp_path: Path):
+    async def test_with_non_matching_keyword(self, tmp_path: Path):
         """Non-matching keyword returns empty."""
         store = _make_store(tmp_path)
         tool = _make_tool(store)
-        result = await tool.execute(keyword="Ruby")
+        result = await tool.execute(mode="history", query="Ruby", keyword="Ruby")
         assert "No memories found" in result
 
     @pytest.mark.asyncio
-    async def test_execute_with_date_range(self, tmp_path: Path):
+    async def test_with_date_range(self, tmp_path: Path):
         """Date range filters history entries."""
         store = _make_store(tmp_path)
         tool = _make_tool(store)
         today = datetime.now().strftime("%Y-%m-%d")
-        result = await tool.execute(start=today, end=today)
+        result = await tool.execute(mode="history", query="Python", start=today, end=today)
         assert "Python" in result or "No memories found" in result
 
     @pytest.mark.asyncio
-    async def test_execute_empty_memory_returns_no_memories(self, tmp_path: Path):
+    async def test_empty_memory_returns_no_memories(self, tmp_path: Path):
         """Empty memory store returns appropriate message."""
         store = MemoryStore(tmp_path)
         tool = _make_tool(store)
-        result = await tool.execute()
+        result = await tool.execute(mode="history", query="anything")
         assert "No memories found" in result
 
     @pytest.mark.asyncio
-    async def test_execute_result_has_section_header(self, tmp_path: Path):
+    async def test_result_has_section_header(self, tmp_path: Path):
         """Results are formatted with section header."""
         store = _make_store(tmp_path)
         tool = _make_tool(store)
-        result = await tool.execute()
+        result = await tool.execute(mode="history", query="Python")
         assert "## Relevant Memories" in result
 
+
+# ---------------------------------------------------------------------------
+# knowledge mode
+# ---------------------------------------------------------------------------
+
+class TestRecallToolKnowledgeMode:
+    """RecallTool.execute(mode='knowledge') behavior."""
+
+    @pytest.mark.asyncio
+    async def test_empty_index_returns_no_results(self, tmp_path: Path):
+        """Empty memory dir returns no results."""
+        store = MemoryStore(tmp_path)
+        tool = _make_tool(store)
+        result = await tool.execute(mode="knowledge", query="anything")
+        assert "No relevant knowledge found" in result
+
+    @pytest.mark.asyncio
+    async def test_knowledge_with_custom_k(self, tmp_path: Path):
+        """k parameter is accepted."""
+        store = MemoryStore(tmp_path)
+        tool = _make_tool(store)
+        result = await tool.execute(mode="knowledge", query="test", k=3)
+        assert isinstance(result, str)
+
+    @pytest.mark.asyncio
+    async def test_knowledge_clamps_k(self, tmp_path: Path):
+        """k outside 1-20 is rejected by schema."""
+        store = MemoryStore(tmp_path)
+        tool = _make_tool(store)
+        params = tool.parameters
+        k_prop = params["properties"]["k"]
+        assert k_prop.get("minimum") == 1
+        assert k_prop.get("maximum") == 20
+
+
+# ---------------------------------------------------------------------------
+# mode validation
+# ---------------------------------------------------------------------------
+
+class TestRecallToolModeValidation:
+    """RecallTool mode parameter validation."""
+
+    @pytest.mark.asyncio
+    async def test_default_mode_is_history(self, tmp_path: Path):
+        """Without mode, defaults to history."""
+        store = _make_store(tmp_path)
+        tool = _make_tool(store)
+        result = await tool.execute(query="Python")
+        # Default mode is history, so should search memory
+        assert isinstance(result, str)
+
+    @pytest.mark.asyncio
+    async def test_invalid_mode_returns_error(self, tmp_path: Path):
+        """Invalid mode value returns error."""
+        store = _make_store(tmp_path)
+        tool = _make_tool(store)
+        result = await tool.execute(mode="invalid", query="test")
+        assert "Unknown mode" in result
+
+
+# ---------------------------------------------------------------------------
+# Date parsing
+# ---------------------------------------------------------------------------
 
 class TestRecallToolDateParsing:
     """Date parsing edge cases."""
@@ -119,22 +186,19 @@ class TestRecallToolDateParsing:
         """Invalid date format is handled gracefully."""
         store = _make_store(tmp_path)
         tool = _make_tool(store)
-        # Should not raise, just ignore the filter
-        result = await tool.execute(start="invalid-date")
+        result = await tool.execute(mode="history", query="test", start="invalid-date")
         assert isinstance(result, str)
 
     def test_parse_date_supports_datetime_format(self):
         """_parse_date handles YYYY-MM-DD HH:MM format."""
         tool = RecallTool(MemoryStore(Path("/tmp/fake")))
 
-        # YYYY-MM-DD format
         dt = tool._parse_date("2026-04-21")
         assert dt is not None
         assert dt.year == 2026
         assert dt.month == 4
         assert dt.day == 21
 
-        # YYYY-MM-DD HH:MM format
         dt = tool._parse_date("2026-04-21 09:30")
         assert dt is not None
         assert dt.hour == 9

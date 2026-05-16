@@ -8,6 +8,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.agent.tools._section_utils import detect_sections, format_section_overview
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import p, tool_parameters_schema
 from .filesystem_base import _FsTool, _is_blocked_device, _parse_page_range
@@ -17,6 +18,9 @@ from nanobot.utils.media_decode import build_image_content_blocks, detect_image_
 @tool_parameters(
     tool_parameters_schema(
         path=p("string", "File path to read — relative or absolute. Supports text files, PDFs (pages param), and images (rendered as Markdown)."),
+        mode=p("string", "Reading mode: 'full' (default, output lines) or 'overview' (preview structure via headings/sections without reading the whole file). Use overview when unsure what a file contains.",
+            enum=["full", "overview"],
+        ),
         extract=p("string", "Optional regex — only lines matching this pattern are returned, with 1 line of context before/after each match. Use instead of grep+cat for filtering logs or code."),
         offset=p("integer", "Line number to start reading from (1-indexed, default 1)",
             minimum=1,
@@ -38,7 +42,7 @@ class ReadFileTool(_FsTool):
     name = "read_file"
 
     description = (
-        "**用途**: 读取文件内容，支持按行分页和正则过滤。\n\n"
+        "**用途**: 读取文件内容（文本/image/PDF/Office），支持按行分页和正则过滤。\n\n"
         "**限制**:\n"
         "- 默认最多输出 2000 行，单次最多 ~128K 字符\n"
         "- PDF 最多 20 页\n\n"
@@ -48,14 +52,15 @@ class ReadFileTool(_FsTool):
         "**边界条件**:\n"
         "- 需要读多个文件 → 用 read_files\n"
         "- 只看文件名/结构 → 用 list_dir 或 glob\n"
-        "- 需要读取 URL → 用 web_fetch\n\n"
-        "**极简案例**: read_file(path='main.py', offset=1, limit=50)\n"
-        "→ 返回文件前 50 行，每行带行号前缀"
+        "- 需要读取 URL → 用 web_fetch\n"
+        "- **不确定文件内容** → 用 mode='overview' 先看结构再决定读哪段\n\n"
+        "**极简案例**: read_file(path='main.py', offset=1, limit=50) → 返回前 50 行\n"
+        "read_file(path='long_doc.md', mode='overview') → 返回各章节 heading + 关键词 + 偏移量"
     )
 
     read_only = True
 
-    async def execute(self, path: str = "", extract: str | None = None, offset: int = 1, limit: int | None = None, pages: str | None = None, **kwargs: Any) -> Any:
+    async def execute(self, path: str = "", mode: str = "full", extract: str | None = None, offset: int = 1, limit: int | None = None, pages: str | None = None, **kwargs: Any) -> Any:
         try:
             # Device path blacklist
             if _is_blocked_device(path):
@@ -131,6 +136,12 @@ class ReadFileTool(_FsTool):
             # applied on all platforms so downstream StrReplace/Grep behavior
             # is consistent regardless of where the file was written.
             text_content = text_content.replace("\r\n", "\n")
+
+            # -- overview mode: preview structure without reading the full file --
+            if mode == "overview":
+                sections = detect_sections(text_content, max_sections=10)
+                lines = text_content.split("\n")
+                return format_section_overview(sections, len(text_content), len(lines))
 
             all_lines = text_content.splitlines()
             total = len(all_lines)

@@ -45,13 +45,17 @@ class SessionManageTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "压缩废话：把已经处理完的长内容替换成摘要，省空间。\n\n"
-            "**action=compress**: 把一段已经没用的长内容替换成几句话\n"
+            "管理会话上下文 — 查看消息列表、压缩已处理的长内容。\n\n"
+            "**核心价值**: 唯一能操控上下文空间的工具。exec/read_file 做不到。\n\n"
+            "**什么时候必须用**:\n"
+            "- 上下文消息 > 30 条 → 用 list 审计，看哪些可以压缩\n"
+            "- 单条工具结果 > 2000 字且已处理完 → compress，只剩摘要\n"
+            "- 历史对话 > 50 轮 → 压缩早期工具结果\n"
+            "- 不知道当前上下文状态 → 用 list 查看\n\n"
+            "**action=compress**: 把一段已处理完的长内容替换成几行摘要\n"
             "  - message_id: 要压缩的消息 ID（必填）\n"
-            "  - compress_summary: 替换用的摘要（必填）\n"
-            "  什么时候用：一大段工具输出、日志、代码结果你已经看完了，\n"
-            "  不需要保留原文了，压缩成几句话省点位置\n\n"
-            "**action=list**: 看看当前有哪些消息"
+            "  - compress_summary: 替换用的摘要（必填）\n\n"
+            "**action=list**: 查看当前所有消息及大小"
         )
 
     @property

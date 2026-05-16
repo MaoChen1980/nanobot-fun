@@ -23,11 +23,19 @@ from nanobot.agent.tools.schema import p, tool_parameters_schema
 class AnalyzeTool(Tool):
     """Read data (from text or file) and return structured analysis."""
 
-    name = "analyze_data"
+    name = "analyze"
     read_only = True
 
     description = (
-        "**用途**: 分析文本内容并返回结构化洞察（无需逐行阅读）。\n\n"
+        "**用途**: 分析文本并返回结构化摘要（行统计、关键词、按问题匹配行）"
+        "，无需全文读到 context。\n\n"
+        "**核心价值**: 10000 行日志不用读到 context 里占位置，"
+        "一步出摘要。"
+        "read_file 做不到（会把全文塞进 context）。\n\n"
+        "**场景举例**:\n"
+        "- 巨大日志文件 → 先 analyze 看概况，再决定读哪段\n"
+        "- 想知道文件主题而非全文 → analyze 出关键词\n"
+        "- 找特定类型的内容（错误、警告）→ 传 question\n\n"
         "**限制**:\n"
         "- data（内联文本）和 path（文件路径）二选一\n"
         "- 最大输入 500K 字符\n"
@@ -39,7 +47,7 @@ class AnalyzeTool(Tool):
         "- 需要完整文本 → 用 read_file\n"
         "- 需要搜索特定模式 → 用 grep\n"
         "- 需要探索代码结构 → 用 explore_module\n\n"
-        "**极简案例**: analyze_data(path='long_log.txt', question='有哪些错误？')\n"
+        "**极简案例**: analyze(path='long_log.txt', question='有哪些错误？')\n"
         "→ 返回行统计、段落、关键词和相关行"
     )
 

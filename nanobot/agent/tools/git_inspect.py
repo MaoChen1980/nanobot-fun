@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,9 @@ class GitInspectTool(_FsTool):
 
     description = (
         "**用途**: 查看 git 历史 — 谁改了什么、为什么改。\n\n"
+        "**核心价值**: 输出自带结构化摘要（commit 数、作者数、文件变更统计），"
+        "一目了然改动范围和影响，不用逐条读 commit。"
+        "exec(git log) 做不到这一点。\n\n"
         "**限制**:\n"
         "- 最多返回 50 个 commit\n"
         "- git 查询超时 30 秒\n\n"
@@ -105,12 +109,20 @@ class GitInspectTool(_FsTool):
             filter_str = f" ({', '.join(filters)})" if filters else ""
             return f"(No commits found{filter_str})"
 
+        summary = self._build_log_summary(git_dir, since, path, commits)
+
         lines: list[str] = [f"# Git log — {git_dir.name}"]
+        if summary:
+            lines.append("")
+            lines.append("**Summary:**")
+            lines.append(summary)
+            lines.append("")
         if since:
             lines.append(f"Since: {since}")
         if path:
             lines.append(f"Path: {path}")
-        lines.append("")
+        if not summary and not since and not path:
+            lines.append("")  # blank line after title
 
         for c in commits:
             date = c["date"][:10]
@@ -121,6 +133,58 @@ class GitInspectTool(_FsTool):
         lines.append("")
         lines.append(f"({len(commits)} commits shown)")
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Structured summary
+    # ------------------------------------------------------------------
+
+    def _build_log_summary(
+        self, git_dir: Path, since: str | None, path: str | None,
+        commits: list[dict[str, str]],
+    ) -> str | None:
+        """Build structured summary: commit count, authors, file change stats."""
+        if not commits:
+            return None
+
+        authors = set(c["author"] for c in commits)
+        parts: list[str] = [
+            f"- **{len(commits)} commits**, **{len(authors)} authors**",
+        ]
+
+        # Aggregate file stats via shortstat (one line per commit)
+        cmd = [
+            "git", "-C", str(git_dir), "log",
+            f"--max-count={len(commits)}",
+            "--shortstat", "--format=",
+        ]
+        if since:
+            cmd.append(f"--since={since}")
+        if path:
+            cmd.extend(["--", path])
+
+        result = self._run(cmd)
+        if result:
+            total_files = total_added = total_removed = 0
+            for line in result.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                m = re.search(r"(\d+) file", line)
+                if m:
+                    total_files += int(m.group(1))
+                m = re.search(r"(\d+) insertion", line)
+                if m:
+                    total_added += int(m.group(1))
+                m = re.search(r"(\d+) deletion", line)
+                if m:
+                    total_removed += int(m.group(1))
+            if total_files:
+                parts.append(
+                    f"- **{total_files} files** changed, "
+                    f"**+{total_added}/-{total_removed}**"
+                )
+
+        return "\n".join(parts)
 
     @staticmethod
     def _parse_log(output: str) -> list[dict[str, str]]:

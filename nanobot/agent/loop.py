@@ -40,8 +40,7 @@ from nanobot.agent.tools.list_subagents import ListSubagentsTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.session_manage import SessionManageTool
 from nanobot.agent.tools.recall import RecallTool
-from nanobot.agent.tools.semantic_search import SearchMemoryTool, SearchTextTool
-from nanobot.agent.tools.inspect import InspectTextTool
+from nanobot.agent.tools.semantic_search import SearchTextTool
 from nanobot.agent.tools.read_files import ReadFilesTool
 from nanobot.agent.tools.explore_module import ExploreModuleTool
 from nanobot.agent.tools.git_inspect import GitInspectTool
@@ -364,9 +363,7 @@ class AgentLoop:
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound, workspace=self.workspace))
         self.tools.register(SessionManageTool(loop=self))
         self.tools.register(RecallTool(store=self.context.memory))
-        self.tools.register(SearchMemoryTool(store=self.context.memory))
         self.tools.register(SearchTextTool(workspace=self.workspace, allowed_dir=allowed_dir))
-        self.tools.register(InspectTextTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tools.register(ReadFilesTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tools.register(ExploreModuleTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tools.register(GitInspectTool(workspace=self.workspace, allowed_dir=allowed_dir))
