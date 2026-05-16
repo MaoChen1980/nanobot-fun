@@ -267,6 +267,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="https://generativelanguage.googleapis.com/v1beta/openai/",
     ),
     # Zhipu (智谱): OpenAI-compatible at open.bigmodel.cn
+    # thinking.type is used (like Kimi/MiMo).  GLM also supports
+    # "clear_thinking": False for preserved thinking in multi-turn.
     ProviderSpec(
         name="zhipu",
         keywords=("zhipu", "glm", "zai"),
@@ -275,6 +277,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         backend="openai_compat",
         env_extras=(("ZHIPUAI_API_KEY", "{api_key}"),),
         default_api_base="https://open.bigmodel.cn/api/paas/v4",
+        thinking_style="thinking_type",
     ),
     # DashScope (通义): Qwen models, OpenAI-compatible endpoint
     ProviderSpec(
@@ -357,6 +360,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         reasoning_as_content=True,
     ),
     # Xiaomi MIMO (小米): OpenAI-compatible API
+    # thinking.type is used (like Kimi), not reasoning_split (like MiniMax)
     ProviderSpec(
         name="xiaomi_mimo",
         keywords=("xiaomi_mimo", "mimo"),
@@ -364,6 +368,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         display_name="Xiaomi MIMO",
         backend="openai_compat",
         default_api_base="https://api.xiaomimimo.com/v1",
+        thinking_style="thinking_type",
+        supports_max_completion_tokens=True,
     ),
     # === Local deployment (matched by config key, NOT by api_base) =========
     # vLLM / any OpenAI-compatible local server

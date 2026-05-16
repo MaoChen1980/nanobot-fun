@@ -556,6 +556,10 @@ class OpenAICompatProvider(LLMProvider):
             kwargs.setdefault("extra_body", {}).update(
                 {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
             )
+            # Preserve historical reasoning across multi-turn conversations.
+            # Without this, Kimi trims old reasoning to save tokens.
+            if thinking_enabled:
+                kwargs.setdefault("extra_body", {}).setdefault("thinking", {})["keep"] = "all"
 
         if tools:
             kwargs["tools"] = tools
@@ -577,9 +581,21 @@ class OpenAICompatProvider(LLMProvider):
                 and semantic_effort != "minimal")
         )
         if thinking_active:
+            is_minimax = spec and spec.name in ("minimax", "minimax_cn")
             for msg in kwargs["messages"]:
-                if msg.get("role") == "assistant" and "reasoning_content" not in msg:
-                    msg["reasoning_content"] = ""
+                if msg.get("role") == "assistant":
+                    if "reasoning_content" not in msg:
+                        msg["reasoning_content"] = ""
+                    # MiniMax with reasoning_split=true expects original
+                    # reasoning_details array on all assistant messages.
+                    # Backfill empty array for old messages that never had it.
+                    if is_minimax and "reasoning_details" not in msg:
+                        msg["reasoning_details"] = []
+
+        # GLM: preserved thinking across multi-turn (clear_thinking: False).
+        # Without this, GLM clears historical reasoning each turn.
+        if spec and spec.name == "zhipu" and thinking_active:
+            kwargs.setdefault("extra_body", {}).setdefault("thinking", {})["clear_thinking"] = False
 
         # Merge user-configured extra_body last so it can override or extend internal defaults
         if self._extra_body:
@@ -823,21 +839,25 @@ class OpenAICompatProvider(LLMProvider):
                     response_map.get("reasoning_content")
                 )
                 # MiniMax: extract reasoning_details from no-choices response
-                if not reasoning_content and self._spec and self._spec.name in ("minimax", "minimax_cn"):
+                reasoning_details = None
+                if self._spec and self._spec.name in ("minimax", "minimax_cn"):
                     rd = response_map.get("reasoning_details")
                     if isinstance(rd, list):
-                        parts = []
-                        for item in rd:
-                            if isinstance(item, dict) and item.get("type") == "reasoning.text":
-                                t = item.get("text")
-                                if t:
-                                    parts.append(t)
-                        if parts:
-                            reasoning_content = "\n".join(parts)
+                        reasoning_details = rd
+                        if not reasoning_content:
+                            parts = []
+                            for item in rd:
+                                if isinstance(item, dict) and item.get("type") == "reasoning.text":
+                                    t = item.get("text")
+                                    if t:
+                                        parts.append(t)
+                            if parts:
+                                reasoning_content = "\n".join(parts)
                 if content is not None:
                     return LLMResponse(
                         content=content,
                         reasoning_content=reasoning_content,
+                        reasoning_details=reasoning_details,
                         finish_reason=str(response_map.get("finish_reason") or "stop"),
                         usage=self._extract_usage(response_map),
                     )
@@ -855,18 +875,21 @@ class OpenAICompatProvider(LLMProvider):
             reasoning_content = msg0.get("reasoning_content")
             if not reasoning_content and msg0.get("reasoning"):
                 reasoning_content = self._extract_text_content(msg0.get("reasoning"))
-            # MiniMax: extract reasoning_details (array) → concat text into reasoning_content
-            if not reasoning_content and self._spec and self._spec.name in ("minimax", "minimax_cn"):
+            # MiniMax: capture original reasoning_details array + extract text
+            reasoning_details = None
+            if self._spec and self._spec.name in ("minimax", "minimax_cn"):
                 rd = msg0.get("reasoning_details")
                 if isinstance(rd, list):
-                    parts = []
-                    for item in rd:
-                        if isinstance(item, dict) and item.get("type") == "reasoning.text":
-                            t = item.get("text")
-                            if t:
-                                parts.append(t)
-                    if parts:
-                        reasoning_content = "\n".join(parts)
+                    reasoning_details = rd
+                    if not reasoning_content:
+                        parts = []
+                        for item in rd:
+                            if isinstance(item, dict) and item.get("type") == "reasoning.text":
+                                t = item.get("text")
+                                if t:
+                                    parts.append(t)
+                        if parts:
+                            reasoning_content = "\n".join(parts)
             for ch in choices:
                 ch_map = self._maybe_mapping(ch) or {}
                 m = self._maybe_mapping(ch_map.get("message")) or {}
@@ -882,6 +905,8 @@ class OpenAICompatProvider(LLMProvider):
                     if not reasoning_content and self._spec and self._spec.name in ("minimax", "minimax_cn"):
                         rd = m.get("reasoning_details")
                         if isinstance(rd, list):
+                            if not reasoning_details:
+                                reasoning_details = rd
                             parts = []
                             for item in rd:
                                 if isinstance(item, dict) and item.get("type") == "reasoning.text":
@@ -914,6 +939,7 @@ class OpenAICompatProvider(LLMProvider):
                 finish_reason=finish_reason,
                 usage=self._extract_usage(response_map),
                 reasoning_content=reasoning_content if isinstance(reasoning_content, str) else None,
+                reasoning_details=reasoning_details,
             )
 
         if not response.choices:
@@ -954,10 +980,12 @@ class OpenAICompatProvider(LLMProvider):
         reasoning_content = getattr(msg, "reasoning_content", None) or None
         if not reasoning_content and getattr(msg, "reasoning", None):
             reasoning_content = msg.reasoning
-        # MiniMax: extract reasoning_details (array) → concat text into reasoning_content
-        if not reasoning_content and getattr(msg, "reasoning_details", None) is not None:
-            rd = msg.reasoning_details
-            if isinstance(rd, list):
+        # MiniMax: capture original reasoning_details array + extract text
+        reasoning_details = None
+        rd = getattr(msg, "reasoning_details", None)
+        if isinstance(rd, list):
+            reasoning_details = rd
+            if not reasoning_content:
                 parts = []
                 for item in rd:
                     if isinstance(item, dict) and item.get("type") == "reasoning.text":
@@ -973,6 +1001,7 @@ class OpenAICompatProvider(LLMProvider):
             finish_reason=finish_reason or "stop",
             usage=self._extract_usage(response),
             reasoning_content=reasoning_content,
+            reasoning_details=reasoning_details,
         )
 
     @classmethod

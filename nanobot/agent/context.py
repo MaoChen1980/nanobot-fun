@@ -612,6 +612,7 @@ class ContextBuilder:
         content: str | None,
         tool_calls: list[dict[str, Any]] | None = None,
         reasoning_content: str | None = None,
+        reasoning_details: list[dict] | None = None,
         thinking_blocks: list[dict] | None = None,
     ) -> list[dict[str, Any]]:
         """Add an assistant message to the message list."""
@@ -619,6 +620,7 @@ class ContextBuilder:
             content,
             tool_calls=tool_calls,
             reasoning_content=reasoning_content,
+            reasoning_details=reasoning_details,
             thinking_blocks=thinking_blocks,
         ))
         return messages
