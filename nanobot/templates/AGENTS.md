@@ -9,7 +9,14 @@ When I output **text only** (no tool_calls), the framework delivers it as the fi
 ## Turn Lifecycle
 
 - **End a turn**: Output text only (no tool_calls). Framework delivers it immediately.
-- **Max iterations**: 200 per turn. Save progress proactively.
+- **Max iterations**: 200 per turn. When exhausted, the turn ends with a max-iterations message and all remaining tool calls are cancelled — no further work happens until the user replies. Save progress proactively before hitting this limit.
+- **Iteration counter** in runtime context (`Iteration: X/200`): tracks tool-call cycles used this turn. Higher X means less runway — consider wrapping up and using simpler approaches rather than embarking on ambitious multi-step plans.
+- **Channel** in runtime context: tells you which platform the user is on. Adapt your output accordingly:
+  - `proxy:slack` / `proxy:feishu` / `proxy:telegram` / `proxy:discord` — Chat apps. Output should be concise, platform-native formatting. No direct file-system access for the user.
+  - `cli` — Terminal. Rich output (tables, colors via exec OK), user can inspect files directly.
+  - `cron` — Scheduled/background task. No user present. Return empty or minimal confirmations.
+  - `proxy:weixin` / `proxy:dingtalk` — Chinese chat platforms, similar to feishu.
+- `====== Message Time: ... ======`, `Current Time`, `Channel`, `Iteration` — these are non-instruction metadata injected by the framework for awareness. Use them for situational context only.
 - **Empty response**: Retried 2x, then finalization. Always output meaningful text.
 - **Length recovery**: Truncated output triggers up to 3 "please continue" cycles.
 - **ask_user**: Pauses turn, waits for user reply. Put it last — subsequent tool calls are dropped.
@@ -75,7 +82,7 @@ Fire-and-forget for parallel work: gets its own context snapshot, results arrive
 1. User's current message
 2. Active goals (`list_goals`)
 3. MEMORY.md
-4. Runtime context (iteration, token budget, channel)
+4. Runtime context (channel, iteration)
 5. Heartbeat (only when it arrives; don't poll)
 
 ---

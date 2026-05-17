@@ -578,9 +578,8 @@ class AgentLoop:
                     media = media or None
                 user_content = self.context._build_user_content(content, media)
                 runtime_ctx = self.context._build_runtime_context(
-                    pending_msg.channel,
-                    self._runtime_chat_id(pending_msg),
-                    self.context.timezone,
+                    channel=pending_msg.channel,
+                    timezone=self.context.timezone,
                 )
                 if runtime_ctx:
                     if isinstance(user_content, str):

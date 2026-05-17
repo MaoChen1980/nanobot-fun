@@ -381,15 +381,15 @@ class ContextBuilder:
 
     @staticmethod
     def _build_runtime_context(
-        channel: str | None, chat_id: str | None, timezone: str | None = None,
+        channel: str | None = None,
+        timezone: str | None = None,
         current_iteration: int | None = None,
         max_iterations: int | None = None,
     ) -> str:
         """Build untrusted runtime metadata block for injection before the user message."""
-        lines = [format_message_header()]
-        lines.append(f"Current Time: {current_time_str(timezone)}")
-        if channel and chat_id:
-            lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
+        lines = [format_message_header(), f"Current Time: {current_time_str(timezone)}"]
+        if channel:
+            lines.append(f"Channel: {channel}")
         if current_iteration is not None and max_iterations is not None:
             lines.append(f"Iteration: {current_iteration}/{max_iterations}")
         return (
@@ -495,7 +495,7 @@ class ContextBuilder:
         retained_history = history
 
         runtime_ctx = self._build_runtime_context(
-            channel, chat_id, self.timezone,
+            channel=channel, timezone=self.timezone,
             current_iteration=cs.current_iteration,
             max_iterations=cs.max_iterations,
         )

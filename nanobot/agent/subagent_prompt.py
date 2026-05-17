@@ -60,7 +60,7 @@ def build_subagent_prompt(
         parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
 
     # 5. Runtime context
-    runtime = ContextBuilder._build_runtime_context(None, None, timezone=timezone)
+    runtime = ContextBuilder._build_runtime_context(timezone=timezone)
     if runtime:
         parts.append(f"# Runtime Context\n\n{runtime}")
 
