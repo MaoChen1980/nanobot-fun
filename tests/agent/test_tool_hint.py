@@ -30,7 +30,7 @@ class TestToolHintKnownTools:
         assert result == "write docs/api.md"
 
     def test_edit_shows_path(self):
-        result = _hint([_tc("edit", {"file_path": "src/main.py", "old_string": "x", "new_string": "y"})])
+        result = _hint([_tc("edit_file", {"file_path": "src/main.py", "old_string": "x", "new_string": "y"})])
         assert "main.py" in result
         assert "edit " in result
 

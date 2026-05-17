@@ -510,6 +510,11 @@ class DingTalkProxyChannel(BaseProxyChannel):
             if self.check_duplicate(msg_id):
                 return
 
+            # Skip stale messages (platform sometimes redelivers old messages)
+            create_at = chatbot_msg.create_at
+            if create_at and self._is_stale_message(create_at / 1000.0, self._max_message_age):
+                return
+
             sender_id = chatbot_msg.sender_staff_id or chatbot_msg.sender_id or "unknown"
             conversation_type = data.get("conversationType")
             conversation_id = data.get("conversationId") or data.get("openConversationId")

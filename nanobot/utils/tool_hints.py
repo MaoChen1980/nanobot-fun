@@ -8,15 +8,31 @@ from nanobot.utils.path import abbreviate_path
 
 # Registry: tool_name -> (key_args, template, is_path, is_command)
 _TOOL_FORMATS: dict[str, tuple[list[str], str, bool, bool]] = {
-    "read_file":  (["path", "file_path"],              "read {}",     True,  False),
-    "write_file": (["path", "file_path"],              "write {}",    True,  False),
-    "edit":       (["file_path", "path"],              "edit {}",     True,  False),
-    "glob":       (["pattern"],                        'glob "{}"',   False, False),
-    "grep":       (["pattern"],                        'grep "{}"',   False, False),
-    "exec":       (["command"],                        "$ {}",        False, True),
-    "web_search": (["query"],                          'search "{}"', False, False),
-    "web_fetch":  (["url"],                            "fetch {}",    True,  False),
-    "list_dir":   (["path"],                           "ls {}",       True,  False),
+    "read_file":      (["path", "file_path"],              "read {}",          True,  False),
+    "read_files":     (["pattern"],                        'read_files("{}")', False, False),
+    "write_file":     (["path", "file_path"],              "write {}",         True,  False),
+    "edit_file":      (["file_path", "path"],              "edit {}",          True,  False),
+    "delete_file":    (["path"],                           "delete {}",        True,  False),
+    "move_file":      (["source", "src"],                  "move {}",          True,  False),
+    "glob":           (["pattern"],                        'glob "{}"',        False, False),
+    "grep":           (["pattern"],                        'grep "{}"',        False, False),
+    "exec":           (["command"],                        "$ {}",             False, True),
+    "web_search":     (["query"],                          'search "{}"',      False, False),
+    "web_fetch":      (["url"],                            "fetch {}",         True,  False),
+    "list_dir":       (["path"],                           "ls {}",            True,  False),
+    "explore_module": (["path"],                           "explore {}",       True,  False),
+    "inspect_text":   (["file_path", "path"],              "inspect {}",       True,  False),
+    "notebook_edit":  (["notebook_path", "path"],          "notebook {}",      True,  False),
+    "analyze":        (["file_path", "path"],              "analyze {}",       True,  False),
+    "git_inspect":    (["path"],                           "git {}",           True,  False),
+    "recall":         (["query"],                          'recall("{}")',     False, False),
+    "search_text":    (["query"],                          'search("{}")',     False, False),
+    "run_recipe":     (["name", "recipe"],                 'recipe("{}")',     False, False),
+    "session_manage": (["action"],                         'session("{}")',    False, False),
+    "ask_user":       (["question"],                       'ask("{}")',        False, False),
+    "spawn":          (["task"],                           'spawn("{}")',      False, False),
+    "diagnose":       (["error", "target"],                'diagnose("{}")',   False, False),
+    "check_subagent": (["task_id"],                        'check({})',        False, False),
 }
 
 # Matches file paths embedded in shell commands, including quoted paths with spaces.
@@ -89,6 +105,8 @@ def _fmt_known(tc, fmt: tuple) -> str:
         val = abbreviate_path(val)
     elif fmt[3]:  # is_command
         val = _abbreviate_command(val)
+    elif len(val) > 40:  # plain text arg — truncate
+        val = val[:39] + "…"
     return fmt[1].format(val)
 
 
@@ -135,3 +153,26 @@ def _fmt_fallback(tc) -> str:
     if not isinstance(val, str):
         return tc.name
     return f'{tc.name}("{abbreviate_path(val, 40)}")' if len(val) > 40 else f'{tc.name}("{val}")'
+
+
+def format_single_tool_hint(name: str, arguments: dict) -> str:
+    """Format a single tool hint from name + arguments dict (no ToolCall obj needed).
+
+    Useful for formatting completion/error messages where only the
+    tool name and its arguments dict are available.
+    """
+    from dataclasses import dataclass
+
+    @dataclass
+    class _FakeToolCall:
+        name: str
+        arguments: dict
+
+    tc = _FakeToolCall(name=name, arguments=arguments)
+    fmt = _TOOL_FORMATS.get(name)
+    if fmt:
+        return _fmt_known(tc, fmt)
+    elif name.startswith("mcp_"):
+        return _fmt_mcp(tc)
+    else:
+        return _fmt_fallback(tc)

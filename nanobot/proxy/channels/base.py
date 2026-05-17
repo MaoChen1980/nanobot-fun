@@ -43,6 +43,7 @@ class BaseProxyChannel:
         self.hub_tcp_port = hub_tcp_port
         self.channel = channel
         self.bot = bot
+        self._max_message_age = int(config.get("max_message_age", 300))
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._conn_loop: asyncio.AbstractEventLoop | None = None
@@ -474,6 +475,22 @@ class BaseProxyChannel:
         if len(self._dedup) > 1000:
             cutoff = now - max(ttl, 300)
             self._dedup = {k: v for k, v in self._dedup.items() if v > cutoff}
+        return False
+
+    @staticmethod
+    def _is_stale_message(create_time: float, max_age: float) -> bool:
+        """Return True if the message's original creation time is too old.
+
+        Args:
+            create_time: Message creation Unix timestamp (seconds since epoch).
+            max_age: Maximum allowed age in seconds.
+        """
+        if create_time is None or create_time <= 0:
+            return False  # no valid timestamp, let it through
+        age = time.time() - create_time
+        if age > max_age:
+            logger.warning("Dropping stale message (age={:.0f}s > max_age={:.0f}s)", age, max_age)
+            return True
         return False
 
     # ------------------------------------------------------------------

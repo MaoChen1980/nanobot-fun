@@ -15,6 +15,7 @@ from loguru import logger
 
 from nanobot.proxy.manager import ProxyManager
 from nanobot.proxy.protocol import HubResponse, ProxyMessage
+from nanobot.utils.tool_hints import format_single_tool_hint
 
 
 class HubTCPServer:
@@ -200,11 +201,16 @@ class HubTCPServer:
                         continue
                     phase = te.get("phase", "")
                     name = te.get("name", "tool")
+                    args = te.get("arguments", {})
+                    if isinstance(args, dict) and args:
+                        hint = format_single_tool_hint(name, args)
+                    else:
+                        hint = name
                     if phase == "end":
-                        text = f"✅ {name} completed"
+                        text = f"✅ {hint} completed"
                     elif phase == "error":
                         error = te.get("error", "")
-                        text = f"❌ {name}: {error}" if error else f"❌ {name} failed"
+                        text = f"❌ {hint}: {error}" if error else f"❌ {hint} failed"
                     else:
                         continue
                     await self._proxy_manager.deliver_to_proxy(proxy_key, {

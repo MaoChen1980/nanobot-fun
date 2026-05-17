@@ -52,6 +52,7 @@ class _LoopHook(AgentHook):
         self._session_key = session_key
         self._stream_buf = ""
         self._reasoning_buf = ""
+        self._had_content = False
         self._observe_think = observe_think
         self._observe_tool = observe_tool
 
@@ -77,23 +78,29 @@ class _LoopHook(AgentHook):
         # Forward incremental non-think text
         text_incremental = new_clean[len(prev_clean):]
         if text_incremental and self._on_stream:
+            self._had_content = True
             await self._on_stream(text_incremental)
 
-        # Forward incremental think/reasoning content
+        # Buffer think/reasoning — only flush if no non-think content appears
         think_incremental = new_think[len(prev_think):]
-        if think_incremental and self._on_reasoning:
-            await self._on_reasoning(think_incremental)
+        if think_incremental:
+            self._reasoning_buf += think_incremental
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
+        # Flush buffered reasoning only when no non-think content was streamed
+        if self._reasoning_buf and self._on_reasoning and not self._had_content:
+            await self._on_reasoning(self._reasoning_buf)
+        self._reasoning_buf = ""
         if self._on_reasoning_end:
             await self._on_reasoning_end()
         if self._on_stream_end:
             await self._on_stream_end(resuming=resuming)
         self._stream_buf = ""
-        self._reasoning_buf = ""
 
     async def before_iteration(self, context: AgentHookContext) -> None:
         self._loop._current_iteration = context.iteration
+        self._had_content = False
+        self._reasoning_buf = ""
 
     async def _send_progress(
         self,
@@ -129,7 +136,11 @@ class _LoopHook(AgentHook):
                          if context.response and context.response.reasoning_content
                          else None)
             if reasoning and self._on_reasoning:
-                await self._on_reasoning(reasoning)
+                # Only send reasoning when no non-think content exists
+                content = (context.response.content or "") if context.response else ""
+                clean = self._loop._strip_think(content)
+                if not clean:
+                    await self._on_reasoning(reasoning)
             else:
                 thought = self._loop._strip_think(
                     context.response.content if context.response else None
@@ -156,13 +167,16 @@ class _LoopHook(AgentHook):
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         # Send LLM reasoning when /think is on and no tool calls (before_execute_tools
-        # handles the tool-call path).
+        # handles the tool-call path).  Only send when response has no non-think content.
         if self._observe_think and not context.tool_calls:
             reasoning = (context.response.reasoning_content
                          if context.response and context.response.reasoning_content
                          else None)
             if reasoning:
-                await self._on_progress(reasoning)
+                content = (context.response.content or "") if context.response else ""
+                clean = self._loop._strip_think(content)
+                if not clean:
+                    await self._on_progress(reasoning)
 
         # Send tool finish events when /tool is on
         if (

@@ -92,6 +92,11 @@ class FeishuProxyChannel(BaseProxyChannel):
             if not message_id or self.check_duplicate(message_id):
                 return
 
+            # Skip stale messages (platform sometimes redelivers old messages)
+            create_time = getattr(message, "create_time", None)
+            if create_time and self._is_stale_message(float(create_time), self._max_message_age):
+                return
+
             # DEBUG: dump raw message structure to diagnose empty content
             msg_attrs = {a: getattr(message, a) for a in ['message_id', 'message_type', 'content', 'chat_id', 'root_id', 'parent_id', 'chat_type']
                          if hasattr(message, a)}
