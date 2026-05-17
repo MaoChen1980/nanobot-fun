@@ -313,6 +313,10 @@ class Tool(ABC):
         t = self._resolve_type(schema.get("type"))
         if t == "boolean" and isinstance(val, bool):
             return val
+        if t == "boolean" and isinstance(val, int) and val in (0, 1):
+            return bool(val)
+        if t == "number" and isinstance(val, int) and not isinstance(val, bool):
+            return float(val)
         if t == "integer" and isinstance(val, int) and not isinstance(val, bool):
             return val
         if t in self._TYPE_MAP and t not in ("boolean", "integer", "array", "object"):
