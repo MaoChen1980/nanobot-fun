@@ -52,6 +52,7 @@ class MemoryExtractor:
         self.timezone = timezone
         self.prompts_dir = ensure_dir(store.workspace / "prompts")
         self.failed_dir = ensure_dir(self.prompts_dir / "failed")
+        self.processed_dir = ensure_dir(self.prompts_dir / "processed")
 
     def set_provider(self, provider: LLMProvider, model: str) -> None:
         self.provider = provider
@@ -93,7 +94,8 @@ class MemoryExtractor:
                             len(findings),
                             processing_path.name,
                         )
-                processing_path.unlink()
+                processed_name = processing_path.name.replace(".pt.processing", ".pt")
+                processing_path.rename(self.processed_dir / processed_name)
             except Exception:
                 logger.exception("MemoryExtractor: failed to process {}", processing_path)
                 self.failed_dir.mkdir(parents=True, exist_ok=True)
