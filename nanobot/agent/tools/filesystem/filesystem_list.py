@@ -33,16 +33,14 @@ class ListDirTool(_FsTool):
 
     description = (
         "**用途**: 列出目录内容，支持递归。\n\n"
-        "**限制**:\n"
-        "- 默认最多 400 条\n"
-        "- 自动跳过 .git / node_modules 等噪音目录\n\n"
-        "**错误应对**:\n"
-        "- 目录不存在 → 返回错误\n\n"
-        "**边界条件**:\n"
-        "- 需要按模式匹配文件名 → 用 glob\n"
-        "- 需要搜索文件内容 → 用 grep\n\n"
-        "**极简案例**: list_dir(path='src', recursive=True)\n"
-        "→ 返回 src/ 下所有文件和目录的列表"
+        "**什么时候用**:\n"
+        "- 需要查看目录中有哪些文件和子目录时\n"
+        "- 需要递归探索项目结构时\n\n"
+        "**什么时候不用**:\n"
+        "- 需要按模式匹配文件名 → 用 glob 或 file_search\n"
+        "- 需要搜索文件内容 → 用 grep\n"
+        "- 需要读取文件内容 → 用 read_file\n"
+        "- 需要单个文件状态（是否存在/类型）→ 用 stat\n"
     )
 
     read_only = True
@@ -94,4 +92,3 @@ class ListDirTool(_FsTool):
         except Exception as e:
             logger.warning("ListDir failed: {}", e)
             return f"Error listing directory: {e}"
-

@@ -28,19 +28,13 @@ class DiagnoseTool(_FsTool):
 
     description = (
         "**用途**: 结合代码搜索和 git 历史，一站式调查错误根因。\n\n"
-        "**限制**:\n"
-        "- 默认搜索 7 天内的 git 历史\n"
-        "- max_results 最多 50，days 最多 90\n"
-        "- git 查询超时 15 秒\n\n"
-        "**错误应对**:\n"
-        "- 无匹配 → 扩大 days 或换 error 关键词\n"
-        "- 不在 git 仓库 → git 历史部分不可用\n\n"
-        "**边界条件**:\n"
+        "**什么时候用**:\n"
+        "- 遇到错误（如 TypeError），需要同时查找代码中的相关位置和近期 git commit\n"
+        "- error 传入完整的错误消息，自动提取关键词并搜索代码 + git 历史\n\n"
+        "**什么时候不用**:\n"
         "- 只需要代码搜索 → 用 grep\n"
         "- 只需要 git 历史 → 用 git_inspect\n"
-        "- 配置/环境问题 → diagnose 不适合，直接排查配置\n\n"
-        "**极简案例**: diagnose(error='TypeError: object str', days=3)\n"
-        "→ 返回相关代码位置和最近触及的 commits"
+        "- 配置/环境问题 — diagnose 不适合，直接排查配置\n"
     )
 
     async def execute(

@@ -4,52 +4,38 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
-from nanobot.agent.tools.base import Tool, tool_parameters
+from nanobot.agent.tools.base import tool_parameters
+from nanobot.agent.tools.filesystem.filesystem_base import _FsTool
 from nanobot.agent.tools.schema import p, tool_parameters_schema
 
 
 @tool_parameters(
     tool_parameters_schema(
         data=p("string", "Text content to analyze (provide this or path)"),
-        path=p("string", "File path to read and analyze — file. Provide this or data. "
-            "Absolute paths: resolved as-is. Relative paths: resolved from current working directory (CWD), NOT workspace root. "),
+        path=p("string", "File path to read and analyze — file. Relative to workspace root (e.g. 'logs/error.log'). Absolute paths also accepted. Provide this or data."),
         question=p("string", "Optional keyword filter — simple term matching, NOT semantic analysis. Example: 'database connection error' shows lines containing those words ranked by match count."),
         max_keywords=p("integer", "Maximum keywords to extract (default 15)", minimum=1, maximum=50, default=15),
     ),
     required=[],
 )
-class AnalyzeTool(Tool):
+class AnalyzeTool(_FsTool):
     """Read data (from text or file) and return structured analysis."""
 
     name = "analyze"
     read_only = True
 
     description = (
-        "**用途**: 分析文本并返回结构化摘要（行统计、关键词、按问题匹配行）"
-        "，无需全文读到 context。\n\n"
-        "**核心价值**: 10000 行日志不用读到 context 里占位置，"
-        "一步出摘要。"
-        "read_file 做不到（会把全文塞进 context）。\n\n"
-        "**场景举例**:\n"
-        "- 巨大日志文件 → 先 analyze 看概况，再决定读哪段\n"
-        "- 想知道文件主题而非全文 → analyze 出关键词\n"
-        "- 找特定类型的内容（错误、警告）→ 传 question\n\n"
-        "**限制**:\n"
-        "- data（内联文本）和 path（文件路径）二选一\n"
-        "- 最大输入 500K 字符\n"
-        "- 关键词提取基于词频，非语义\n\n"
-        "**错误应对**:\n"
-        "- 文件不存在或无法解码 → 返回错误\n"
-        "- 文件太大 → 返回大小超限错误\n\n"
-        "**边界条件**:\n"
+        "**用途**: 分析文本并返回结构化摘要（行统计、关键词、按问题匹配行），无需全文读到 context。\n\n"
+        "**什么时候用**:\n"
+        "- 文件太大（如日志），先 analyze 看概况，再决定读哪段\n"
+        "- 想知道文件主题而非全文，analyze 出关键词\n"
+        "- 想找特定类型的内容（错误、警告），传 question\n\n"
+        "**什么时候不用**:\n"
         "- 需要完整文本 → 用 read_file\n"
-        "- 需要搜索特定模式 → 用 grep\n"
-        "- 需要探索代码结构 → 用 explore_module\n\n"
-        "**极简案例**: analyze(path='long_log.txt', question='有哪些错误？')\n"
-        "→ 返回行统计、段落、关键词和相关行"
+        "- 需要精确模式搜索 → 用 grep\n"
+        "- 需要探索代码结构 → 用 explore_module\n"
     )
 
     MAX_TEXT_SIZE = 500_000
@@ -109,7 +95,7 @@ class AnalyzeTool(Tool):
             return data[:self.MAX_TEXT_SIZE]
         if path:
             try:
-                fp = Path(path).expanduser().resolve()
+                fp = self._resolve(path)
                 if not fp.exists():
                     return f"Error: File not found: {path}"
                 if fp.stat().st_size > self.MAX_TEXT_SIZE:

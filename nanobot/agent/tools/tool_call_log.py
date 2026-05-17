@@ -34,14 +34,12 @@ class ToolCallLogTool(Tool):
 
     description = (
             "**用途**: 查询工具调用执行日志，用于调试失败的调用或追踪结果。\n\n"
-            "**参数说明**:\n"
-            "- session_key: 按会话过滤（当前会话 key 见 system prompt）\n"
-            "- tool_name: 按工具名过滤（如 exec、read_file、grep）\n"
-            "- success: 1=成功、0=失败、不传=不限\n"
-            "- min_result_size: 仅返回结果大于 N 字符的调用\n"
-            "- limit: 最多返回条数（默认 20，最大 100）\n\n"
-            "**极简案例**: tool_call_log(tool_name='grep', limit=5)\n"
-            "→ 返回最近 5 次 grep 调用记录"
+            "**什么时候用**:\n"
+            "- 需要调试某个工具调用为什么失败时\n"
+            "- 需要追踪之前工具调用的结果\n\n"
+            "**什么时候不用**:\n"
+            "- 需要搜索对话历史 → 用 recall\n"
+            "- 需要查看当前运行状态 → 用 my"
         )
 
     read_only = True

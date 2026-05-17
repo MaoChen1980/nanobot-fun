@@ -33,27 +33,12 @@ class RecipeTool(Tool):
 
     description = (
         "**用途**: 一次调用执行多步操作，由框架自动串联工具调用。\n\n"
-        "**核心价值**: 3 步变 1 步，节省上下文。手动 grep→read_files 至少 2 轮对话。\n\n"
-        "**内置 recipe**:\n"
-        "  - find_and_read(pattern, path, max_files):\n"
-        "    第 1 步: grep 获取匹配文件列表\n"
-        "    第 2 步: read_files 读取这些文件\n"
-        "  - audit_todos(path):\n"
-        "    第 1 步: 全局搜索 TODO/FIXME/HACK\n"
-        "    第 2 步: 按类型/文件分组统计\n"
-        "    第 3 步: 输出摘要报告\n"
-        "  - trace_function(pattern, path):\n"
-        "    第 1 步: grep 查找函数定义\n"
-        "    第 2 步: grep 查找函数调用\n"
-        "    第 3 步: read_files 读取关键引用\n\n"
-        "**错误应对**:\n"
-        "- recipe 名不存在 → 返回可用列表\n"
-        "- grep 无匹配 → 返回提示\n\n"
-        "**边界条件**:\n"
-        "- 只需要单步 → 直接用 grep/read_files\n"
-        "- 需要精细控制参数 → 手动分步调用\n\n"
-        "**极简案例**: run_recipe(recipe='find_and_read', pattern='class.*Handler', path='src/')\n"
-        "→ 两步合一：搜索 + 读取匹配文件"
+        "**什么时候用**:\n"
+        "- 需要多步串联的常见操作（如搜索关键词后读取文件、审计 TODO、追踪函数）\n"
+        "- 想一步完成原本需要多轮的 grep → read_files 流程\n\n"
+        "**什么时候不用**:\n"
+        "- 需要精细控制每一步的参数 → 手动分步调用各工具\n"
+        "- 只需要单步操作 → 直接用 grep/read_files\n"
     )
 
     def __init__(self, run_tool: Callable[[str, dict[str, Any]], Coroutine[Any, Any, Any]] | None = None):

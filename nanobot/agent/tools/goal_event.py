@@ -55,19 +55,12 @@ class WriteGoal(Tool):
     name = "write_goal"
     description = (
         "**用途**: 创建或更新目标（goal），目标跨会话跟踪。\n\n"
-        "**限制**:\n"
-        "- 存储在 SQLite DB，非文件\n"
-        "- 每次 turn 自动加载到 context\n"
-        "- 必须提供 id、title、action\n\n"
-        "**错误应对**:\n"
-        "- DB 不可用 → 返回错误\n"
-        "- goal_id 重复 → upsert 语义，覆盖更新\n\n"
-        "**边界条件**:\n"
+        "**什么时候用**:\n"
+        "- 需要创建新目标或更新已有目标的状态、标题、描述、子任务等\n"
+        "- 需要删除目标\n\n"
+        "**什么时候不用**:\n"
+        "- 只需查看目标列表 → 用 list_goals\n"
         "- 只需临时笔记 → 用 scratchpad（self set）\n"
-        "- 只需查看目标 → 用 list_goals\n"
-        "- project 未指定且含 '.' → 自动继承父 goal 的 project\n\n"
-        "**极简案例**: write_goal(id='g1', title='实现登录功能', action='upsert', status='in_progress')\n"
-        "→ 创建新目标"
     )
 
     def __init__(self, memory: MemoryStore):
@@ -148,16 +141,12 @@ class ListGoals(Tool):
     name = "list_goals"
     description = (
         "**用途**: 从 DB 列出目标，可按状态/项目/范围过滤。\n\n"
-        "**限制**:\n"
-        "- 最多返回 100 条\n\n"
-        "**错误应对**:\n"
-        "- DB 不可用 → 返回 'DB not available'\n"
-        "- 无匹配 → 返回 'No goals found'\n\n"
-        "**边界条件**:\n"
-        "- 需要更新目标 → 用 write_goal\n"
-        "- 需要查看事件历史 → 用 list_events\n\n"
-        "**极简案例**: list_goals(status='in_progress')\n"
-        "→ 列出所有进行中的目标"
+        "**什么时候用**:\n"
+        "- 需要查看当前活跃目标列表\n"
+        "- 需要按状态、项目或范围筛选目标\n\n"
+        "**什么时候不用**:\n"
+        "- 需要更新或创建目标 → 用 write_goal\n"
+        "- 需要查看事件历史 → 用 list_events\n"
     )
 
     def __init__(self, memory: MemoryStore):
@@ -211,17 +200,12 @@ class WriteEvent(Tool):
 
     name = "write_event"
     description = (
-        "**用途**: 记录进度事件（里程碑、决策、阻塞项）到当前目标的时间线。\n\n"
-        "**限制**:\n"
-        "- 必须提供 content 和 action\n"
-        "- 存储在 DB，关联 goal_id\n\n"
-        "**错误应对**:\n"
-        "- DB 不可用 → 返回 'DB not available'\n\n"
-        "**边界条件**:\n"
-        "- 信息属于 goal 描述本身 → 用 write_goal 更新描述\n"
-        "- 不关联任何目标 → 不要用\n\n"
-        "**极简案例**: write_event(content='完成 API 设计评审', action='milestone', goal_id='g1')\n"
-        "→ 记录里程碑事件"
+        "**用途**: 记录进度事件（里程碑、决策、阻塞项）到目标的时间线。\n\n"
+        "**什么时候用**:\n"
+        "- 需要记录里程碑、决策、阻塞项等进度事件到特定目标\n\n"
+        "**什么时候不用**:\n"
+        "- 信息属于目标描述本身 → 用 write_goal 更新描述\n"
+        "- 事件不关联任何目标 → 不建议使用\n"
     )
 
     def __init__(self, memory: MemoryStore):
@@ -279,16 +263,12 @@ class ListEvents(Tool):
     name = "list_events"
     description = (
         "**用途**: 列出最近的事件，可按目标或事件类型过滤。\n\n"
-        "**限制**:\n"
-        "- 最多返回 100 条\n\n"
-        "**错误应对**:\n"
-        "- DB 不可用 → 返回 'DB not available'\n"
-        "- 无匹配 → 返回 'No events found'\n\n"
-        "**边界条件**:\n"
-        "- 需要查看活跃目标 → 用 list_goals\n"
-        "- 需要记录新事件 → 用 write_event\n\n"
-        "**极简案例**: list_events(goal_id='g1', limit=5)\n"
-        "→ 查看目标 g1 最近的 5 个事件"
+        "**什么时候用**:\n"
+        "- 需要查看某个目标的事件历史\n"
+        "- 需要按类型过滤查看决策、阻塞项等事件\n\n"
+        "**什么时候不用**:\n"
+        "- 需要查看目标列表 → 用 list_goals\n"
+        "- 需要记录新事件 → 用 write_event\n"
     )
 
     def __init__(self, memory: MemoryStore):
@@ -348,16 +328,11 @@ class DeclareAssumption(Tool):
     name = "declare_assumption"
     description = (
         "**用途**: 为目标 subtask_0 声明假设（hypothesis），系统验证。\n\n"
-        "**限制**:\n"
-        "- 必须在完成 subtask_0 之前调用\n"
-        "- 结果由系统判定（非 LLM 自评）\n\n"
-        "**错误应对**:\n"
-        "- DB 不可用 → 返回 'DB not available'\n"
-        "- goal 不存在 → 返回错误\n\n"
-        "**边界条件**:\n"
-        "- 已有 assumption → 追加为新的 verification attempt\n\n"
-        "**极简案例**: declare_assumption(goal_id='g1', claim='接口已就绪', expected='200 OK', files_read=['main.py'], verification_method='exec')\n"
-        "→ 声明假设等待验证"
+        "**什么时候用**:\n"
+        "- 在完成 subtask_0 之前，需要声明一个预期为真的假设，等待系统验证\n\n"
+        "**什么时候不用**:\n"
+        "- 只需记录进度事件 → 用 write_event\n"
+        "- 已验证假设并需要录入结果 → 用 verify_assumption\n"
     )
 
     def __init__(self, memory: MemoryStore):
@@ -426,8 +401,6 @@ class DeclareAssumption(Tool):
             f"  Verification method: {verification_method}\n"
             f"Use verify_assumption to complete subtask_0 verification."
         )
-
-
 _VERIFY_ASSUMPTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {

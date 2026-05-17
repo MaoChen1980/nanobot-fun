@@ -34,21 +34,13 @@ class ReadFilesTool(_FsTool):
 
     description = (
         "**用途**: 按 glob 模式批量读取多个文件，一次调用替代 glob+read 循环。\n\n"
-        "**限制**:\n"
-        "- 最多 50 个文件，每个最多 ~500 行\n"
-        "- 总输出最多 ~128K 字符\n"
-        "- 跳过二进制文件和 >2 MB 的文件\n"
-        "- 匹配文件超过 max_files 时，按修改时间取最新的 max_files 个\n\n"
-        "**错误应对**:\n"
-        "- 无匹配文件 → 返回提示\n"
-        "- 目录不存在 → 返回错误\n"
-        "- 超出 max_files → 末尾提示 \"Showing N of M matching files. Increase max_files to read more.\"\n\n"
-        "**边界条件**:\n"
-        "- 需要从特定行号开始读 → 用 read_file\n"
-        "- 只需要文件名 → 用 glob\n"
-        "- 搜索内容 → 用 grep\n\n"
-        "**极简案例**: read_files(pattern='src/**/*.py', grep='def handle')\n"
-        "→ 返回所有匹配文件中包含 def handle 的行"
+        "**什么时候用**:\n"
+        "- 需要同时读取匹配某个模式的多个文件\n"
+        "- 需要在多个文件中搜索关键词并查看匹配行及其上下文\n\n"
+        "**什么时候不用**:\n"
+        "- 需要从特定行号开始读单个文件 → 用 read_file\n"
+        "- 只需要文件名列表 → 用 glob\n"
+        "- 只需搜索内容而不读文件 → 用 grep\n"
     )
 
     async def execute(

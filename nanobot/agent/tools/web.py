@@ -107,19 +107,14 @@ class WebSearchTool(WebToolBase, Tool):
     name = "web_search"
     description = (
         "**用途**: 搜索网络获取最新信息。\n\n"
-        "**限制**:\n"
-        "- 不支持私有/认证内容\n"
-        "- 结果来自搜索引擎，不保证 100% 准确\n"
-        "- 默认返回 5 条结果，最多 10 条\n\n"
-        "**错误应对**:\n"
-        "- API key 未配置 → 自动降级到 DuckDuckGo\n"
-        "- 搜索失败 → 返回错误信息或降级提示\n"
-        "- 无结果 → 返回 No results\n\n"
-        "**边界条件**:\n"
+        "**什么时候用**:\n"
+        "- 需要查询不熟悉的信息、最新新闻或线上文档时\n"
+        "- 需要查找最新的技术方案或最佳实践时\n\n"
+        "**什么时候不用**:\n"
         "- 已有 URL → 用 web_fetch，不用 web_search\n"
-        "- 需要读取具体页面 → 用 web_fetch\n\n"
-        "**极简案例**: web_search(query='Python 3.13 新特性')\n"
-        "→ 返回搜索结果标题、URL 和摘要"
+        "- 需要读取具体页面 → 用 web_fetch\n"
+        "- 结果来自搜索引擎，不保证 100% 准确\n"
+        "- 默认返回 5 条结果，最多 10 条"
     )
 
     def __init__(self, config: WebSearchConfig | None = None, proxy: str | None = None, user_agent: str | None = None):
@@ -335,21 +330,13 @@ class WebFetchTool(WebToolBase, Tool):
     name = "web_fetch"
     description = (
         "**用途**: 获取 URL 内容并提取可读文本。\n\n"
-        "**限制**:\n"
-        "- 仅支持 http/https\n"
-        "- 无法处理需要登录的页面\n"
-        "- JS 密集的页面可能渲染不完整\n"
-        "- 内置 SSRF 保护\n\n"
-        "**错误应对**:\n"
-        "- URL 无效 → 返回错误\n"
-        "- 请求超时/失败 → 返回具体错误信息\n"
-        "- 被限流 → 自动降级（Jina → readability）\n\n"
-        "**边界条件**:\n"
+        "**什么时候用**:\n"
+        "- 已有 URL 需要获取页面内容时\n\n"
+        "**什么时候不用**:\n"
         "- 无 URL → 用 web_search 先搜索\n"
         "- 只需页面元数据 → web_search 结果已包含\n"
-        "- extract 参数可用正则过滤行\n\n"
-        "**极简案例**: web_fetch(url='https://example.com')\n"
-        "→ 获取页面内容并转为可读文本"
+        "- JS 密集的页面可能渲染不完整\n"
+        "- extract 参数可用正则过滤行"
     )
 
     def __init__(self, config: WebFetchConfig | None = None, proxy: str | None = None, user_agent: str | None = None, max_chars: int = 100000):

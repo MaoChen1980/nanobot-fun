@@ -83,7 +83,7 @@ class RecallTool(Tool):
         "- 不搜索 goal/event 表（查询目标进度用 list_goals）\n"
         "- knowledge 模式新建或修改的内容不会立刻出现，需要等索引重建\n"
         "- knowledge 模式是语义模糊匹配，可能漏掉特定术语\n\n"
-        "**极简案例**:\n"
+        "**示例**:\n"
         "  recall(mode='knowledge', query='memory consolidation', k=5)\n"
         "  → 返回语义相关的知识记忆段落\n"
         "  recall(mode='history', query='部署问题', keyword='docker', start='2026-01-01')\n"

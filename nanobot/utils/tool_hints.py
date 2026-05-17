@@ -21,7 +21,6 @@ _TOOL_FORMATS: dict[str, tuple[list[str], str, bool, bool]] = {
     "web_fetch":      (["url"],                            "fetch {}",         True,  False),
     "list_dir":       (["path"],                           "ls {}",            True,  False),
     "explore_module": (["path"],                           "explore {}",       True,  False),
-    "inspect_text":   (["file_path", "path"],              "inspect {}",       True,  False),
     "notebook_edit":  (["notebook_path", "path"],          "notebook {}",      True,  False),
     "analyze":        (["file_path", "path"],              "analyze {}",       True,  False),
     "git_inspect":    (["path"],                           "git {}",           True,  False),

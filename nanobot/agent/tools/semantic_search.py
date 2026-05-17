@@ -45,29 +45,14 @@ class SearchTextTool(Tool):
         self._allowed_dir = allowed_dir
 
     description = (
-        "**用途**: 在给定文本或文件中按语义搜索相关段落，不需要全文阅读。"
-        "text 和 path 二选一传入。"
-        "与 recall(mode='knowledge') 的区别：search_text 搜的是你传入的文本/文件，"
-        "recall 搜的是 memory/ 目录（持久化记忆）。\n\n"
-        "**限制**:\n"
-        "- 输入最大 5 MB\n"
-        "- 每次最多返回 20 条结果（k ≤ 20）\n"
-        "- 不适合代码搜索\n"
-        "- 语义 ≈ 模糊匹配，不保证找到所有提及\n"
-        "- 文本在 chunk 边界可能被切分\n\n"
-        "**错误应对**:\n"
-        "- 返回空 []: (a) 无匹配 → 换 query (b) 依赖未安装 → 一直返回空，"
-        "换用 grep (c) 输入空 → 检查输入\n"
-        "- 'Provide either text or path': 必须提供其中一个且只能一个\n"
-        "- 'text too large': 输入超 5 MB，截短或用 grep\n\n"
-        "**边界条件**:\n"
+        "**用途**: 在给定文本或文件中按语义搜索相关段落，不需要全文阅读。text 和 path 二选一传入。\n\n"
+        "**什么时候用**:\n"
+        "- 有一篇长文档，想知道哪些段落与某个自然语言查询相关\n"
+        "- text 和 path 二选一，搜索你传入的文本/文件\n\n"
+        "**什么时候不用**:\n"
         "- 需要精确关键词匹配 → 用 grep\n"
-        "- 不知道文档内容 → 用 read_file(mode='overview')\n"
-        "- 需要在 memory/ 目录搜索 → 用 recall(mode='knowledge')\n"
-        "- 代码搜索 → 用 grep\n\n"
-        "**极简案例**:\n"
-        "  search_text(query='退款流程', text=long_article)\n"
-        "  → 返回带 score/offset/length 的相关段落列表"
+        "- 需要代码搜索 → 用 grep\n"
+        "- 搜索 memory/ 目录 → 用 recall(mode='knowledge')\n"
     )
 
     async def execute(

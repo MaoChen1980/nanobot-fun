@@ -42,20 +42,19 @@ class ReadFileTool(_FsTool):
     name = "read_file"
 
     description = (
-        "**用途**: 读取文件内容（文本/image/PDF/Office），支持按行分页和正则过滤。\n\n"
-        "**限制**:\n"
-        "- 默认最多输出 2000 行，单次最多 ~128K 字符\n"
-        "- PDF 最多 20 页\n\n"
-        "**错误应对**:\n"
-        "- 文件不存在/无权限 → 返回错误信息\n"
-        "- 文件过大 → 用 offset+limit 分批读取\n\n"
-        "**边界条件**:\n"
-        "- 需要读多个文件 → 用 read_files\n"
-        "- 只看文件名/结构 → 用 list_dir 或 glob\n"
+        "**用途**: 读取文件内容（文本/图片/PDF/Office），支持按行分段和正则过滤。\n\n"
+        "**什么时候用**:\n"
+        "- 需要查看文件全部或部分内容时\n"
+        "- 需要读取日志、代码、配置文件时\n"
+        "- 需要按 offset+limit 分段读取大文件时\n"
+        "- 需要从 PDF 或 Office 文档提取文本时\n"
+        "- 需要用正则提取匹配的行时\n\n"
+        "**什么时候不用**:\n"
+        "- 只需要文件名/目录结构 → 用 list_dir\n"
+        "- 需要搜索文件内容 → 用 grep\n"
+        "- 需要批量读多个文件 → 用 read_files\n"
         "- 需要读取 URL → 用 web_fetch\n"
-        "- **不确定文件内容** → 用 mode='overview' 先看结构再决定读哪段\n\n"
-        "**极简案例**: read_file(path='main.py', offset=1, limit=50) → 返回前 50 行\n"
-        "read_file(path='long_doc.md', mode='overview') → 返回各章节 heading + 关键词 + 偏移量"
+        "- 需要修改文件 → 用 edit_file 或 write_file\n"
     )
 
     read_only = True

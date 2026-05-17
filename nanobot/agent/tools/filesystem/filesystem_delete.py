@@ -18,17 +18,13 @@ class DeleteFileTool(_FsTool):
     name = "delete_file"
     description = (
         "**用途**: 删除单个文件。\n\n"
-        "**限制**:\n"
-        "- 只能删除文件，不能删除目录\n"
-        "- 不可撤销（没有回收站）\n\n"
-        "**错误应对**:\n"
-        "- 文件不存在 → 返回错误\n"
-        "- 路径是目录 → 返回错误\n\n"
-        "**边界条件**:\n"
-        "- 需要删除目录 → 用 exec rm -rf / rmdir\n"
-        "- 比 exec rm 更安全：workspace 保护 + 自动验证\n\n"
-        "**极简案例**: delete_file(path='temp.txt')\n"
-        "→ 删除文件，返回确认"
+        "**什么时候用**:\n"
+        "- 需要删除不再需要的文件时\n"
+        "- 需要比 exec rm 更安全的删除（带 workspace 保护和自动验证）时\n\n"
+        "**什么时候不用**:\n"
+        "- 需要删除目录 → 用 exec rmdir / rm -rf\n"
+        "- 需要批量删除文件 → 用 exec rm\n"
+        "- 需要移动/重命名文件 → 用 move_file\n"
     )
 
     _pre_validators = [PathExists("path"), PathType("path", "file")]

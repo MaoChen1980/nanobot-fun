@@ -29,21 +29,13 @@ class GitInspectTool(_FsTool):
 
     description = (
         "**用途**: 查看 git 历史 — 谁改了什么、为什么改。\n\n"
-        "**核心价值**: 输出自带结构化摘要（commit 数、作者数、文件变更统计），"
-        "一目了然改动范围和影响，不用逐条读 commit。"
-        "exec(git log) 做不到这一点。\n\n"
-        "**限制**:\n"
-        "- 最多返回 50 个 commit\n"
-        "- git 查询超时 30 秒\n\n"
-        "**错误应对**:\n"
-        "- 不在 git 仓库 → 返回错误\n"
-        "- commit SHA 无效 → 返回提示\n\n"
-        "**边界条件**:\n"
-        "- 无参数 → 显示最近 10 个 commit\n"
-        "- 传 path → 过滤该文件的 commit\n"
-        "- 传 commit → 显示该 commit 完整 diff\n\n"
-        "**极简案例**: git_inspect(path='src/main.py', since='7 days ago')\n"
-        "→ 返回 7 天内修改过 src/main.py 的 commits"
+        "**什么时候用**:\n"
+        "- 需要查看最近 commit 记录，了解项目变更\n"
+        "- 需要查看特定文件的历史修改\n"
+        "- 需要检查某个 commit 的完整 diff\n\n"
+        "**什么时候不用**:\n"
+        "- 需要同时搜索代码和 git 历史 → 用 diagnose\n"
+        "- 只是确认是否在 git 仓库 → 用 my(check)\n"
     )
 
     async def execute(

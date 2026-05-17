@@ -145,18 +145,14 @@ class GlobTool(_SearchTool):
     def description(self) -> str:
         return (
             "**用途**: 按文件名模式搜索文件。\n\n"
-            "**限制**:\n"
-            "- 默认最多返回 250 条（最多 1000）\n"
-            "- 不搜索文件内容\n"
-            "- 自动跳过 .git / node_modules 等目录\n\n"
-            "**错误应对**:\n"
-            "- 目录不存在 → 返回错误\n"
-            "- 无匹配 → 返回提示信息\n\n"
-            "**边界条件**:\n"
+            "**什么时候用**:\n"
+            "- 需要按 glob 模式匹配文件名来搜索文件时\n"
+            "- 默认最多返回 250 条（最多 1000）\n\n"
+            "**什么时候不用**:\n"
             "- 需要搜索文件内容 → 用 grep\n"
-            "- 需要看目录所有文件 → 用 list_dir\n\n"
-            "**极简案例**: glob(pattern='*.py', path='src')\n"
-            "→ 返回 src/ 下所有 .py 文件路径"
+            "- 需要看目录所有文件 → 用 list_dir\n"
+            "- 自动跳过 .git / node_modules 等目录\n"
+            "- 不搜索文件内容"
         )
 
     @property
@@ -280,19 +276,14 @@ class GrepTool(_SearchTool):
     def description(self) -> str:
         return (
             "**用途**: 用正则表达式搜索文件内容。\n\n"
-            "**限制**:\n"
-            "- 跳过二进制文件和 >2 MB 的文件\n"
-            "- 输出最多 ~256K 字符\n"
-            "- 默认最多返回 250 条结果\n\n"
-            "**错误应对**:\n"
-            "- 无效正则 → 返回错误信息\n"
-            "- 路径不存在 → 返回错误\n"
-            "- 无匹配 → 返回提示\n\n"
-            "**边界条件**:\n"
+            "**什么时候用**:\n"
+            "- 需要在文件内容中搜索匹配某个模式的行\n"
+            "- 支持正则表达式\n\n"
+            "**什么时候不用**:\n"
             "- 需要按文件名搜 → 用 glob\n"
-            "- 需要读特定文件 → 用 read_file\n\n"
-            "**极简案例**: grep(pattern='def handle', path='src', file_type='py', output_mode='content')\n"
-            "→ 返回匹配行及上下文"
+            "- 需要读特定文件 → 用 read_file\n"
+            "- 跳过二进制文件和 >2 MB 的文件\n"
+            "- 默认最多返回 250 条结果"
         )
 
     @property

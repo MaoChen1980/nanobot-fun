@@ -368,7 +368,7 @@ class AgentLoop:
         self.tools.register(ExploreModuleTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tools.register(GitInspectTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tools.register(RecipeTool(run_tool=self.tools.execute))
-        self.tools.register(AnalyzeTool())
+        self.tools.register(AnalyzeTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tools.register(DiagnoseTool(workspace=self.workspace, allowed_dir=allowed_dir))
         if self._db:
             from nanobot.agent.tools.tool_call_log import ToolCallLogTool
