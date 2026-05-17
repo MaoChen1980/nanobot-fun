@@ -532,8 +532,8 @@ class AgentLoop:
 
         Returns (final_content, tools_used, messages, stop_reason, had_injections).
         """
-        observe_think = self._session_observe["_observe_think"].get(session_key, False)
-        observe_tool = self._session_observe["_observe_tool"].get(session_key, False)
+        observe_think = self._session_observe["_observe_think"].get(session_key, True)
+        observe_tool = self._session_observe["_observe_tool"].get(session_key, True)
         loop_hook = _LoopHook(
             self,
             on_progress=on_progress,
