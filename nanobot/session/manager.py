@@ -143,15 +143,19 @@ class Session:
             out.append(entry)
 
         if max_tokens > 0 and out:
-            kept: list[dict[str, Any]] = []
+            # Slice by whole turns (assistant-anchored) instead of by message,
+            # so the LLM never sees a partial turn with orphan tool calls.
+            turns = self._split_turns_by_assistant(out)
+            kept_turns: list[list[dict]] = []
             used = 0
-            for message in reversed(out):
-                tokens = estimate_message_tokens(message)
-                if kept and used + tokens > max_tokens:
+            for turn in reversed(turns):
+                turn_tokens = sum(estimate_message_tokens(m) for m in turn)
+                if kept_turns and used + turn_tokens > max_tokens:
                     break
-                kept.append(message)
-                used += tokens
-            kept.reverse()
+                kept_turns.append(turn)
+                used += turn_tokens
+            kept_turns.reverse()
+            kept = [m for turn in kept_turns for m in turn]
 
             # Keep history aligned to the first visible user turn.
             first_user = next((i for i, m in enumerate(kept) if m.get("role") == "user"), None)
