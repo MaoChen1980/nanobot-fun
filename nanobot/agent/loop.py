@@ -1010,6 +1010,7 @@ class AgentLoop:
             content=content, media=media or [], metadata=metadata or {},
         )
         _current_inbound.set(msg)
+        self._current_session_key = session_key
         return await self._process_message(
             msg,
             session_key=session_key,
