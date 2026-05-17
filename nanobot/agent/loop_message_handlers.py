@@ -154,15 +154,6 @@ class UserMessageHandler:
         if not msg.ephemeral:
             user_persisted_early = self._persist_user_message_early(session, msg, pending_ask_id)
 
-        # Stage 5b: .pt save check — per-session M counter
-        if not msg.ephemeral and pending_ask_id is None:
-            loop = self._loop
-            counter = loop._pt_counters.get(key, 0) + 1
-            loop._pt_counters[key] = counter
-            if counter >= loop._pt_save_interval:
-                loop._pt_counters[key] = 0
-                MemoryExtractor.save_pt(initial_messages, loop.prompts_dir, key)
-
         # Stage 6: run agent loop
         final_content, _, all_msgs, stop_reason, had_injections = await self._loop._run_agent_loop(
             initial_messages,
@@ -308,6 +299,13 @@ class UserMessageHandler:
         self._loop._recovery.clear_pending_user_turn(session)
         self._loop._recovery.clear_runtime_checkpoint(session)
         self._loop.sessions.save(session)
+
+        # .pt save: every N turns, save a snapshot of the current messages
+        turn_count = self._loop._pt_counters.get(session.key, 0) + 1
+        self._loop._pt_counters[session.key] = turn_count
+        if turn_count >= self._loop._pt_save_interval:
+            self._loop._pt_counters[session.key] = 0
+            MemoryExtractor.save_pt(all_msgs, self._loop.prompts_dir, session.key)
 
     def _build_outbound(self, msg, final_content, stop_reason, all_msgs, had_injections, on_stream):
         """Format the final OutboundMessage for the user."""
