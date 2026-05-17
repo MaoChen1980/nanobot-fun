@@ -17,7 +17,7 @@ _CRON_PARAMETERS = tool_parameters_schema(
     action=p("string", "Action to perform", enum=["add", "list", "remove", "update", "test"]),
     name=p("string",
         "Optional short human-readable label for the job "
-        "(e.g., 'weather-monitor', 'daily-standup'). Defaults to first 30 chars of message."
+        "(e.g., 'weather-monitor', 'daily-standup')."
     ),
     message=p("string",
         "REQUIRED when action='add'. Instruction for the agent to execute when the job triggers "
@@ -28,11 +28,11 @@ _CRON_PARAMETERS = tool_parameters_schema(
     cron_expr=p("string", "Cron expression like '0 9 * * *' (for scheduled tasks)"),
     tz=p("string",
         "Optional IANA timezone for cron expressions (e.g. 'America/Vancouver'). "
-        "When omitted with cron_expr, the tool's default timezone applies."
+        "Defaults to 'UTC' if omitted."
     ),
     at=p("string",
         "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00'). "
-        "Naive values use the tool's default timezone."
+        "Naive values use UTC."
     ),
     deliver=p("boolean", "Whether to deliver the execution result to the user channel (default true)",
         default=True,

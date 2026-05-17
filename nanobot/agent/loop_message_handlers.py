@@ -64,7 +64,6 @@ class SystemMessageHandler:
             chat_id=chat_id,
             current_role=current_role,
             context_state=cs,
-            message_timestamp=msg.timestamp.isoformat() if hasattr(msg, 'timestamp') else None,
         )
         final_content, _, all_msgs, stop_reason, _ = await self._loop._run_agent_loop(messages, on_stream=on_stream, on_stream_end=on_stream_end, on_reasoning=on_reasoning, on_reasoning_end=on_reasoning_end, session=session, channel=effective_channel, chat_id=chat_id, message_id=msg.metadata.get("message_id"), metadata=msg.metadata, session_key=key, pending_queue=pending_queue)
         msgs_count = len(messages)
@@ -75,7 +74,11 @@ class SystemMessageHandler:
         options = ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else []
         import re
         if final_content:
-            final_content = re.sub(r'^\[Message Time: [^\]]*\]\n?', '', final_content)
+            final_content = re.sub(
+                r'^(?:\[Message Time: [^\]]*\]|====== Message Time: [^=]+ ======)\s*\n?',
+                '',
+                final_content,
+            )
         content, buttons = ask_user_outbound(final_content or "Background task completed.", options, effective_channel)
         outbound_metadata: dict[str, Any] = {}
         if effective_channel == "slack" and key.startswith("slack:") and key.count(":") >= 2:
@@ -93,8 +96,7 @@ class UserMessageHandler:
         if msg.media:
             # All media (images, files, etc.) → save to workspace, no auto-processing
             import shutil
-            from nanobot.config.paths import get_workspace_path
-            ws = get_workspace_path()
+            ws = self._loop.workspace
             ws.mkdir(parents=True, exist_ok=True)
             labels: list[str] = []
             for p in msg.media:
@@ -245,7 +247,6 @@ class UserMessageHandler:
                 channel=msg.channel,
                 chat_id=self._loop._runtime_chat_id(msg),
                 context_state=cs,
-                message_timestamp=msg.timestamp.isoformat(),
             )
         return initial_messages, pending_ask_id
 
@@ -315,8 +316,12 @@ class UserMessageHandler:
                 return None
         if final_content is None:
             final_content = ""
-        # Strip [Message Time: ...] prefix that the LLM may have mimicked from history context
-        final_content = re.sub(r'^\[Message Time: [^\]]*\]\n?', '', final_content)
+        # Strip [Message Time: ...] / ====== Message Time: ... ====== prefix that the LLM may have mimicked from history context
+        final_content = re.sub(
+            r'^(?:\[Message Time: [^\]]*\]|====== Message Time: [^=]+ ======)\s*\n?',
+            '',
+            final_content,
+        )
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
         meta = dict(msg.metadata or {})

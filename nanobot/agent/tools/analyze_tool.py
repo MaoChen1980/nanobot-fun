@@ -14,7 +14,7 @@ from nanobot.agent.tools.schema import p, tool_parameters_schema
 @tool_parameters(
     tool_parameters_schema(
         data=p("string", "Text content to analyze (provide this or path)"),
-        path=p("string", "File path to read and analyze — file. Relative to workspace root (e.g. 'logs/error.log'). Absolute paths also accepted. Provide this or data."),
+        path=p("string", "Absolute path to a file to read and analyze. Provide this or data."),
         question=p("string", "Optional keyword filter — simple term matching, NOT semantic analysis. Example: 'database connection error' shows lines containing those words ranked by match count."),
         max_keywords=p("integer", "Maximum keywords to extract (default 15)", minimum=1, maximum=50, default=15),
     ),

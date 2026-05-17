@@ -72,31 +72,16 @@ def _extract_powershell_inner(command: str) -> str | None:
         inner = inner[1:-1]
     return inner.strip()
 
-# Executables whose -c/-e/-Command/-File flags take a quoted script argument
-# that cmd.exe /c would mangle (list2cmdline → outer-quote wrappping → strip).
-# Spawning these directly avoids the problem.
-_EXES_WITH_SCRIPT_FLAGS: set[str] = {
-    # Executables known to use -c/-e/-Command/-File flags with a quoted
-    # script argument.  For these we extract the script text as a single
-    # argument (preserving spaces) instead of splitting on whitespace.
-    "powershell",
-    "powershell.exe",
-    "pwsh",
-    "python",
-    "python3",
-    "node",
-}
-
 @tool_parameters(
     tool_parameters_schema(
         command=p("string", "The shell command to execute. Not needed when from_cache is set."),
-        working_dir=p("string", "Working directory for the command — directory. Relative to workspace root. Absolute paths also accepted (default: workspace root)."),
+        working_dir=p("string", "Absolute path to the working directory (default: workspace root)."),
         timeout=p("integer",
             "Timeout in seconds. Increase for long-running commands like compilation or installation.",
             minimum=1, maximum=600, default=60,
         ),
         capture_file=p("string",
-            "If set, write command output to this file path (relative to workspace root; absolute paths also accepted) "
+            "If set, write command output to this absolute file path "
             "in real-time as it runs. "
             "You can use read_file on this path mid-execution to see partial progress "
             "before the command finishes. "
@@ -455,12 +440,7 @@ class ExecTool(Tool):
         """Load cached output from a JSON cache file."""
         path = Path(cache_path_str)
         if not path.exists():
-            # Try relative to cache dir
-            alt = get_runtime_subdir(self._CACHE_DIR_NAME) / path.name
-            if alt.exists():
-                path = alt
-            else:
-                raise FileNotFoundError(f"Cache file not found: {cache_path_str}")
+            raise FileNotFoundError(f"Cache file not found: {cache_path_str}")
         return json.loads(path.read_text(encoding="utf-8"))
 
     async def _from_cache_mode(self, cache_path: str, grep: str | None, extract: str | None) -> str:
@@ -706,102 +686,11 @@ class ExecTool(Tool):
             return f"  ❌ check script error: {e}", True
 
     @staticmethod
-    def _try_direct_args(command: str) -> list[str] | None:
-        """Parse *command* for direct subprocess spawn, bypassing ``cmd.exe /c``.
-
-        Returns ``[exe_path, arg, ...]``, or ``None`` if the command should
-        fall through to ``cmd.exe /c`` (shell builtins like ``dir``, ``del``).
-        """
-        parts = command.strip().split(maxsplit=1)
-        exe = parts[0]
-        rest = parts[1] if len(parts) > 1 else ""
-
-        # If the command contains explicit shell pipe operators (&&, ||),
-        # let cmd.exe /c handle the full pipeline — direct spawn would
-        # only handle the first invocation and pass shell text to the exe.
-        if ('&&' in command) or ('||' in command):
-            return None
-
-        # Never try to spawn cmd.exe directly — let _spawn() wrap it in
-        # cmd.exe /c as intended.
-        if exe.lower() in ("cmd", "cmd.exe"):
-            return None
-
-        exe_path = shutil.which(exe)
-        if not exe_path:
-            return None  # shell builtin — keep cmd.exe /c
-
-        # For known exes with script-taking flags, locate the flag and
-        # extract the script text as a single argument (preserving spaces).
-        if exe.lower() in _EXES_WITH_SCRIPT_FLAGS and rest:
-            # Flag words that take a script/path argument.
-            flag_pats = [
-                r'(?:^|\s)(-[cC]ommand)(?:\s|$)',
-                r'(?:^|\s)(-[fF]ile)(?:\s|$)',
-                r'(?:^|\s)(-[eE]ncoded[Cc]ommand)(?:\s|$)',
-                r'(?:^|\s)(-[cC])(?:\s|$)',
-                r'(?:^|\s)(-[eE])(?:\s|$)',
-                r'(?:^|\s)(-[pP])(?:\s|$)',   # node -p (print eval)
-            ]
-            for pat in flag_pats:
-                fm = re.search(pat, rest)
-                if not fm:
-                    continue
-                flag_name = fm.group(1)
-                flag_pos = fm.start(1)
-                flags_before = rest[:flag_pos].strip()
-                script_start = flag_pos + len(flag_name)
-                while script_start < len(rest) and rest[script_start].isspace():
-                    script_start += 1
-                script = rest[script_start:].strip()
-                # Detect whether the script is a single "..." or '...' token.
-                # If the closing quote is not at the very end, text after it is
-                # likely shell syntax (e.g. python -c "..." > output.txt).
-                for q in ('"', "'"):
-                    if script.startswith(q):
-                        close = script.rfind(q)
-                        if close == 0:
-                            break  # malformed — single quote char
-                        if close != len(script) - 1:
-                            return None  # trailing shell text
-                        script = script[1:-1]
-                        break
-                if not script:
-                    continue  # empty script, try next flag pattern
-                args = [exe_path]
-                if flags_before:
-                    args.extend(flags_before.split())
-                args.append(flag_name)
-                if script:
-                    args.append(script)
-                return args
-            # No recognised script flag — fall back to cmd.exe /c.
-            # Simple split would break on shell metacharacters (>&, etc.)
-            # or quoted arguments in the rest.
-            return None
-
-        # Generic: stay with cmd.exe /c for unknown exes.
-        # Shell semantics (&&, |, >, <, quoting, \" escaping) are
-        # fragile to replicate — fall through to avoid regressions.
-        return None
-
-    @staticmethod
     async def _spawn(
         command: str, cwd: str, env: dict[str, str],
     ) -> asyncio.subprocess.Process:
         """Launch *command* in a platform-appropriate shell."""
         if _IS_WINDOWS:
-            # Try direct spawn for executables that exist on PATH
-            # (avoids cmd.exe /c mangling embedded double-quotes in -c/-e/... args).
-            direct_args = ExecTool._try_direct_args(command)
-            if direct_args is not None:
-                return await asyncio.create_subprocess_exec(
-                    *direct_args,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=cwd,
-                    env=env,
-                )
             comspec = env.get("COMSPEC", os.environ.get("COMSPEC", "cmd.exe"))
             return await asyncio.create_subprocess_exec(
                 comspec, "/c", command,
@@ -881,7 +770,7 @@ class ExecTool(Tool):
         return env
 
     def _guard_command(self, command: str, cwd: str) -> str | None:
-        """Best-effort safety guard for potentially destructive commands."""
+        """Safety guard for potentially destructive commands."""
         return validate_command(
             command=command,
             cwd=cwd,

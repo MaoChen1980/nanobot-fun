@@ -41,12 +41,12 @@ def _make_empty_notebook() -> dict:
 
 @tool_parameters(
     tool_parameters_schema(
-        path=p("string", "Path to the .ipynb notebook file — file. Relative to workspace root (e.g. 'notebooks/analysis.ipynb'). Absolute paths also accepted."),
+        path=p("string", "Absolute path to a .ipynb notebook file."),
         cell_index=p("integer", "0-based index of the cell to edit (default 0)", minimum=0, default=0),
         new_source=p("string", "New source content for the cell. Required for replace/insert modes; ignored when edit_mode is 'delete'."),
         cell_type=p("string",
             "Cell type: 'code' or 'markdown' (default: code)",
-            enum=["code", "markdown"],
+            enum=["code", "markdown"], default="code",
         ),
         edit_mode=p("string",
             "Mode: 'replace' overwrites cell at cell_index, 'insert' adds a new cell after cell_index, 'delete' removes cell at cell_index",

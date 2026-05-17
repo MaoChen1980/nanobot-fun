@@ -565,13 +565,15 @@ class AgentRunner:
     @staticmethod
     def _fmt_tool_metadata(tool_name: str, result: str, timestamp: str = "") -> str:
         """Prefix tool result with searchable metadata: tool name, size, time."""
+        from nanobot.utils.helpers import format_message_header
+        header = format_message_header()
         size = len(result) if isinstance(result, str) else 0
         ts = timestamp[:16].replace("T", " ") if timestamp else ""
         meta = f"[Tool: {tool_name}"
         if ts:
             meta += f" | {ts}"
         meta += f" | {size} chars]"
-        return f"{meta}\n{result}"
+        return f"{header}\n{meta}\n{result}"
 
     # Backward compatibility — delegate to module functions
     _drop_orphan_tool_results = staticmethod(drop_orphan_tool_results)

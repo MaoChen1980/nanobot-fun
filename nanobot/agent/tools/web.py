@@ -124,26 +124,8 @@ class WebSearchTool(WebToolBase, Tool):
         self.config = config if config is not None else WebSearchConfig()
 
     def _effective_provider(self) -> str:
-        """Resolve the backend that execute() will actually use."""
-        provider = self.config.provider.strip().lower() or "brave"
-        if provider == "duckduckgo":
-            return "duckduckgo"
-        if provider == "brave":
-            api_key = self.config.api_key or os.environ.get("BRAVE_API_KEY", "")
-            return "brave" if api_key else "duckduckgo"
-        if provider == "tavily":
-            api_key = self.config.api_key or os.environ.get("TAVILY_API_KEY", "")
-            return "tavily" if api_key else "duckduckgo"
-        if provider == "searxng":
-            base_url = (self.config.base_url or os.environ.get("SEARXNG_BASE_URL", "")).strip()
-            return "searxng" if base_url else "duckduckgo"
-        if provider == "jina":
-            api_key = self.config.api_key or os.environ.get("JINA_API_KEY", "")
-            return "jina" if api_key else "duckduckgo"
-        if provider == "kagi":
-            api_key = self.config.api_key or os.environ.get("KAGI_API_KEY", "")
-            return "kagi" if api_key else "duckduckgo"
-        return provider
+        """Return the configured provider (no silent fallback)."""
+        return self.config.provider.strip().lower() or "brave"
 
     read_only = True
 
@@ -174,8 +156,7 @@ class WebSearchTool(WebToolBase, Tool):
     async def _search_brave(self, query: str, n: int) -> str:
         api_key = self.config.api_key or os.environ.get("BRAVE_API_KEY", "")
         if not api_key:
-            logger.warning("BRAVE_API_KEY not set, falling back to DuckDuckGo")
-            return await self._search_duckduckgo(query, n)
+            return "Error: BRAVE_API_KEY is not set"
         try:
             client = self._client
             r = await client.get(
@@ -197,8 +178,7 @@ class WebSearchTool(WebToolBase, Tool):
     async def _search_tavily(self, query: str, n: int) -> str:
         api_key = self.config.api_key or os.environ.get("TAVILY_API_KEY", "")
         if not api_key:
-            logger.warning("TAVILY_API_KEY not set, falling back to DuckDuckGo")
-            return await self._search_duckduckgo(query, n)
+            return "Error: TAVILY_API_KEY is not set"
         try:
             client = self._client
             r = await client.post(
@@ -216,8 +196,7 @@ class WebSearchTool(WebToolBase, Tool):
     async def _search_searxng(self, query: str, n: int) -> str:
         base_url = (self.config.base_url or os.environ.get("SEARXNG_BASE_URL", "")).strip()
         if not base_url:
-            logger.warning("SEARXNG_BASE_URL not set, falling back to DuckDuckGo")
-            return await self._search_duckduckgo(query, n)
+            return "Error: SEARXNG_BASE_URL is not set"
         endpoint = f"{base_url.rstrip('/')}/search"
         is_valid, error_msg = _validate_url(endpoint)
         if not is_valid:
@@ -239,8 +218,7 @@ class WebSearchTool(WebToolBase, Tool):
     async def _search_jina(self, query: str, n: int) -> str:
         api_key = self.config.api_key or os.environ.get("JINA_API_KEY", "")
         if not api_key:
-            logger.warning("JINA_API_KEY not set, falling back to DuckDuckGo")
-            return await self._search_duckduckgo(query, n)
+            return "Error: JINA_API_KEY is not set"
         try:
             headers = {"Accept": "application/json", "Authorization": f"Bearer {api_key}"}
             encoded_query = quote(query, safe="")
@@ -258,14 +236,13 @@ class WebSearchTool(WebToolBase, Tool):
             ]
             return _format_results(query, items, n)
         except Exception as e:
-            logger.warning("Jina search failed ({}), falling back to DuckDuckGo", e)
-            return await self._search_duckduckgo(query, n)
+            logger.warning("Jina search failed: {}", e)
+            return f"Error: Jina search failed ({e})"
 
     async def _search_kagi(self, query: str, n: int) -> str:
         api_key = self.config.api_key or os.environ.get("KAGI_API_KEY", "")
         if not api_key:
-            logger.warning("KAGI_API_KEY not set, falling back to DuckDuckGo")
-            return await self._search_duckduckgo(query, n)
+            return "Error: KAGI_API_KEY is not set"
         try:
             client = self._client
             r = await client.get(
@@ -376,13 +353,12 @@ class WebFetchTool(WebToolBase, Tool):
 
         if self.config.use_jina_reader:
             result = await self._fetch_jina(url, max_chars)
-            if result is not None:
-                return self._apply_extract(result, extract) if extract else result
+            return self._apply_extract(result, extract) if extract else result
         result = await self._fetch_readability(url, extractMode, max_chars)
         return self._apply_extract(result, extract) if extract else result
 
-    async def _fetch_jina(self, url: str, max_chars: int) -> str | None:
-        """Try fetching via Jina Reader API. Returns None on failure."""
+    async def _fetch_jina(self, url: str, max_chars: int) -> str:
+        """Fetch via Jina Reader API. Returns result or error."""
         try:
             headers = {"Accept": "application/json", "User-Agent": self.user_agent}
             jina_key = os.environ.get("JINA_API_KEY", "")
@@ -391,15 +367,14 @@ class WebFetchTool(WebToolBase, Tool):
             client = self._client
             r = await client.get(f"https://r.jina.ai/{url}", headers=headers, timeout=20.0)
             if r.status_code == 429:
-                logger.debug("Jina Reader rate limited, falling back to readability")
-                return None
+                return json.dumps({"error": "Jina Reader rate limited (429)", "url": url}, ensure_ascii=False)
             r.raise_for_status()
 
             data = r.json().get("data", {})
             title = data.get("title", "")
             text = data.get("content", "")
             if not text:
-                return None
+                return json.dumps({"error": "Jina Reader returned empty content", "url": url}, ensure_ascii=False)
 
             if title:
                 text = f"# {title}\n\n{text}"
@@ -414,8 +389,8 @@ class WebFetchTool(WebToolBase, Tool):
                 "untrusted": True, "text": text,
             }, ensure_ascii=False)
         except Exception as e:
-            logger.debug("Jina Reader failed for {}, falling back to readability: {}", url, e)
-            return None
+            logger.debug("Jina Reader failed for {}: {}", url, e)
+            return json.dumps({"error": f"Jina Reader failed: {e}", "url": url}, ensure_ascii=False)
 
     async def _fetch_readability(self, url: str, extract_mode: str, max_chars: int) -> Any:
         """Local fallback using readability-lxml."""

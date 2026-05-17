@@ -14,12 +14,12 @@ from nanobot.agent.tools.filesystem.filesystem_base import _FsTool
 
 @tool_parameters(
     tool_parameters_schema(
-        path=p("string", "File or directory path to filter commits by — relative to repository root (e.g. 'src/main.py'), NOT an absolute filesystem path. Git pathspec only, use forward slashes."),
+        path=p("string", "Absolute path to a file or directory inside a git repository. Tool locates the repo and shows relevant commit history."),
         since=p("string", "Time range, e.g. '7 days ago', '2024-01-01', '1 month'"),
-        commit=p("string", "Specific commit SHA to inspect in detail"),
+        commit=p("string", "Specific commit SHA to inspect in detail (shows full diff)"),
         max_commits=p("integer", "Maximum commits in log view (default 10, max 50)", minimum=1, maximum=50, default=10),
     ),
-    required=[],
+    required=["path"],
 )
 class GitInspectTool(_FsTool):
     """See what changed in the git repository — commit messages, authors, diffs."""
@@ -30,9 +30,8 @@ class GitInspectTool(_FsTool):
     description = (
         "**用途**: 查看 git 历史 — 谁改了什么、为什么改。\n\n"
         "**什么时候用**:\n"
-        "- 需要查看最近 commit 记录，了解项目变更\n"
-        "- 需要查看特定文件的历史修改\n"
-        "- 需要检查某个 commit 的完整 diff\n\n"
+        "- 需要查看某个文件或目录最近的 commit 记录\n"
+        "- 需要检查某个 commit 的具体改动（diff）\n\n"
         "**什么时候不用**:\n"
         "- 需要同时搜索代码和 git 历史 → 用 diagnose\n"
         "- 只是确认是否在 git 仓库 → 用 my(check)\n"
@@ -40,39 +39,27 @@ class GitInspectTool(_FsTool):
 
     async def execute(
         self,
-        path: str | None = None,
+        path: str,
         since: str | None = None,
         commit: str | None = None,
         max_commits: int = 10,
         **kwargs: Any,
     ) -> str:
         try:
-            workspace = self._resolve(".")
-            git_dir: Path | None = None
-            resolved_path: str | None = None
-
-            if path:
-                path = path.replace("\\", "/")
-                is_abs = path.startswith("/") or re.match(r"[A-Za-z]:", path)
-
-                if is_abs:
-                    abs_path = Path(path).resolve()
-                    search_dir = abs_path if abs_path.is_dir() else abs_path.parent
-                    git_dir = self._find_git_root(search_dir)
-                    if git_dir:
-                        try:
-                            resolved_path = abs_path.relative_to(git_dir.resolve()).as_posix()
-                        except ValueError:
-                            resolved_path = "."
-                else:
-                    git_dir = self._find_git_root(workspace)
-                    resolved_path = path
-            else:
-                git_dir = self._find_git_root(workspace)
-                resolved_path = None
+            path = path.replace("\\", "/")
+            abs_path = Path(path).resolve()
+            search_dir = abs_path if abs_path.is_dir() else abs_path.parent
+            git_dir = self._find_git_root(search_dir)
 
             if not git_dir:
                 return "Error: Not a git repository (or any parent directory)"
+
+            resolved_path: str | None = None
+            if abs_path != git_dir.resolve():
+                try:
+                    resolved_path = abs_path.relative_to(git_dir.resolve()).as_posix()
+                except ValueError:
+                    pass
 
             if commit:
                 return self._show_commit(git_dir, commit)
@@ -109,9 +96,9 @@ class GitInspectTool(_FsTool):
         if path:
             cmd.extend(["--", path])
 
-        result = self._run(cmd)
+        result, err = self._run(cmd)
         if result is None:
-            return "Error: git log failed"
+            return f"Error: git log failed — {err}" if err else "Error: git log failed"
 
         commits = self._parse_log(result)
         if not commits:
@@ -136,13 +123,19 @@ class GitInspectTool(_FsTool):
         if path:
             lines.append(f"Path: {path}")
         if not summary and not since and not path:
-            lines.append("")  # blank line after title
+            lines.append("")
 
         for c in commits:
-            date = c["date"][:10]
             sha = c["sha"][:8]
+            date = c["date"][:10]
             subject = c["subject"][:80]
-            lines.append(f"  {sha}  {date}  {c['author']}  {subject}")
+            body = c.get("body", "").strip()
+            line = f"  {sha}  {date}  {c['author']}  {subject}"
+            if body:
+                first_body = body.split("\n")[0][:60]
+                if first_body and first_body != subject:
+                    line += f"\n           {first_body}"
+            lines.append(line)
 
         lines.append("")
         lines.append(f"({len(commits)} commits shown)")
@@ -156,7 +149,6 @@ class GitInspectTool(_FsTool):
         self, git_dir: Path, since: str | None, path: str | None,
         commits: list[dict[str, str]],
     ) -> str | None:
-        """Build structured summary: commit count, authors, file change stats."""
         if not commits:
             return None
 
@@ -165,7 +157,6 @@ class GitInspectTool(_FsTool):
             f"- **{len(commits)} commits**, **{len(authors)} authors**",
         ]
 
-        # Aggregate file stats via shortstat (one line per commit)
         cmd = [
             "git", "-C", str(git_dir), "log",
             f"--max-count={len(commits)}",
@@ -176,7 +167,7 @@ class GitInspectTool(_FsTool):
         if path:
             cmd.extend(["--", path])
 
-        result = self._run(cmd)
+        result, err = self._run(cmd)
         if result:
             total_files = total_added = total_removed = 0
             for line in result.split("\n"):
@@ -211,7 +202,6 @@ class GitInspectTool(_FsTool):
             parts = block.split("\n", 6)
             if len(parts) < 6:
                 continue
-            # parts[0] is the "COMMIT" marker, skip it
             commits.append({
                 "sha": parts[1],
                 "author": parts[2],
@@ -234,9 +224,10 @@ class GitInspectTool(_FsTool):
             "--patch",
             sha,
         ]
-        result = self._run(cmd)
+        result, err = self._run(cmd)
         if result is None:
-            return f"Error: commit {sha} not found"
+            msg = err or f"commit {sha} not found"
+            return f"Error: {msg}"
 
         return f"# Commit {sha}\n\n{result}"
 
@@ -245,12 +236,15 @@ class GitInspectTool(_FsTool):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _run(cmd: list[str]) -> str | None:
+    def _run(cmd: list[str]) -> tuple[str | None, str | None]:
+        """Returns (stdout, error). error is None on success."""
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return None
-
+        except subprocess.TimeoutExpired:
+            return None, "timeout"
+        except (FileNotFoundError, OSError) as e:
+            return None, str(e)
         if proc.returncode != 0:
-            return None
-        return proc.stdout.strip()
+            stderr = proc.stderr.strip()
+            return None, stderr or f"exit code {proc.returncode}"
+        return proc.stdout.strip(), None

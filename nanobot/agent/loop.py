@@ -582,11 +582,12 @@ class AgentLoop:
                     self._runtime_chat_id(pending_msg),
                     self.context.timezone,
                 )
-                if isinstance(user_content, str):
-                    merged: str | list[dict[str, Any]] = user_content
-                else:
-                    merged = user_content
-                return {"role": "user", "content": merged}
+                if runtime_ctx:
+                    if isinstance(user_content, str):
+                        user_content = f"{runtime_ctx}\n\n{user_content}"
+                    else:
+                        user_content = [{"type": "text", "text": runtime_ctx}] + list(user_content)
+                return {"role": "user", "content": user_content}
 
             items: list[dict[str, Any]] = []
             while len(items) < limit:

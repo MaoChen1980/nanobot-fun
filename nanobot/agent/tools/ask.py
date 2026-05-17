@@ -91,6 +91,8 @@ def ask_user_tool_result_messages(
     tool_call_id: str,
     content: str,
 ) -> list[dict[str, Any]]:
+    from nanobot.utils.helpers import format_message_header
+    content = f"{format_message_header()}\n{content}"
     return [
         {"role": "system", "content": system_prompt},
         *history,

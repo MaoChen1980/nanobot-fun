@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from nanobot.utils.helpers import estimate_message_tokens, estimate_prompt_tokens_chain
+from nanobot.utils.helpers import estimate_message_tokens, estimate_prompt_tokens_chain, format_message_header
 from nanobot.session.manager import find_legal_message_start
 
 from .runner_constants import (

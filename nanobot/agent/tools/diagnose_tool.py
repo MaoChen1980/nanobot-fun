@@ -14,7 +14,7 @@ from nanobot.agent.tools.filesystem.filesystem_base import _FsTool
 @tool_parameters(
     tool_parameters_schema(
         error=p("string", "Error message, keyword, or code to investigate"),
-        path=p("string", "Optional file or directory to narrow the search scope — file or directory. Relative to workspace root. Absolute paths also accepted."),
+        path=p("string", "Optional absolute path to a file or directory to narrow the search scope."),
         max_results=p("integer", "Max grep results to show (default 20)", minimum=1, maximum=50, default=20),
         days=p("integer", "Days of git history to check (default 7)", minimum=1, maximum=90, default=7),
     ),
@@ -94,23 +94,25 @@ class DiagnoseTool(_FsTool):
     # ------------------------------------------------------------------
 
     def _search_code(self, terms: list[str], path: str | None, max_results: int) -> list[str]:
+        if not terms:
+            return []
         seen: set[str] = set()
         hits: list[str] = []
         search_root = self._resolve(path or ".")
+        term = terms[0]
 
-        for term in terms[:3]:
-            try:
-                matches = self._grep_files(term, str(search_root))
-                for f in matches[:max_results]:
-                    key = f.lower()
-                    if key not in seen:
-                        seen.add(key)
-                        if len(hits) < max_results:
-                            first_match = self._first_match_line(f, term)
-                            rel = Path(f).relative_to(search_root).as_posix() if search_root in Path(f).parents else f
-                            hits.append(f"  {rel}{first_match}")
-            except OSError:
-                continue
+        try:
+            matches = self._grep_files(term, str(search_root))
+            for f in matches[:max_results]:
+                key = f.lower()
+                if key not in seen:
+                    seen.add(key)
+                    if len(hits) < max_results:
+                        first_match = self._first_match_line(f, term)
+                        rel = Path(f).relative_to(search_root).as_posix() if search_root in Path(f).parents else f
+                        hits.append(f"  {rel}{first_match}")
+        except OSError:
+            pass
         return hits
 
     @staticmethod
@@ -158,28 +160,28 @@ class DiagnoseTool(_FsTool):
 
     @staticmethod
     def _git_log(git_dir: Path, terms: list[str], since: str, max_count: int) -> list[str]:
+        if not terms:
+            return []
         log_lines: list[str] = []
         seen_shas: set[str] = set()
+        term = terms[0]
 
-        for term in terms[:3]:
-            try:
-                cmd = [
-                    "git", "-C", str(git_dir), "log",
-                    f"--since={since}", f"--max-count={max_count}",
-                    "--format=%h | %ai | %s",
-                    f"--grep={term}", "-i", "--all",
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-                if result.returncode == 0 and result.stdout.strip():
-                    for line in result.stdout.strip().split("\n"):
-                        sha = line.split(" | ")[0] if " | " in line else line[:8]
-                        if sha not in seen_shas:
-                            seen_shas.add(sha)
-                            log_lines.append(f"  {line}")
-            except (subprocess.TimeoutExpired, OSError):
-                continue
-            if log_lines:
-                break
+        try:
+            cmd = [
+                "git", "-C", str(git_dir), "log",
+                f"--since={since}", f"--max-count={max_count}",
+                "--format=%h | %ai | %s",
+                f"--grep={term}", "-i", "--all",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if result.returncode == 0 and result.stdout.strip():
+                for line in result.stdout.strip().split("\n"):
+                    sha = line.split(" | ")[0] if " | " in line else line[:8]
+                    if sha not in seen_shas:
+                        seen_shas.add(sha)
+                        log_lines.append(f"  {line}")
+        except (subprocess.TimeoutExpired, OSError):
+            pass
 
         return log_lines[:max_count]
 
@@ -190,22 +192,5 @@ class DiagnoseTool(_FsTool):
     @staticmethod
     def _extract_terms(error: str) -> list[str]:
         text = error.strip().strip('"').strip("'").strip("`")
-        terms: list[str] = []
-
-        clean = text.split("\n")[0][:100]
-        if clean:
-            terms.append(clean)
-
-        import re
-        quoted = re.findall(r""""([^"]+)"|'([^']+)'|`([^`]+)`""", text)
-        for match in quoted:
-            for group in match:
-                if group and len(group) > 2:
-                    terms.append(group)
-
-        words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]+", text)
-        for w in words:
-            if len(w) > 3 and w.lower() not in {"error", "traceback", "exception", "file", "line", "none", "true", "false"}:
-                terms.append(w)
-
-        return terms
+        first_line = text.split("\n")[0][:200]
+        return [first_line] if first_line else []

@@ -30,11 +30,11 @@ def test_brave_with_api_key_remains_concurrency_safe():
     assert tool.concurrency_safe is True
 
 
-def test_brave_without_api_key_is_treated_as_duckduckgo_for_concurrency(monkeypatch):
+def test_brave_without_api_key_is_concurrency_safe(monkeypatch):
     monkeypatch.delenv("BRAVE_API_KEY", raising=False)
     tool = _tool(provider="brave", api_key="")
-    assert tool.exclusive is True
-    assert tool.concurrency_safe is False
+    assert tool.exclusive is False
+    assert tool.concurrency_safe is True
 
 
 @pytest.mark.asyncio
@@ -104,20 +104,11 @@ async def test_duckduckgo_search(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_brave_fallback_to_duckduckgo_when_no_key(monkeypatch):
-    class MockDDGS:
-        def __init__(self, **kw):
-            pass
-
-        def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
-
-    monkeypatch.setattr("ddgs.DDGS", MockDDGS)
-    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
-
+async def test_brave_without_api_key_returns_error():
     tool = _tool(provider="brave", api_key="")
     result = await tool.execute(query="test")
-    assert "Fallback" in result
+    assert "BRAVE_API_KEY is not set" in result
+    assert "Error" in result
 
 
 @pytest.mark.asyncio
@@ -178,20 +169,11 @@ async def test_default_provider_is_brave(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_searxng_no_base_url_falls_back(monkeypatch):
-    class MockDDGS:
-        def __init__(self, **kw):
-            pass
-
-        def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "fallback"}]
-
-    monkeypatch.setattr("ddgs.DDGS", MockDDGS)
-    monkeypatch.delenv("SEARXNG_BASE_URL", raising=False)
-
+async def test_searxng_no_base_url_returns_error():
     tool = _tool(provider="searxng", base_url="")
     result = await tool.execute(query="test")
-    assert "Fallback" in result
+    assert "SEARXNG_BASE_URL is not set" in result
+    assert "Error" in result
 
 
 @pytest.mark.asyncio
@@ -202,14 +184,7 @@ async def test_searxng_invalid_url():
 
 
 @pytest.mark.asyncio
-async def test_jina_422_falls_back_to_duckduckgo(monkeypatch):
-    class MockDDGS:
-        def __init__(self, **kw):
-            pass
-
-        def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
-
+async def test_jina_422_returns_error(monkeypatch):
     async def mock_get(self, url, **kw):
         assert "s.jina.ai" in str(url)
         raise httpx.HTTPStatusError(
@@ -219,28 +194,19 @@ async def test_jina_422_falls_back_to_duckduckgo(monkeypatch):
         )
 
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
-    monkeypatch.setattr("ddgs.DDGS", MockDDGS)
 
     tool = _tool(provider="jina", api_key="jina-key")
     result = await tool.execute(query="test")
-    assert "DuckDuckGo fallback" in result
+    assert "Error" in result
+    assert "422" in result or "failed" in result
 
 
 @pytest.mark.asyncio
-async def test_kagi_fallback_to_duckduckgo_when_no_key(monkeypatch):
-    class MockDDGS:
-        def __init__(self, **kw):
-            pass
-
-        def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
-
-    monkeypatch.setattr("ddgs.DDGS", MockDDGS)
-    monkeypatch.delenv("KAGI_API_KEY", raising=False)
-
+async def test_kagi_without_api_key_returns_error():
     tool = _tool(provider="kagi", api_key="")
     result = await tool.execute(query="test")
-    assert "Fallback" in result
+    assert "KAGI_API_KEY is not set" in result
+    assert "Error" in result
 
 
 @pytest.mark.asyncio

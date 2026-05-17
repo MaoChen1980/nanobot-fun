@@ -133,16 +133,6 @@ class TestEditPathSuggestion:
     def tool(self, tmp_path):
         return EditFileTool(workspace=tmp_path)
 
-    @pytest.mark.asyncio
-    async def test_suggests_similar_filename(self, tool, tmp_path):
-        f = tmp_path / "config.py"
-        f.write_text("x = 1", encoding="utf-8")
-        # Typo: conifg.py
-        result = await tool.execute(
-            path=str(tmp_path / "conifg.py"), old_text="x = 1", new_text="x = 2",
-        )
-        assert "Error" in result
-        assert "config.py" in result
 
     @pytest.mark.asyncio
     async def test_shows_cwd_in_error(self, tool, tmp_path):

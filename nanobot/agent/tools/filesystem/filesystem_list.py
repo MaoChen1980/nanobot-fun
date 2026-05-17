@@ -11,7 +11,7 @@ from .filesystem_base import _FsTool
 
 @tool_parameters(
     tool_parameters_schema(
-        path=p("string", "Directory path to list — directory. Relative to workspace root (e.g. 'nanobot/agent'). Absolute paths also accepted."),
+        path=p("string", "Absolute path to a directory to list."),
         recursive=p("boolean", "Recursively list all files (default false)", default=False),
         max_entries=p("integer", "Maximum entries to return (default 400)",
             minimum=1,

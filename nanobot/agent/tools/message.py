@@ -19,8 +19,8 @@ from nanobot.config.paths import get_workspace_path
     tool_parameters_schema(
         content=p("string", "The message content to send"),
         media=p("array",
-            "Optional: list of file paths to attach — files. Relative to workspace root (e.g. 'screenshots/bug.png'). Absolute paths also accepted. Supports images, video, audio, documents.",
-            items=p("string", "File path (relative to workspace root, or absolute)"),
+            "Optional: list of absolute file paths to attach. Supports images, video, audio, documents.",
+            items=p("string", "Absolute path to a file"),
         ),
         buttons=p("array",
             "Optional: inline keyboard buttons as list of rows, each row is list of button labels. "

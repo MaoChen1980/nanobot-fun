@@ -25,7 +25,7 @@ class TestReadDescriptionFix:
 
     def test_description_mentions_image_support(self):
         tool = ReadFileTool()
-        assert "image" in tool.description.lower()
+        assert "图片" in tool.description
 
     def test_description_no_longer_says_cannot_read_images(self):
         tool = ReadFileTool()
@@ -336,7 +336,7 @@ class TestOfficeDocTruncation:
             f.write_bytes(b"PK")
             result = await tool.execute(path=str(f))
         assert len(result) <= ReadFileTool._MAX_CHARS + 100
-        assert "truncated at ~128K chars" in result
+        assert "truncated at ~256K chars" in result
 
     @pytest.mark.asyncio
     async def test_small_document_not_truncated(self, tool, tmp_path):
@@ -361,8 +361,8 @@ class TestReadDescriptionUpdate:
 
     def test_description_mentions_documents(self):
         tool = ReadFileTool()
-        desc = tool.description.lower()
-        assert "document" in desc or "docx" in desc or "xlsx" in desc or "pptx" in desc
+        desc = tool.description
+        assert "Office" in desc or "文档" in desc
 
     def test_description_no_longer_says_cannot_read(self):
         tool = ReadFileTool()

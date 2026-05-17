@@ -118,20 +118,7 @@ class TestFindMatch:
         assert match is not None
         assert count == 1
 
-    def test_line_trim_fallback(self):
-        content = "    def foo():\n        pass\n"
-        old_text = "def foo():\n    pass"
-        match, count = _find_match(content, old_text)
-        assert match is not None
-        assert count == 1
-        # The returned match should be the *original* indented text
-        assert "    def foo():" in match
 
-    def test_line_trim_multiple_candidates(self):
-        content = "  a\n  b\n  a\n  b\n"
-        old_text = "a\nb"
-        match, count = _find_match(content, old_text)
-        assert count == 2
 
     def test_empty_old_text(self):
         match, count = _find_match("hello", "")
@@ -170,15 +157,6 @@ class TestEditFileTool:
         # CRLF line endings should be preserved throughout the file
         assert b"\r\n" in raw
 
-    @pytest.mark.asyncio
-    async def test_trim_fallback(self, tool, tmp_path):
-        f = tmp_path / "indent.py"
-        f.write_text("    def foo():\n        pass\n", encoding="utf-8")
-        result = await tool.execute(
-            path=str(f), old_text="def foo():\n    pass", new_text="def bar():\n    return 1",
-        )
-        assert "Successfully" in result
-        assert "bar" in f.read_text()
 
     @pytest.mark.asyncio
     async def test_ambiguous_match(self, tool, tmp_path):

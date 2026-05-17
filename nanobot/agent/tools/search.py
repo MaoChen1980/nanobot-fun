@@ -302,7 +302,7 @@ class GrepTool(_SearchTool):
                 },
                 "path": {
                     "type": "string",
-                    "description": "File or directory path relative to workspace root, e.g. 'nanobot/proxy/channels/dingtalk.py' (default '.')",
+                    "description": "Absolute path to a file or directory to search in (default: workspace root)",
                 },
                 "glob": {
                     "type": "string",

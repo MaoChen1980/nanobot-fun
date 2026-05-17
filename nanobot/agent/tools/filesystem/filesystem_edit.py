@@ -9,7 +9,7 @@ from loguru import logger
 
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import p, tool_parameters_schema
-from .filesystem_base import _FsTool, _normalize_quotes, _preserve_quote_style, _reindent_like_match
+from .filesystem_base import _FsTool, _normalize_quotes
 from nanobot.agent.tools import file_state
 
 @dataclass(slots=True)
@@ -39,91 +39,13 @@ def _find_exact_matches(content: str, old_text: str) -> list[_MatchSpan]:
     return matches
 
 
-def _find_trim_matches(content: str, old_text: str, *, normalize_quotes: bool = False) -> list[_MatchSpan]:
-    old_lines = old_text.splitlines()
-    if not old_lines:
-        return []
-
-    content_lines = content.splitlines()
-    content_lines_keepends = content.splitlines(keepends=True)
-    if len(content_lines) < len(old_lines):
-        return []
-
-    offsets: list[int] = []
-    pos = 0
-    for line in content_lines_keepends:
-        offsets.append(pos)
-        pos += len(line)
-    offsets.append(pos)
-
-    if normalize_quotes:
-        stripped_old = [_normalize_quotes(line.strip()) for line in old_lines]
-    else:
-        stripped_old = [line.strip() for line in old_lines]
-
-    matches: list[_MatchSpan] = []
-    window_size = len(stripped_old)
-    for i in range(len(content_lines) - window_size + 1):
-        window = content_lines[i : i + window_size]
-        if normalize_quotes:
-            comparable = [_normalize_quotes(line.strip()) for line in window]
-        else:
-            comparable = [line.strip() for line in window]
-        if comparable != stripped_old:
-            continue
-
-        start = offsets[i]
-        end = offsets[i + window_size]
-        if content_lines_keepends[i + window_size - 1].endswith("\n"):
-            end -= 1
-        matches.append(
-            _MatchSpan(
-                start=start,
-                end=end,
-                text=content[start:end],
-                line=i + 1,
-            )
-        )
-    return matches
-
-
-def _find_quote_matches(content: str, old_text: str) -> list[_MatchSpan]:
-    norm_content = _normalize_quotes(content)
-    norm_old = _normalize_quotes(old_text)
-    matches: list[_MatchSpan] = []
-    start = 0
-    while True:
-        idx = norm_content.find(norm_old, start)
-        if idx == -1:
-            break
-        matches.append(
-            _MatchSpan(
-                start=idx,
-                end=idx + len(old_text),
-                text=content[idx : idx + len(old_text)],
-                line=content.count("\n", 0, idx) + 1,
-            )
-        )
-        start = idx + max(1, len(norm_old))
-    return matches
-
-
 def _find_matches(content: str, old_text: str) -> list[_MatchSpan]:
-    """Locate all matches using progressively looser strategies."""
-    for matcher in (
-        lambda: _find_exact_matches(content, old_text),
-        lambda: _find_trim_matches(content, old_text),
-        lambda: _find_trim_matches(content, old_text, normalize_quotes=True),
-        lambda: _find_quote_matches(content, old_text),
-    ):
-        matches = matcher()
-        if matches:
-            return matches
-    return []
+    """Locate all exact substring matches of old_text in content."""
+    return _find_exact_matches(content, old_text)
 
 
 def _find_match_line_numbers(content: str, old_text: str) -> list[int]:
-    """Return 1-based starting line numbers for the current matching strategies."""
+    """Return 1-based starting line numbers for exact matches of old_text."""
     return [match.line for match in _find_matches(content, old_text)]
 
 
@@ -147,33 +69,22 @@ def _diagnose_near_match(old_text: str, actual_text: str) -> list[str]:
     return hints
 
 
-def _best_window(old_text: str, content: str) -> tuple[float, int, list[str], list[str]]:
-    """Find the closest line-window match and return ratio/start/snippet/hints."""
+def _best_window(old_text: str, content: str) -> tuple[list[str], list[str]]:
+    """Return the first line-window for diagnostics without fuzzy matching."""
     lines = content.splitlines(keepends=True)
     old_lines = old_text.splitlines(keepends=True)
     window = max(1, len(old_lines))
 
-    best_ratio, best_start = -1.0, 0
-    best_window_lines: list[str] = []
+    start = 0
+    window_lines = lines[:window] if len(lines) >= window else lines
 
-    for i in range(max(1, len(lines) - window + 1)):
-        current = lines[i : i + window]
-        ratio = difflib.SequenceMatcher(None, old_lines, current).ratio()
-        if ratio > best_ratio:
-            best_ratio, best_start = ratio, i
-            best_window_lines = current
-
-    actual_text = "".join(best_window_lines).replace("\r\n", "\n").rstrip("\n")
+    actual_text = "".join(window_lines).replace("\r\n", "\n").rstrip("\n")
     hints = _diagnose_near_match(old_text.replace("\r\n", "\n").rstrip("\n"), actual_text)
-    return best_ratio, best_start, best_window_lines, hints
+    return window_lines, hints
 
 
 def _find_match(content: str, old_text: str) -> tuple[str | None, int]:
-    """Locate old_text in content with a multi-level fallback chain:
-
-    1. Exact substring match
-    2. Line-trimmed sliding window (handles indentation differences)
-    3. Smart quote normalization (curly ↔ straight quotes)
+    """Locate old_text in content with exact substring match only.
 
     Both inputs should use LF line endings (caller normalises CRLF).
     Returns (matched_fragment, count) or (None, 0).
@@ -186,7 +97,7 @@ def _find_match(content: str, old_text: str) -> tuple[str | None, int]:
 
 @tool_parameters(
     tool_parameters_schema(
-        path=p("string", "File path to edit — file. Relative to workspace root (e.g. 'nanobot/agent/context.py'). Absolute paths also accepted. Directories and special files are rejected."),
+        path=p("string", "Absolute path to a file to edit. Directories and special files are rejected."),
         old_text=p("string", "Text to find and replace. Must match EXACTLY and be UNIQUE in the file — include surrounding lines for disambiguation, or set replace_all=true. "
             "Leave empty (or omit) to prepend new_text at file beginning. Pair with first_line+last_line for line-range mode instead of text matching."),
         new_text=p("string", "Replacement text for old_text. Pass empty string to delete old_text. "
@@ -358,8 +269,7 @@ class EditFileTool(_FsTool):
             selected = matches if replace_all else matches[:1]
             new_content = content
             for match in reversed(selected):
-                replacement = _preserve_quote_style(norm_old, match.text, norm_new)
-                replacement = _reindent_like_match(norm_old, match.text, replacement)
+                replacement = norm_new
 
                 # Delete-line cleanup: when deleting text (new_text=''), consume trailing
                 # newline to avoid leaving a blank line
@@ -396,27 +306,18 @@ class EditFileTool(_FsTool):
             return f"Error editing file: {e}"
 
     def _file_not_found_msg(self, path: str, fp: Path) -> str:
-        """Build an error message with 'Did you mean ...?' suggestions."""
-        parent = fp.parent
-        suggestions: list[str] = []
-        if parent.is_dir():
-            siblings = [f.name for f in parent.iterdir() if f.is_file()]
-            close = difflib.get_close_matches(fp.name, siblings, n=3, cutoff=0.6)
-            suggestions = [str(parent / c) for c in close]
-        parts = [f"Error: File not found: {path}"]
-        if suggestions:
-            parts.append("Did you mean: " + ", ".join(suggestions) + "?")
-        return "\n".join(parts)
+        """Build an error message for file-not-found."""
+        return f"Error: File not found: {path}"
 
     @staticmethod
     def _not_found_msg(old_text: str, content: str, path: str) -> str:
-        best_ratio, best_start, best_window_lines, hints = _best_window(old_text, content)
-        if best_ratio > 0.5:
+        best_window_lines, hints = _best_window(old_text, content)
+        if best_window_lines:
             diff = "\n".join(difflib.unified_diff(
                 old_text.splitlines(keepends=True),
                 best_window_lines,
                 fromfile="old_text (provided)",
-                tofile=f"{path} (actual, line {best_start + 1})",
+                tofile=f"{path} (actual, first lines)",
                 lineterm="",
             ))
             hint_text = ""
@@ -424,7 +325,7 @@ class EditFileTool(_FsTool):
                 hint_text = "\nPossible cause: " + ", ".join(hints) + "."
             return (
                 f"Error: old_text not found in {path}."
-                f"{hint_text}\nBest match ({best_ratio:.0%} similar) at line {best_start + 1}:\n{diff}"
+                f"{hint_text}\nShowing file content for comparison:\n{diff}"
             )
 
         if hints:

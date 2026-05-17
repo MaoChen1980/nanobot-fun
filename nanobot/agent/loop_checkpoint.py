@@ -70,12 +70,13 @@ def restore_runtime_checkpoint(loop: Any, session: Any) -> bool:
             continue
         tool_id = tool_call.get("id")
         name = ((tool_call.get("function") or {}).get("name")) or "tool"
+        from nanobot.utils.helpers import format_message_header
         restored_messages.append(
             {
                 "role": "tool",
                 "tool_call_id": tool_id,
                 "name": name,
-                "content": "Error: Task interrupted before this tool finished.",
+                "content": f"{format_message_header()}\nError: Task interrupted before this tool finished.",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )

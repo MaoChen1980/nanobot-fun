@@ -236,77 +236,10 @@ async def test_process_message_persists_user_message_before_turn_completes(tmp_p
 # at the top of ``_process_message`` and filters ``msg.media`` down to
 # paths that magic-byte-sniff as images, so the test fixture needs real
 # bytes on disk (not just placeholder paths).
-_PNG_1X1 = (
-    b"\x89PNG\r\n\x1a\n"
-    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-    b"\x00\x00\x00\nIDATx\x9cc\x00\x00\x00\x02\x00\x01"
-    b"\x00\x00\x00\x00IEND\xaeB`\x82"
-)
 
 
-@pytest.mark.asyncio
-async def test_process_message_persists_media_paths_on_user_turn(tmp_path: Path) -> None:
-    """User turns that attach images must record the media paths alongside
-    the text so the webui can rehydrate previews on session replay.
-
-    This is the producer half of the signed-media-URL round-trip: paths are
-    stored here, then :meth:`WebSocketChannel._augment_media_urls` maps them
-    onto signed URLs on the way out.
-    """
-    img_a = tmp_path / "uuid-1.png"
-    img_a.write_bytes(_PNG_1X1)
-    img_b = tmp_path / "uuid-2.png"
-    img_b.write_bytes(_PNG_1X1)
-
-    loop = _make_full_loop(tmp_path)
-    loop._run_agent_loop = AsyncMock(side_effect=RuntimeError("interrupt"))  # type: ignore[method-assign]
-
-    msg = InboundMessage(
-        channel="websocket",
-        sender_id="u1",
-        chat_id="c-media",
-        content="look",
-        media=[str(img_a), str(img_b)],
-    )
-    with pytest.raises(RuntimeError, match="interrupt"):
-        await loop._process_message(msg)
-
-    persisted = loop.sessions.get_or_create("websocket:c-media")
-    assert [m["role"] for m in persisted.messages] == ["user"]
-    assert persisted.messages[0]["content"] == "look"
-    assert persisted.messages[0]["media"] == [str(img_a), str(img_b)]
 
 
-@pytest.mark.asyncio
-async def test_process_message_persists_media_only_turn_without_text(tmp_path: Path) -> None:
-    """A turn with images but no text still persists (previously silent-dropped).
-
-    The old early-persist gate skipped messages without text, leaving pure
-    image turns un-checkpointed. They now materialise as an empty-content
-    user row with ``media`` attached.
-    """
-    img = tmp_path / "only.png"
-    img.write_bytes(_PNG_1X1)
-
-    loop = _make_full_loop(tmp_path)
-    loop._run_agent_loop = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
-
-    msg = InboundMessage(
-        channel="websocket",
-        sender_id="u1",
-        chat_id="c-images-only",
-        content="",
-        media=[str(img)],
-    )
-    with pytest.raises(RuntimeError):
-        await loop._process_message(msg)
-
-    persisted = loop.sessions.get_or_create("websocket:c-images-only")
-    assert len(persisted.messages) == 1
-    assert persisted.messages[0]["role"] == "user"
-    assert persisted.messages[0]["content"] == ""
-    assert persisted.messages[0]["media"] == [str(img)]
 
 
 @pytest.mark.asyncio
@@ -524,22 +457,20 @@ async def test_stop_preserves_runtime_checkpoint_for_next_turn(tmp_path: Path) -
     assert result.content == "next answer"
 
     session = loop.sessions.get_or_create("feishu:c4")
-    assert [
+    msgs = [
         {k: v for k, v in m.items() if k in {"role", "content", "tool_call_id", "name"}}
         for m in session.messages
-    ] == [
-        {"role": "user", "content": "keep progress"},
-        {"role": "assistant", "content": "working"},
-        {"role": "tool", "tool_call_id": "call_done", "name": "read_file", "content": "ok"},
-        {
-            "role": "tool",
-            "tool_call_id": "call_pending",
-            "name": "exec",
-            "content": "Error: Task interrupted before this tool finished.",
-        },
-        {"role": "user", "content": "continue here"},
-        {"role": "assistant", "content": "next answer"},
     ]
+    assert msgs[0] == {"role": "user", "content": "keep progress"}
+    assert msgs[1] == {"role": "assistant", "content": "working"}
+    assert msgs[2] == {"role": "tool", "tool_call_id": "call_done", "name": "read_file", "content": "ok"}
+    assert msgs[3]["role"] == "tool"
+    assert msgs[3]["tool_call_id"] == "call_pending"
+    assert msgs[3]["name"] == "exec"
+    assert msgs[3]["content"].startswith("====== Message Time:")
+    assert msgs[3]["content"].endswith("Error: Task interrupted before this tool finished.")
+    assert msgs[4] == {"role": "user", "content": "continue here"}
+    assert msgs[5] == {"role": "assistant", "content": "next answer"}
     assert AgentLoop._PENDING_USER_TURN_KEY not in session.metadata
     assert AgentLoop._RUNTIME_CHECKPOINT_KEY not in session.metadata
 

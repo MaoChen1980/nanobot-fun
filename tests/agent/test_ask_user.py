@@ -158,7 +158,7 @@ async def test_ask_user_text_fallback_resumes_with_next_message(tmp_path):
     assert any(
         message.get("role") == "tool"
         and message.get("name") == "ask_user"
-        and message.get("content") == "Skip"
+        and message.get("content", "").endswith("Skip")
         for message in seen_messages[-1]
     )
     assert not any(
@@ -168,7 +168,7 @@ async def test_ask_user_text_fallback_resumes_with_next_message(tmp_path):
     assert any(
         message.get("role") == "tool"
         and message.get("name") == "ask_user"
-        and message.get("content") == "Skip"
+        and message.get("content", "").endswith("Skip")
         for message in session.messages
     )
 

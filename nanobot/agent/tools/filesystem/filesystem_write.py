@@ -13,7 +13,7 @@ from nanobot.agent.tools import file_state
 
 @tool_parameters(
     tool_parameters_schema(
-        path=p("string", "File path to write — file. Relative to workspace root (e.g. 'logs/output.txt'). Absolute paths also accepted. OVERWRITES existing file, auto-creates parent directories."),
+        path=p("string", "Absolute path to a file to write. OVERWRITES existing file, auto-creates parent directories."),
         content=p("string", "Full file content to write. Replaces entire file — use edit_file for partial edits or substitutions."),
         then_exec=p("string",
             "If set to a shell command string, executes it after writing (and after then_check if set) "
@@ -22,8 +22,7 @@ from nanobot.agent.tools import file_state
         ),
         then_check=p("string",
             "If set, type-checks the file after writing before executing then_exec. "
-            "Values: 'auto' (detect language from extension), 'pyright' (Python), "
-            "'tsc' (TypeScript/JavaScript). Returns pass/fail + errors. "
+            "Type checker to use: 'pyright' (Python) or 'tsc' (TypeScript/JavaScript). Returns pass/fail + errors. "
             "Works with then_exec: write → check → exec."
         ),
         then_grep=p("string",

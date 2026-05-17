@@ -17,7 +17,7 @@ from nanobot.utils.media_decode import build_image_content_blocks, detect_image_
 
 @tool_parameters(
     tool_parameters_schema(
-        path=p("string", "File path to read — file. Relative to workspace root (e.g. 'nanobot/agent/context.py'). Absolute paths also accepted. Supports text files, PDFs (pages param), and images (rendered as Markdown)."),
+        path=p("string", "Absolute path to a file to read. Supports text files, PDFs (pages param), and images (rendered as Markdown)."),
         mode=p("string", "Reading mode: 'full' (outputs numbered lines) or 'overview' (previews structure via headings/sections without reading the whole file). Use overview when unsure what a file contains.",
             enum=["full", "overview"], default="full",
         ),

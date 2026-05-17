@@ -43,7 +43,8 @@ async def test_web_fetch_blocks_localhost():
 @pytest.mark.asyncio
 async def test_web_fetch_result_contains_untrusted_flag():
     """When fetch succeeds, result JSON must include untrusted=True and the banner."""
-    tool = WebFetchTool()
+    from nanobot.config.schema import WebFetchConfig
+    tool = WebFetchTool(config=WebFetchConfig(use_jina_reader=False))
 
     fake_html = "<html><head><title>Test</title></head><body><p>Hello world</p></body></html>"
 

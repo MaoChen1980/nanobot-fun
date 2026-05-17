@@ -178,6 +178,14 @@ class _LoopHook(AgentHook):
                 if not clean:
                     await self._on_progress(reasoning)
 
+        # Log tool execution results
+        if context.tool_events:
+            for te in context.tool_events:
+                detail = te.get("detail", "")
+                logger.info("Tool result: {} — {} {}", te["name"], te["status"], detail)
+        elif context.tool_calls and not context.tool_events:
+            logger.warning("Tool calls made but no events recorded ({} call(s))", len(context.tool_calls))
+
         # Send tool finish events when /tool is on
         if (
             self._observe_tool

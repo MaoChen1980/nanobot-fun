@@ -59,18 +59,10 @@ _LANG_PATTERNS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-_FALLBACK_PATTERNS: list[tuple[str, str]] = [
-    (r"^(?:export\s+)?(?:default\s+)?class\s+(\w+)", "class"),
-    (r"^(?:export\s+)?(?:default\s+)?function\s+(\w+)\s*\(", "function"),
-    (r"^def\s+(\w+)\s*\(", "function"),
-    (r"^func\s+(?:\(.*?\)\s+)?(\w+)\s*\(", "function"),
-    (r"^(?:pub\s+)?(?:unsafe\s+)?(?:async\s+)?fn\s+(\w+)", "function"),
-]
-
 
 @tool_parameters(
     tool_parameters_schema(
-        path=p("string", "File or directory path to explore — file or directory. Relative to workspace root (e.g. 'nanobot/agent/tools'). Absolute paths also accepted."),
+        path=p("string", "Absolute path to a file or directory to explore."),
         max_level=p("integer", "Maximum depth for directory listing (default 2, max 5)", minimum=1, maximum=5, default=2),
         show_refs=p("boolean", "Show a sample of internal references for each symbol (default true)", default=True),
     ),
@@ -148,7 +140,7 @@ class ExploreModuleTool(_FsTool):
         try:
             tree = ast.parse(text, filename=str(fp))
         except SyntaxError as e:
-            return f"(Syntax error in {fp.name}: {e})\nFalling back to regex-based extraction.\n" + self._explore_generic(fp, ".py", lines)
+            return f"Error: could not parse {fp.name} — SyntaxError: {e}"
 
         parts: list[str] = [f"# {fp.name}"]
         symbols: list[str] = []
@@ -326,7 +318,9 @@ class ExploreModuleTool(_FsTool):
     # ------------------------------------------------------------------
 
     def _explore_generic(self, fp: Path, suffix: str, lines: list[str]) -> str:
-        patterns = _LANG_PATTERNS.get(suffix, _FALLBACK_PATTERNS)
+        if suffix not in _LANG_PATTERNS:
+            return f"Error: unsupported file type '{suffix}' for {fp.name}"
+        patterns = _LANG_PATTERNS[suffix]
         text = "\n".join(lines)
 
         found: list[tuple[int, str, str]] = []

@@ -17,7 +17,7 @@ from loguru import logger
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
-from nanobot.utils.helpers import build_assistant_message, current_time_str
+from nanobot.utils.helpers import build_assistant_message, current_time_str, format_message_header
 from nanobot.utils.media_decode import detect_image_mime
 from nanobot.utils.prompt_templates import render_template
 
@@ -384,12 +384,9 @@ class ContextBuilder:
         channel: str | None, chat_id: str | None, timezone: str | None = None,
         current_iteration: int | None = None,
         max_iterations: int | None = None,
-        message_time: str | None = None,
     ) -> str:
         """Build untrusted runtime metadata block for injection before the user message."""
-        lines = []
-        if message_time:
-            lines.append(f"**Current Message Time: {message_time}**")
+        lines = [format_message_header()]
         lines.append(f"Current Time: {current_time_str(timezone)}")
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
@@ -491,7 +488,6 @@ class ContextBuilder:
         chat_id: str | None = None,
         current_role: str = "user",
         context_state: ContextState | None = None,
-        message_timestamp: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         cs = context_state or ContextState()
@@ -502,7 +498,6 @@ class ContextBuilder:
             channel, chat_id, self.timezone,
             current_iteration=cs.current_iteration,
             max_iterations=cs.max_iterations,
-            message_time=message_timestamp,
         )
 
         # Search vector index with current message for relevant memory.
