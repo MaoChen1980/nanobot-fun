@@ -189,6 +189,20 @@ class RecallTool(Tool):
             rows = db._conn.execute(
                 "SELECT timestamp, content FROM history ORDER BY cursor"
             ).fetchall()
+            # Also search current session messages (not yet archived)
+            from nanobot.agent.context_vars import _current_session_key
+            current_key = _current_session_key.get()
+            if current_key:
+                msg_rows = db._conn.execute(
+                    "SELECT timestamp, content FROM messages WHERE session_key = ? ORDER BY id",
+                    (current_key,),
+                ).fetchall()
+                for ts, content in msg_rows:
+                    if not self._in_date_range(ts, content, start_dt, end_dt):
+                        continue
+                    if not matches(content):
+                        continue
+                    results.append((ts, content))
             for ts, content in rows:
                 if not self._in_date_range(ts, content, start_dt, end_dt):
                     continue
