@@ -529,7 +529,7 @@ class ContextBuilder:
                 user_content = [{"type": "text", "text": runtime_ctx}] + list(user_content)
         sys_static = self.build_system_prompt(skill_names, channel=channel, tool_definitions=cs.tool_definitions)
 
-        # system[1]: dynamic per-request content (memory, state)
+        # Dynamic context injected into runtime_ctx for prefix cache stability
         sys_dynamic_parts: list[str] = []
         memory_section = self._build_memory_section()
         if memory_section:
@@ -538,13 +538,24 @@ class ContextBuilder:
         if state_block:
             sys_dynamic_parts.append(f"# Current State — what to focus on and what has happened\n\n{state_block}")
 
+        if sys_dynamic_parts and runtime_ctx:
+            runtime_ctx = runtime_ctx.replace(
+                ContextBuilder._RUNTIME_CONTEXT_END,
+                "\n\n".join(sys_dynamic_parts) + "\n" + ContextBuilder._RUNTIME_CONTEXT_END,
+            )
+            user_content = self._build_user_content(current_message, media)
+            if isinstance(user_content, str):
+                user_content = f"{runtime_ctx}\n\n{user_content}"
+            else:
+                user_content = [{"type": "text", "text": runtime_ctx}] + list(user_content)
+
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": sys_static},
         ]
-        if sys_dynamic_parts:
-            # Merge dynamic parts into a single system message.
-            # Some providers (e.g. MiniMax) reject multiple system messages.
-            messages[0]["content"] += "\n\n" + "\n\n".join(sys_dynamic_parts)
+
+
+
+
         messages.extend(retained_history)
         if messages[-1].get("role") == current_role:
             last = dict(messages[-1])
