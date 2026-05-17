@@ -252,10 +252,16 @@ class ContextBuilder:
             if isinstance(content, str):
                 content = content.replace("\n", " ").strip()
 
-            # When assistant content is empty (tool-call turn), use thinking/
-            # reasoning content as a lightweight summary of the LLM's intent.
-            if role == "assistant" and not content:
-                content = ContextBuilder._extract_thinking(msg, max_chars=200)
+            # When assistant content is empty or only contains <think> tags,
+            # use thinking/reasoning as a lightweight summary of the LLM's intent.
+            if role == "assistant" and isinstance(content, str):
+                from nanobot.agent.loop_utils import strip_think
+
+                clean = strip_think(content)
+                if not clean:
+                    content = ContextBuilder._extract_thinking(msg, max_chars=200)
+                else:
+                    content = clean
 
             ts_str = ts if ts else "?"
             entries.append(f"- [{ts_str}] {role}: {content}")
