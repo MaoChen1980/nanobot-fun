@@ -48,27 +48,36 @@ class GitInspectTool(_FsTool):
     ) -> str:
         try:
             workspace = self._resolve(".")
-            git_dir = self._find_git_root(workspace)
-            if not git_dir:
-                return "Error: Not a git repository (or any parent directory)"
+            git_dir: Path | None = None
+            resolved_path: str | None = None
 
             if path:
                 path = path.replace("\\", "/")
-                if path.startswith("/") or re.match(r"[A-Za-z]:", path):
+                is_abs = path.startswith("/") or re.match(r"[A-Za-z]:", path)
+
+                if is_abs:
                     abs_path = Path(path).resolve()
-                    try:
-                        rel = abs_path.relative_to(git_dir.resolve())
-                        path = rel.as_posix()
-                    except ValueError:
-                        return (
-                            f"Error: path {path!r} is outside the git repository ({git_dir}). "
-                            f"Use a repo-relative path (e.g. 'src/main.py')."
-                        )
+                    search_dir = abs_path if abs_path.is_dir() else abs_path.parent
+                    git_dir = self._find_git_root(search_dir)
+                    if git_dir:
+                        try:
+                            resolved_path = abs_path.relative_to(git_dir.resolve()).as_posix()
+                        except ValueError:
+                            resolved_path = "."
+                else:
+                    git_dir = self._find_git_root(workspace)
+                    resolved_path = path
+            else:
+                git_dir = self._find_git_root(workspace)
+                resolved_path = None
+
+            if not git_dir:
+                return "Error: Not a git repository (or any parent directory)"
 
             if commit:
                 return self._show_commit(git_dir, commit)
 
-            return self._show_log(git_dir, since, path, max_commits)
+            return self._show_log(git_dir, since, resolved_path, max_commits)
 
         except PermissionError as e:
             return f"Error: {e}"
