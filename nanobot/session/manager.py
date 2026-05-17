@@ -247,7 +247,7 @@ class Session:
         """
         turns = self._split_turns_by_assistant(self.messages)
 
-        if len(turns) <= max_turns:
+        if len(turns) < max_turns:
             return []
 
         trim_count = min(trim_batch, len(turns) - 1)  # keep at least 1 turn

@@ -31,14 +31,11 @@ from nanobot.utils.runtime import (
 # Import from split modules
 from .runner_constants import (
     _BACKFILL_CONTENT,
-    _COMPACTABLE_TOOLS,
     _DEFAULT_ERROR_MESSAGE,
     _MAX_EMPTY_RETRIES,
     _MAX_INJECTION_CYCLES,
     _MAX_INJECTIONS_PER_TURN,
     _MAX_LENGTH_RECOVERIES,
-    _MICROCOMPACT_KEEP_RECENT,
-    _MICROCOMPACT_MIN_CHARS,
     _PERSISTED_MODEL_ERROR_PLACEHOLDER,
     _SNIP_SAFETY_BUFFER,
 )
@@ -46,18 +43,14 @@ from .runner_constants import (
 # Re-export for backward compatibility
 __all__ = [
     "AgentRunSpec", "AgentRunResult", "AgentRunner",
-    "_BACKFILL_CONTENT", "_COMPACTABLE_TOOLS",
+    "_BACKFILL_CONTENT",
     "_MAX_EMPTY_RETRIES", "_MAX_INJECTION_CYCLES",
     "_MAX_INJECTIONS_PER_TURN", "_MAX_LENGTH_RECOVERIES",
-    "_MICROCOMPACT_KEEP_RECENT", "_MICROCOMPACT_MIN_CHARS",
     "_PERSISTED_MODEL_ERROR_PLACEHOLDER", "_SNIP_SAFETY_BUFFER",
 ]
 from .runner_context import (
     drop_orphan_tool_results,
     backfill_missing_tool_results,
-    microcompact,
-    apply_tool_result_budget,
-    apply_microcompact_and_budget,
     snip_history,
 )
 from .runner_injection import drain_injections, append_injected_messages
@@ -218,7 +211,6 @@ class AgentRunner:
             try:
                 messages_for_model = drop_orphan_tool_results(messages)
                 messages_for_model = backfill_missing_tool_results(messages_for_model)
-                messages_for_model = apply_microcompact_and_budget(spec, messages_for_model, _normalize)
                 messages_for_model = snip_history(self.provider, spec, messages_for_model)
                 messages_for_model = drop_orphan_tool_results(messages_for_model)
                 messages_for_model = backfill_missing_tool_results(messages_for_model)
@@ -584,6 +576,3 @@ class AgentRunner:
     # Backward compatibility — delegate to module functions
     _drop_orphan_tool_results = staticmethod(drop_orphan_tool_results)
     _backfill_missing_tool_results = staticmethod(backfill_missing_tool_results)
-    _microcompact = staticmethod(microcompact)
-    _apply_tool_result_budget = staticmethod(apply_tool_result_budget)
-    _snip_history = lambda self, spec, msgs: snip_history(self.provider, spec, msgs)

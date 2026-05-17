@@ -41,7 +41,6 @@
 - `write_goal` / `write_event` → DB success 标记
 - `list_goals` / `list_events` → 返回列表
 - `recall` → 结果非空
-- `session_manage` → 结果可判断
 
 ### 5. 外部代理（无法自动验证）
 

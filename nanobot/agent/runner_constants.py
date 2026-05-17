@@ -8,13 +8,7 @@ _MAX_EMPTY_RETRIES = 2
 _MAX_LENGTH_RECOVERIES = 3
 _MAX_INJECTIONS_PER_TURN = 50
 _MAX_INJECTION_CYCLES = 20
-_SNIP_SAFETY_BUFFER = 1024
-_MICROCOMPACT_KEEP_RECENT = 20
-_MICROCOMPACT_MIN_CHARS = 500
-_COMPACTABLE_TOOLS = frozenset({
-    "read_file", "exec", "grep", "glob",
-    "web_search", "web_fetch", "list_dir",
-})
+_SNIP_SAFETY_BUFFER = 4096
 _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 
 # ----------------------------------------------------------------------

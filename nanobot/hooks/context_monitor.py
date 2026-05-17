@@ -1,9 +1,7 @@
 """
 ContextMonitorHook: warns when context is bloated by writing a signal file.
 
-The hook can't directly trigger session_manage (LLM tool), but it can write
-HEAVY_CONTEXT.md which the LLM is trained to check (via SOUL.md rules) before
-starting complex tasks.
+The hook writes HEAVY_CONTEXT.md to alert the LLM via workspace signals.
 """
 from __future__ import annotations
 
@@ -48,7 +46,7 @@ class ContextMonitorHook(AgentHook):
 
         if total_chars >= self.CRITICAL:
             lines.append(f"- Status: 🔴 CRITICAL ({total_chars:,} chars)")
-            lines.append("- **IMMEDIATE ACTION NEEDED**: call session_manage to exclude/compress")
+            lines.append("- **IMMEDIATE ACTION NEEDED**: review and compress bloated items")
         elif total_chars >= self.HEAVY:
             lines.append(f"- Status: 🟡 HEAVY ({total_chars:,} chars)")
             lines.append("- Action: review and exclude bloated items below")
@@ -61,7 +59,6 @@ class ContextMonitorHook(AgentHook):
         if bloated:
             lines.append("")
             lines.append("## Bloated Messages (>5000 chars)")
-            lines.append("Exclude these from context with `session_manage(action=\"exclude\")`:")
             for idx, role, size in bloated[:10]:
                 lines.append(f"- msg idx {idx} ({role}, {size:,} chars)")
 

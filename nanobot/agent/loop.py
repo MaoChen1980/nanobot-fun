@@ -38,7 +38,6 @@ from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.check_subagent import CheckSubagentTool
 from nanobot.agent.tools.list_subagents import ListSubagentsTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
-from nanobot.agent.tools.session_manage import SessionManageTool
 from nanobot.agent.tools.recall import RecallTool
 from nanobot.agent.tools.semantic_search import SearchTextTool
 from nanobot.agent.tools.read_files import ReadFilesTool
@@ -76,7 +75,6 @@ from .loop_utils import (
     strip_think,
     runtime_chat_id,
     tool_hint,
-    replay_token_budget,
     cancel_active_tasks,
 )
 from .loop_mcp import connect_mcp as _connect_mcp, close_mcp as _close_mcp
@@ -199,7 +197,7 @@ class AgentLoop:
             tools=self.tools,
             model=self.model or "sonnet",
             max_iterations=max_iterations or 50,
-            max_tool_result_chars=max_tool_result_chars or 16000,
+            max_tool_result_chars=max_tool_result_chars or defaults.max_tool_result_chars,
             workspace=workspace,
         )
         self._recovery = RecoveryManager(self)
@@ -361,7 +359,6 @@ class AgentLoop:
             )
             self.tools.register(WebFetchTool(config=self.web_config.fetch, proxy=self.web_config.proxy, user_agent=self.web_config.user_agent))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound, workspace=self.workspace))
-        self.tools.register(SessionManageTool(loop=self))
         self.tools.register(RecallTool(store=self.context.memory))
         self.tools.register(SearchTextTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tools.register(ReadFilesTool(workspace=self.workspace, allowed_dir=allowed_dir))
@@ -494,7 +491,7 @@ class AgentLoop:
         return f"{channel}:{chat_id}"
 
     def _replay_token_budget(self) -> int:
-        """Derive a token budget for session history replay from the context window."""
+        """Budget for history replay — leave room for output, no artificial caps."""
         if self.context_window_tokens <= 0:
             return 0
         max_output = getattr(getattr(self.provider, "generation", None), "max_tokens", 4096)
@@ -502,11 +499,11 @@ class AgentLoop:
             reserved_output = int(max_output)
         except (TypeError, ValueError):
             reserved_output = 4096
-        # Cap reserved output at 16K — max_tokens in config may be set to
-        # the model's total context window (e.g. 160K) which would leave
-        # almost nothing for history replay.
-        budget = self.context_window_tokens - min(max(1, reserved_output), 16384) - 1024
-        return budget if budget > 0 else max(128, self.context_window_tokens // 2)
+        # Let the model use its actual configured output space.
+        # The provider API enforces the real context limit — we just need
+        # a rough cap so history doesn't crowd out the entire window.
+        budget = self.context_window_tokens - max(1, reserved_output) - 4096
+        return budget if budget > 0 else max(4096, self.context_window_tokens // 4)
 
     async def _run_agent_loop(
         self,

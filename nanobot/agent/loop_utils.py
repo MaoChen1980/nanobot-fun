@@ -54,19 +54,6 @@ def tool_hint(tool_calls: list) -> str:
     return format_tool_hints(tool_calls)
 
 
-def replay_token_budget(loop: Any) -> int:
-    """Derive a token budget for session history replay from the context window."""
-    if loop.context_window_tokens <= 0:
-        return 0
-    max_output = getattr(getattr(loop.provider, "generation", None), "max_tokens", 4096)
-    try:
-        reserved_output = int(max_output)
-    except (TypeError, ValueError):
-        reserved_output = 4096
-    budget = loop.context_window_tokens - max(1, reserved_output) - 1024
-    return budget if budget > 0 else max(128, loop.context_window_tokens // 2)
-
-
 async def cancel_active_tasks(loop: Any, key: str) -> int:
     """Cancel and await all active tasks and subagents for *key*.
 

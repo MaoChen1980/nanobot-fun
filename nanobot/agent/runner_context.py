@@ -1,5 +1,4 @@
-"""Context governance — message trimming, snipping, microcompact."""
-
+"""Context governance — message trimming, snipping."""
 from __future__ import annotations
 
 from typing import Any
@@ -9,9 +8,6 @@ from nanobot.session.manager import find_legal_message_start
 
 from .runner_constants import (
     _BACKFILL_CONTENT,
-    _COMPACTABLE_TOOLS,
-    _MICROCOMPACT_KEEP_RECENT,
-    _MICROCOMPACT_MIN_CHARS,
     _SNIP_SAFETY_BUFFER,
 )
 
@@ -91,115 +87,12 @@ def backfill_missing_tool_results(messages: list[dict[str, Any]]) -> list[dict[s
     return updated
 
 
-def microcompact(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Replace old compactable tool results with one-line summaries."""
-    compactable_indices: list[int] = []
-    for idx, msg in enumerate(messages):
-        if msg.get("role") == "tool" and msg.get("name") in _COMPACTABLE_TOOLS:
-            compactable_indices.append(idx)
-
-    if len(compactable_indices) <= _MICROCOMPACT_KEEP_RECENT:
-        return messages
-
-    stale = compactable_indices[: len(compactable_indices) - _MICROCOMPACT_KEEP_RECENT]
-    updated: list[dict[str, Any]] | None = None
-    for idx in stale:
-        msg = messages[idx]
-        content = msg.get("content")
-        if not isinstance(content, str) or len(content) < _MICROCOMPACT_MIN_CHARS:
-            continue
-        name = msg.get("name", "tool")
-        summary = f"[{name} result omitted from context]"
-        if updated is None:
-            updated = [dict(m) for m in messages]
-        updated[idx]["content"] = summary
-
-    return updated if updated is not None else messages
-
-
-def apply_tool_result_budget(
-    spec: Any,
-    messages: list[dict[str, Any]],
-    normalize_fn,
-) -> list[dict[str, Any]]:
-    """Apply max_tool_result_chars budget to tool messages."""
-    updated = messages
-    for idx, message in enumerate(messages):
-        if message.get("role") != "tool":
-            continue
-        normalized = normalize_fn(
-            spec,
-            str(message.get("tool_call_id") or f"tool_{idx}"),
-            str(message.get("name") or "tool"),
-            message.get("content"),
-        )
-        if normalized != message.get("content"):
-            if updated is messages:
-                updated = [dict(m) for m in messages]
-            updated[idx]["content"] = normalized
-    return updated
-
-
-def apply_microcompact_and_budget(
-    spec: Any,
-    messages: list[dict[str, Any]],
-    normalize_fn,
-) -> list[dict[str, Any]]:
-    """Fused microcompact + apply_tool_result_budget in a single O(n) pass.
-
-    This avoids allocating two separate intermediate lists when both
-    transformations apply — we build at most one new list.
-    """
-    # Phase 1: collect stale compactable indices (same logic as microcompact)
-    compactable_indices: list[int] = []
-    for idx, msg in enumerate(messages):
-        if msg.get("role") == "tool" and msg.get("name") in _COMPACTABLE_TOOLS:
-            compactable_indices.append(idx)
-
-    has_stale = len(compactable_indices) > _MICROCOMPACT_KEEP_RECENT
-    stale_indices: set[int] = set()
-    if has_stale:
-        stale_indices = set(compactable_indices[: len(compactable_indices) - _MICROCOMPACT_KEEP_RECENT])
-
-    # Phase 2: single pass applying microcompact summaries + budget truncation
-    updated: list[dict[str, Any]] | None = None
-    for idx, msg in enumerate(messages):
-        if msg.get("role") != "tool":
-            continue
-
-        msg_content = msg.get("content")
-
-        # Microcompact: summarize stale entries with enough content
-        if idx in stale_indices and isinstance(msg_content, str) and len(msg_content) >= _MICROCOMPACT_MIN_CHARS:
-            name = msg.get("name", "tool")
-            summary = f"[{name} result omitted from context]"
-            content_to_use = summary
-        else:
-            content_to_use = msg_content
-
-        # Budget: truncate content if needed
-        normalized = normalize_fn(
-            spec,
-            str(msg.get("tool_call_id") or f"tool_{idx}"),
-            str(msg.get("name") or "tool"),
-            content_to_use,
-        )
-
-        # Only allocate if something changed
-        if normalized != msg_content:
-            if updated is None:
-                updated = [dict(m) for m in messages]
-            updated[idx]["content"] = normalized
-
-    return updated if updated is not None else messages
-
-
 def snip_history(
     provider: Any,
     spec: Any,
     messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Truncate history to fit within token budget."""
+    """Truncate history to fit within token budget — only when necessary."""
     if not messages or not spec.context_window_tokens:
         return messages
 
@@ -207,9 +100,12 @@ def snip_history(
     max_output = spec.max_tokens if isinstance(spec.max_tokens, int) else (
         provider_max_tokens if isinstance(provider_max_tokens, int) else 4096
     )
-    budget = spec.context_block_limit or (
-        spec.context_window_tokens - max_output - _SNIP_SAFETY_BUFFER
-    )
+    # Dynamic budget: what the context window allows after output + safety.
+    # context_block_limit can only raise this floor (never shrink it), since
+    # history has already been limited at the message-handler level.
+    budget = spec.context_window_tokens - max_output - _SNIP_SAFETY_BUFFER
+    if spec.context_block_limit:
+        budget = max(spec.context_block_limit, budget)
     if budget <= 0:
         return messages
 
