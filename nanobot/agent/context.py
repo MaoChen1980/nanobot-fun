@@ -36,7 +36,6 @@ class ContextState:
     tool_definitions: list[dict[str, Any]] | None = None
     current_iteration: int | None = None
     max_iterations: int | None = None
-    max_keep_rounds: int | None = None  # 0/None = keep all, no timeline
 
 
 class ContextBuilder:
@@ -198,77 +197,53 @@ class ContextBuilder:
         return ts
 
     @staticmethod
-    def _extract_thinking(msg: dict, max_chars: int = 200) -> str:
-        """Extract thinking/reasoning text from an assistant message, truncated."""
-        parts = []
+    def _fill_thinking_into_content(messages: list[dict]) -> list[dict]:
+        """Fill empty assistant content with thinking/reasoning text.
 
-        blocks = msg.get("thinking_blocks")
-        if isinstance(blocks, list):
-            texts = [b["thinking"] for b in blocks if isinstance(b, dict) and b.get("thinking")]
-            if texts:
-                text = " ".join(texts)
-                if len(text) > max_chars:
-                    text = text[:max_chars] + "..."
-                parts.append(text)
-
-        if not parts:
-            rc = msg.get("reasoning_content")
-            if isinstance(rc, str) and rc:
-                text = rc[:max_chars] + "..." if len(rc) > max_chars else rc
-                parts.append(text)
-
-        tcs = msg.get("tool_calls")
-        if isinstance(tcs, list) and tcs:
-            names = [tc.get("function", {}).get("name", "?") for tc in tcs if isinstance(tc, dict)]
-            if names:
-                parts.append(f"[tools: {', '.join(names)}]")
-
-        return " ".join(parts)
-
-    @staticmethod
-    def _build_message_timeline(history: list[dict]) -> str:
-        """Build a compact chronological index from user/assistant messages.
-
-        Extracts only user and assistant messages with timestamps — tool calls
-        and results are excluded. The timeline serves as a lightweight history
-        index so the LLM can perceive conversation flow before the retained
-        full-message window.
+        When a model returns only thinking (tool calls) without content, the
+        content field is empty. This copies thinking into content so the LLM
+        sees the thought process as conversation text on subsequent turns.
         """
-        entries: list[str] = []
-        for msg in history:
-            role = msg.get("role", "")
-            if role not in ("user", "assistant"):
+        result: list[dict] = []
+        for msg in messages:
+            if msg.get("role") != "assistant":
+                result.append(msg)
                 continue
-            ts = msg.get("timestamp", "") or ""
-            # Timestamp is already formatted by get_history(include_timestamps=True, timezone=...)
-            # so no further conversion needed.
+
             content = msg.get("content", "")
-            if isinstance(content, list):
-                texts = [
-                    b.get("text", "") for b in content
-                    if isinstance(b, dict) and b.get("type") == "text"
-                ]
-                content = " ".join(texts)
-            if isinstance(content, str):
-                content = content.replace("\n", " ").strip()
+            if isinstance(content, str) and content.strip():
+                result.append(msg)
+                continue
+            if isinstance(content, list) and content:
+                result.append(msg)
+                continue
 
-            # When assistant content is empty or only contains <think> tags,
-            # use thinking/reasoning as a lightweight summary of the LLM's intent.
-            if role == "assistant" and isinstance(content, str):
-                from nanobot.agent.loop_utils import strip_think
+            # Empty content — collect thinking from available fields
+            thinking = None
 
-                clean = strip_think(content)
-                if not clean:
-                    content = ContextBuilder._extract_thinking(msg, max_chars=200)
-                else:
-                    content = clean
+            blocks = msg.get("thinking_blocks")
+            if isinstance(blocks, list):
+                texts = [b.get("thinking", "") for b in blocks if isinstance(b, dict) and b.get("thinking")]
+                if texts:
+                    thinking = " ".join(texts)
 
-            ts_str = ts if ts else "?"
-            entries.append(f"- [{ts_str}] {role}: {content}")
+            if not thinking:
+                rc = msg.get("reasoning_content")
+                if isinstance(rc, str) and rc.strip():
+                    thinking = rc.strip()
 
-        if not entries:
-            return ""
-        return "## Message Timeline\n\n" + "\n".join(entries)
+            if not thinking:
+                rd = msg.get("reasoning_details")
+                if isinstance(rd, list):
+                    texts = [d.get("reasoning", "") for d in rd if isinstance(d, dict) and d.get("reasoning")]
+                    if texts:
+                        thinking = " ".join(texts)
+
+            if thinking:
+                msg = dict(msg)
+                msg["content"] = thinking
+            result.append(msg)
+        return result
 
     def _build_state_section(self) -> str:
         """Build a merged Current State block from Goals + recent events.
@@ -503,25 +478,7 @@ class ContextBuilder:
         """Build the complete message list for an LLM call."""
         cs = context_state or ContextState()
 
-        # ── Timeline + history truncation ──
-        # Keep last N user-message rounds as full messages; put earlier
-        # rounds into a compact timeline in the system prompt.
-        # N = cs.max_keep_rounds (0/None = keep all, no timeline).
-        max_keep = cs.max_keep_rounds or 0
-        if max_keep > 0 and len(history) > 0:
-            user_count = 0
-            split_idx = 0
-            for i in range(len(history) - 1, -1, -1):
-                if history[i].get("role") == "user":
-                    user_count += 1
-                    if user_count >= max_keep:
-                        split_idx = i
-                        break
-            timeline_history = history[:split_idx]
-            retained_history = history[split_idx:]
-        else:
-            timeline_history: list[dict] = []
-            retained_history = history
+        retained_history = history
 
         runtime_ctx = self._build_runtime_context(
             channel, chat_id, self.timezone,
@@ -554,7 +511,7 @@ class ContextBuilder:
                 user_content = [{"type": "text", "text": runtime_ctx}] + list(user_content)
         sys_static = self.build_system_prompt(skill_names, channel=channel, tool_definitions=cs.tool_definitions)
 
-        # system[1]: dynamic per-request content (memory, state, timeline)
+        # system[1]: dynamic per-request content (memory, state)
         sys_dynamic_parts: list[str] = []
         memory_section = self._build_memory_section()
         if memory_section:
@@ -562,9 +519,6 @@ class ContextBuilder:
         state_block = self._build_state_section()
         if state_block:
             sys_dynamic_parts.append(f"# Current State\n\n{state_block}")
-        if timeline_history:
-            timeline = self._build_message_timeline(timeline_history)
-            sys_dynamic_parts.append(timeline)
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": sys_static},
@@ -580,7 +534,7 @@ class ContextBuilder:
             messages[-1] = last
         else:
             messages.append({"role": current_role, "content": user_content})
-        return messages
+        return self._fill_thinking_into_content(messages)
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
         """Build user message content with optional base64-encoded images."""
