@@ -20,6 +20,26 @@ Do NOT suggest creating a skill that already exists. If a reusable pattern match
 
 {existing_skills_section}
 
+## Topic Naming — Content Accumulation
+
+The `topic` field determines which file knowledge/decisions are stored in.
+**Reuse broad, stable topic names** so related content accumulates in the same file.
+
+Good examples (broad, reusable):
+- `Project/nanobot` — all nanobot project knowledge
+- `Project/feishu-cc` — all feishu-cc project knowledge  
+- `AI/harness-design` — all AI harness design knowledge
+- `Python/async` — all Python async knowledge
+- `DevOps/CI` — all CI/CD knowledge
+- `Cooking/fast-chinese-meal` — all knowledge about this topic
+
+Bad examples (too narrow, creates one-off files):
+- `Project/nanobot-db-schema` → should be `Project/nanobot`
+- `Project/feishu-cc-api-errors` → should be `Project/feishu-cc`
+- `AI/harness-design-gpu-optimization` → should be `AI/harness-design`
+
+**Rule of thumb**: If you're writing about a topic that already has an established file, reuse that file's topic name. Only create a new topic path for genuinely new subject areas. `Project/X` should contain ALL knowledge about project X.
+
 ## Output Format
 
 Respond ONLY with a JSON object matching this schema:
@@ -34,7 +54,7 @@ Respond ONLY with a JSON object matching this schema:
       "confidence": "high|medium",
       "condition": "<WHEN... for soul_rule>",
       "action": "<THEN... for soul_rule>",
-      "topic": "<topic name for knowledge/decision>",
+      "topic": "<broad reusable topic path — see Topic Naming above>",
       "tags": ["<category tag for knowledge>"],
       "rationale": "<why this decision was made>",
       "name": "<kebab-case-name for reusable_pattern>",
