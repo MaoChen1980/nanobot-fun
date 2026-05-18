@@ -248,7 +248,9 @@ class MemoryExtractor:
                 if not topic:
                     continue
                 dir_name = self._resolve_topic_dir(topic_map, topic, tags)
-                rel_path = f"{dir_name}/{self._sanitize_filename(topic)}.md"
+                # Consolidate: write to category file (user.md) instead of
+                # topic file (user/editor.md) to avoid many tiny files
+                rel_path = f"{dir_name}.md"
                 paragraph = content
                 if ftype == "decision" and finding.get("rationale"):
                     paragraph += f"\n  > 理由：{finding['rationale']}"
