@@ -46,7 +46,9 @@ class MemoryStore:
             "SOUL.md", "USER.md",
         ])
         self.vector_index = MemoryVectorIndex(self.memory_dir)
-        self.vector_index.load()
+        if not self.vector_index.load() and self.list_memory_files():
+            logger.info("No vector index found — building from existing memory/ files")
+            self.build_vector_index()
 
     @property
     def git(self) -> GitStore:

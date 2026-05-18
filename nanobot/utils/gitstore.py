@@ -420,7 +420,8 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
     for item in tpl.iterdir():
         if item.name.endswith(".md") and not item.name.startswith("."):
             _write(item, workspace / item.name)
-    _write(tpl / "memory" / "MEMORY.md", workspace / "memory" / "MEMORY.md")
+    for item in (tpl / "memory").rglob("*.md"):
+        _write(item, workspace / "memory" / item.relative_to(tpl / "memory"))
     (workspace / "skills").mkdir(exist_ok=True)
 
     # Initialize self-installed tools directory and regenerate index
