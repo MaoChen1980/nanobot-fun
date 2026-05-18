@@ -215,8 +215,6 @@ class MemoryExtractor:
         """Write all findings to target files, then cleanup-check SOUL.md/USER.md, then commit and rebuild FAISS."""
         topic_map = self._load_topic_map()
 
-        soul_additions: list[str] = []
-        user_additions: list[str] = []
         topic_files: dict[str, list[str]] = {}  # rel_path → [content lines]
         skills_to_create: list[dict[str, Any]] = []
 
@@ -233,14 +231,13 @@ class MemoryExtractor:
                 condition = (finding.get("condition") or "").strip()
                 action = (finding.get("action") or "").strip()
                 if condition and action:
-                    soul_additions.append(
-                        f"- **WHEN** {condition} **THEN** {action} — {content}"
-                    )
+                    paragraph = f"- **WHEN** {condition} **THEN** {action} — {content}"
                 else:
-                    soul_additions.append(f"- {content}")
+                    paragraph = f"- {content}"
+                topic_files.setdefault("system.md", []).append(paragraph)
 
             elif ftype == "user_preference":
-                user_additions.append(f"- {content}")
+                topic_files.setdefault("user.md", []).append(f"- {content}")
 
             elif ftype in ("knowledge", "decision"):
                 topic = (finding.get("topic") or "").strip()
@@ -260,27 +257,7 @@ class MemoryExtractor:
                 skills_to_create.append(finding)
 
         # ── Flush additions to files ──
-        changed = bool(
-            soul_additions or user_additions or topic_files or skills_to_create
-        )
-
-        if soul_additions:
-            text = "\n" + "\n".join(soul_additions) + "\n"
-            with open(self.store.soul_file, "a", encoding="utf-8") as f:
-                f.write(text)
-            logger.info(
-                "MemoryExtractor: appended {} rule(s) to SOUL.md",
-                len(soul_additions),
-            )
-
-        if user_additions:
-            text = "\n" + "\n".join(user_additions) + "\n"
-            with open(self.store.user_file, "a", encoding="utf-8") as f:
-                f.write(text)
-            logger.info(
-                "MemoryExtractor: appended {} preference(s) to USER.md",
-                len(user_additions),
-            )
+        changed = bool(topic_files or skills_to_create)
 
         if topic_files:
             for rel_path, paragraphs in topic_files.items():
