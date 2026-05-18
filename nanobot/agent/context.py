@@ -324,24 +324,38 @@ class ContextBuilder:
     # -- vector-indexed memory -------------------------------------------------
 
     def _build_memory_section(self) -> str:
-        """Build memory section: MEMORY.md only (no vector search)."""
-        long_term = self.memory.read_memory()
-        if long_term and not self._is_template_content(long_term, "memory/MEMORY.md"):
-            # Strip "# Memory" H1 (redundant — wrapper is already # Memory)
-            lines = long_term.split("\n")
+        """Build memory section: MEMORY.md + key content files (no vector search)."""
+        memory_dir = self.memory.memory_dir
+        parts = []
+
+        # Load MEMORY.md index
+        index_content = self.memory.read_memory()
+        if index_content and not self._is_template_content(index_content, "memory/MEMORY.md"):
+            lines = index_content.split("\n")
             if lines and lines[0].startswith("# "):
                 lines = lines[1:]
-            content = "\n".join(lines).strip()
-            # Bump remaining headings by +1: ## 命名约定 → ### 命名约定
-            content = self._adjust_headings(content, offset=1)
-            return (
-                "# Memory\n\n"
-                "## Long-term Memory\n\n"
-                "This is your persistent memory — facts, conventions, and patterns "
-                "learned from past work. Follow these guidelines in your responses.\n\n"
-                + content
-            )
-        return ""
+            index_text = "\n".join(lines).strip()
+            if index_text:
+                parts.append(index_text)
+
+        # Also inline key memory files so rules/preferences are visible without recall
+        for name in ("system.md", "user.md"):
+            fpath = memory_dir / name
+            if fpath.exists():
+                text = fpath.read_text(encoding="utf-8").strip()
+                if text:
+                    heading = name.replace(".md", "").title()
+                    parts.append(f"### {heading}\n\n{text}")
+
+        if not parts:
+            return ""
+        return (
+            "# Memory\n\n"
+            "## Long-term Memory\n\n"
+            "This is your persistent memory — facts, conventions, and patterns "
+            "learned from past work. Follow these guidelines in your responses.\n\n"
+            + "\n\n".join(parts)
+        )
 
     @staticmethod
     def _format_vector_results(results: list[dict]) -> str:
