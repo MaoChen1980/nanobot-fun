@@ -184,7 +184,8 @@ class ExploreModuleTool(_FsTool):
             decorators = self._get_decorators(node, lines)
             parts = [f"{pad}class {node.name}{base_str}:  # line {node.lineno}"]
             if decorators:
-                parts.insert(0, f"{pad}  @{d}")
+                for deco in reversed(decorators):
+                    parts.insert(0, f"{pad}  {deco}")
             if ast.get_docstring(node):
                 doc = ast.get_docstring(node).split("\n")[0]
                 parts.append(f"{pad}  '''{doc}'''")
@@ -204,7 +205,8 @@ class ExploreModuleTool(_FsTool):
             decorators = self._get_decorators(node, lines)
             parts = [f"{pad}{prefix}def {node.name}({args}){returns}:  # line {node.lineno}"]
             if decorators:
-                parts.insert(0, f"{pad}  @{d}")
+                for deco in reversed(decorators):
+                    parts.insert(0, f"{pad}  {deco}")
             if ast.get_docstring(node):
                 doc = ast.get_docstring(node).split("\n")[0]
                 parts.append(f"{pad}  '''{doc}'''")

@@ -1,7 +1,10 @@
-# Memory
+# Memory Index
 
-## Index
-<!-- Each entry: - [Title](file) — date, description -->
+## workflows
+- [Large Task Workflow](workflows/large-task.md) — `#plan`
+- [Cross-Turn Strategy](workflows/cross-turn.md) — `#plan`
+- [Task Lifecycle](workflows/task-lifecycle.md) — `#plan`
+- [Structure First](workflows/structure-first.md) — `#plan` `#learn`
 
-## Recent
-<!-- Newest entries appended here -->
+## rules
+<!-- auto-populated by MemoryExtractor -->

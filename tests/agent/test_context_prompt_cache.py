@@ -86,7 +86,7 @@ def test_runtime_context_is_in_system_prompt_not_user_message(tmp_path) -> None:
 
 
 def test_execution_rules_in_system_prompt(tmp_path) -> None:
-    """Execution rules should appear in the system prompt via default SOUL.md."""
+    """SOUL.md tag table and core discipline should appear in the system prompt."""
     from nanobot.utils.gitstore import sync_workspace_templates
 
     workspace = _make_workspace(tmp_path)
@@ -94,11 +94,15 @@ def test_execution_rules_in_system_prompt(tmp_path) -> None:
     builder = ContextBuilder(workspace)
 
     prompt = builder.build_system_prompt()
-    # Template uses Chinese WHEN-THEN structure; check for key semantic phrases
-    assert "直接执行" in prompt  # simple tasks → direct execution
-    assert "先给大纲" in prompt  # complex tasks → outline first
-    assert "read_file" in prompt  # read before write
-    assert "stdout" in prompt or "stderr" in prompt or "验证" in prompt  # verify result
+    # Core discipline from SOUL.md
+    assert "Classify → recall → execute" in prompt
+    # Tag table from SOUL.md
+    assert "| **#code**" in prompt
+    assert "| **#plan**" in prompt
+    # Tool reference from identity.md
+    assert "read_file" in prompt
+    # Task dispatch from identity.md
+    assert "直接做" in prompt
 
 
 def test_identity_has_no_behavioral_instructions(tmp_path) -> None:
@@ -123,12 +127,12 @@ def test_agents_framework_architecture_in_bootstrap_docs(tmp_path) -> None:
 
 
 def test_default_soul_template_contains_execution_rules() -> None:
-    """Default SOUL.md template must contain execution rules with act/plan layering."""
+    """Default SOUL.md template must contain tag dispatch table and core discipline."""
     soul = (pkg_files("nanobot") / "templates" / "SOUL.md").read_text(encoding="utf-8")
     assert "## " in soul  # top-level section exists
-    assert "直接执行" in soul  # simple tasks → direct execution
-    assert "先给大纲" in soul  # complex tasks → outline first
-    assert "read_file" in soul  # read before write
+    assert "Classify → recall → execute" in soul  # core discipline
+    assert "| **#code**" in soul  # tag table present
+    assert "Session Start" in soul  # session start section
 
 
 def test_channel_format_hint_telegram(tmp_path) -> None:
