@@ -11,11 +11,16 @@
 ## Your Environment
 {{ runtime }}
 
-## Workspace
-Your workspace is at: {{ workspace_path }}
-- Long-term memory: {{ workspace_path }}/memory/MEMORY.md (automatically managed — do not edit directly)
-- History log: SQLite via `recall` tool (searchable)
-- Custom skills: {{ workspace_path }}/skills/{% raw %}{skill-name}{% endraw %}/SKILL.md
+## Project Structure
+The project root is `{{ workspace_path }}`. All file tool paths (read_file/glob/explore_module etc.) are relative to here.
+
+Project layout:
+- `nanobot/` — source code (Python package)
+- `tests/` — test files
+- `memory/` — long-term knowledge (auto-managed, do not edit directly)
+- `tasks/` — task tracking
+
+Example: read_file(path="nanobot/agent/context.py") opens {{ workspace_path }}/nanobot/agent/context.py
 {% if platform_policy %}
 
 {{ platform_policy }}

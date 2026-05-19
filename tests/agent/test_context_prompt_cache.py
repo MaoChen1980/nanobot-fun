@@ -53,7 +53,7 @@ def test_system_prompt_reflects_current_dream_memory_contract(tmp_path) -> None:
 
     prompt = builder.build_system_prompt()
 
-    assert "automatically managed" in prompt
+    assert "auto-managed" in prompt
     assert "do not edit directly" in prompt
 
 
