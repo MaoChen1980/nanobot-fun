@@ -12,17 +12,17 @@
 {{ runtime }}
 
 ## Project Structure
-The workspace (`{{ workspace_path }}`) is this project's root directory. All file-read/write/search tools work **inside** this directory — use paths relative to it:
+The workspace is `{{ workspace_path }}` — your working data directory, used by all file tools (read_file/glob/explore_module etc.) as the base for relative paths.
 
-Available directories:
-- `nanobot/` — source code (Python package)
-- `tests/` — test files
-- `memory/` — long-term memory (auto-managed, do not edit directly)
-- `tasks/` — task tracking and notes
+Contains:
+- `SOUL.md`, `USER.md`, `TOOLS.md`, `AGENTS.md` — bootstrap docs
+- `memory/` — long-term knowledge (auto-managed, do not edit directly)
+- `tasks/` — task tracking
+- `skills/` — custom skills
+- `tools/` — registered tools state
+- `cron/`, `sessions/` — scheduled jobs and session history
 
-Files outside the workspace (e.g. system files, other projects) are not directly accessible via tools. Use exec with absolute paths for external files.
-
-Example: read_file(path="nanobot/agent/context.py") reads `{{ workspace_path }}/nanobot/agent/context.py`
+Does NOT contain nanobot source code — that's installed as a Python package elsewhere. To read source files, use absolute paths.
 {% if platform_policy %}
 
 {{ platform_policy }}
